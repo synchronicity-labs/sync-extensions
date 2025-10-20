@@ -60,6 +60,7 @@ async function extractAudioFromMP4(videoPath, outputPath, format) {
   
   try {
     const { spawn } = require('child_process');
+    const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
     
     // Use FFmpeg to extract audio properly
     const ffmpegArgs = [
@@ -73,10 +74,10 @@ async function extractAudioFromMP4(videoPath, outputPath, format) {
       outputPath
     ];
     
-    tlog('FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '));
+    tlog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
     
     return new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
       
       let stderr = '';
       
@@ -112,6 +113,7 @@ async function extractAudioFromMOV(videoPath, outputPath, format) {
   
   try {
     const { spawn } = require('child_process');
+    const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
     
     // Use FFmpeg to extract audio properly
     const ffmpegArgs = [
@@ -125,10 +127,10 @@ async function extractAudioFromMOV(videoPath, outputPath, format) {
       outputPath
     ];
     
-    tlog('FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '));
+    tlog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
     
     return new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
       
       let stderr = '';
       

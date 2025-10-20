@@ -1362,61 +1362,7 @@ app.get('/recording/file', async (req, res) => {
   }
 });
 
-// Extract audio from video using FFmpeg
-app.post('/extract-audio', async (req, res) => {
-  try {
-    const { videoPath, apiKey } = req.body || {};
-    
-    if (!videoPath) {
-      return res.status(400).json({ error: 'Video path required' });
-    }
-    
-    if (!fs.existsSync(videoPath)) {
-      return res.status(404).json({ error: 'Video file not found' });
-    }
-    
-    // Generate output path
-    const videoDir = path.dirname(videoPath);
-    const videoName = path.basename(videoPath, path.extname(videoPath));
-    const outputPath = path.join(videoDir, `${videoName}_audio.wav`);
-    
-    console.log('Extracting audio from video:', {
-      input: videoPath,
-      output: outputPath
-    });
-    
-    // Extract audio using FFmpeg
-    await new Promise((resolve, reject) => {
-      ffmpeg(videoPath)
-        .outputOptions([
-          '-vn',  // No video
-          '-acodec', 'pcm_s16le',  // 16-bit PCM
-          '-ar', '44100',  // 44.1kHz sample rate
-          '-ac', '1'  // Mono
-        ])
-        .output(outputPath)
-        .on('end', () => {
-          console.log('Audio extraction completed');
-          resolve();
-        })
-        .on('error', (err) => {
-          console.error('Audio extraction error:', err);
-          reject(err);
-        })
-        .run();
-    });
-    
-    console.log('Audio extracted successfully:', outputPath);
-    
-    res.json({ ok: true, path: outputPath });
-    
-  } catch(e) {
-    console.error('Audio extraction error:', e);
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(e?.message || e) });
-    }
-  }
-});
+// Duplicate endpoint removed - using unified video-audio-extractor.cjs approach
 
 // Upload endpoint (PUBLIC - needed for file picker)
 app.post('/upload', async (req, res) => {

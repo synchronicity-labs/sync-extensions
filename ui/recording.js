@@ -459,7 +459,7 @@
           const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
             method: 'POST',
             headers: window.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ path: savedPath, apiKey: settings.apiKey || '' })
+            body: JSON.stringify({ path: result.path, apiKey: settings.apiKey || '' })
           });
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
@@ -962,7 +962,7 @@
           const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
             method: 'POST',
             headers: window.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ path: savedPath, apiKey: settings.apiKey || '' })
+            body: JSON.stringify({ path: result.path, apiKey: settings.apiKey || '' })
           });
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
