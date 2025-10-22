@@ -360,6 +360,7 @@
             if (r.ok && j && j.ok && j.url){ 
               uploadedVideoUrl = j.url; 
               window.uploadedVideoUrl = j.url; 
+              localStorage.setItem('uploadedVideoUrl', j.url); // Persist for lipsync
             } else {
               const errorMsg = j?.error || 'server error';
               if (window.showToast) {
@@ -427,6 +428,7 @@
             if (r.ok && j && j.ok && j.url){ 
               uploadedAudioUrl = j.url; 
               window.uploadedAudioUrl = j.url; 
+              localStorage.setItem('uploadedAudioUrl', j.url); // Persist for lipsync
             } else {
               const errorMsg = j?.error || 'server error';
               if (window.showToast) {

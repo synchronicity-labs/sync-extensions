@@ -1,5 +1,7 @@
       function getServerPort() {
-        return window.__syncServerPort || 3000;
+        const port = window.__syncServerPort || 3000;
+        console.log('[getServerPort] Returning port:', port, 'window.__syncServerPort:', window.__syncServerPort);
+        return port;
       }
       
       // Checkmark management functions

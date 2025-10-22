@@ -34,6 +34,7 @@
       }
 
       async function startLipsync() {
+        console.log('[LIPSYNC] Function called - starting execution');
         try {
           if (window.debugLog) {
             window.debugLog('startLipsync_called', { timestamp: new Date().toISOString() });
@@ -71,7 +72,47 @@
           });
         }
         
-        if ((!window.selectedVideo && !window.selectedVideoUrl && !window.uploadedVideoUrl) || (!window.selectedAudio && !window.selectedAudioUrl && !window.uploadedAudioUrl)) {
+        // Restore uploaded URLs from localStorage if window variables are empty
+        if (!window.uploadedVideoUrl) {
+          window.uploadedVideoUrl = localStorage.getItem('uploadedVideoUrl') || '';
+        }
+        if (!window.uploadedAudioUrl) {
+          window.uploadedAudioUrl = localStorage.getItem('uploadedAudioUrl') || '';
+        }
+        
+        // Restore selected URLs from localStorage if window variables are empty
+        if (!window.selectedVideoUrl) {
+          window.selectedVideoUrl = localStorage.getItem('selectedVideoUrl') || '';
+        }
+        if (!window.selectedAudioUrl) {
+          window.selectedAudioUrl = localStorage.getItem('selectedAudioUrl') || '';
+        }
+        
+        // Debug: Log the exact state before validation
+        console.log('[File Validation] Checking files:', {
+          selectedVideo: window.selectedVideo,
+          selectedVideoUrl: window.selectedVideoUrl,
+          uploadedVideoUrl: window.uploadedVideoUrl,
+          selectedAudio: window.selectedAudio,
+          selectedAudioUrl: window.selectedAudioUrl,
+          uploadedAudioUrl: window.uploadedAudioUrl
+        });
+        
+        // Debug: Check if uploaded URLs exist but are empty strings
+        console.log('[File Validation] Uploaded URL details:', {
+          uploadedVideoUrlType: typeof window.uploadedVideoUrl,
+          uploadedVideoUrlLength: window.uploadedVideoUrl ? window.uploadedVideoUrl.length : 0,
+          uploadedVideoUrlValue: window.uploadedVideoUrl,
+          uploadedAudioUrlType: typeof window.uploadedAudioUrl,
+          uploadedAudioUrlLength: window.uploadedAudioUrl ? window.uploadedAudioUrl.length : 0,
+          uploadedAudioUrlValue: window.uploadedAudioUrl
+        });
+        
+        // Check if we have files for both video and audio (like cost estimation)
+        const hasVideo = window.selectedVideo || window.selectedVideoUrl || window.uploadedVideoUrl;
+        const hasAudio = window.selectedAudio || window.selectedAudioUrl || window.uploadedAudioUrl;
+        
+        if (!hasVideo || !hasAudio) {
           if (window.debugLog) {
             window.debugLog('lipsync_abort_missing_files', {
               selectedVideo: window.selectedVideo,
@@ -132,7 +173,9 @@
           if (window.debugLog) {
             window.debugLog('job_submission_health_check_start', {});
           }
+          console.log('[Job Submission] Auth token ensured, starting health check');
           const healthy = await waitForHealth(20, 250, myToken);
+          console.log('[Job Submission] Health check result:', healthy);
           if (window.debugLog) {
             window.debugLog('job_submission_health_check_result', { healthy: healthy });
           }
@@ -149,6 +192,7 @@
             return;
           }
           if (myToken !== runToken) return;
+          console.log('[Job Submission] Backend ready, creating job...');
           if (typeof window.showToast === 'function') {
             window.showToast('backend ready. creating job...', 'info');
           }
@@ -174,10 +218,10 @@
             }
           } catch(_){ }
 
-          // Create job via backend - NEVER send local paths, ONLY URLs
+          // Create job via backend - send both paths and URLs like cost estimation
           const jobData = {
-            videoPath: '',
-            audioPath: '',
+            videoPath: window.selectedVideo || '',
+            audioPath: window.selectedAudio || '',
             videoUrl: (window.uploadedVideoUrl || window.selectedVideoUrl || ''),
             audioUrl: (window.uploadedAudioUrl || window.selectedAudioUrl || ''),
             isTempVideo: !!(window.selectedVideoIsTemp || (!window.selectedVideoUrl && window.selectedVideo && window.selectedVideo.indexOf('/Library/Application Support/sync. extensions/uploads/') === 0)),

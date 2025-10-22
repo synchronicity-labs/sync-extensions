@@ -556,19 +556,26 @@
       }
 
       async function waitForHealth(maxAttempts = 20, delayMs = 250, expectedToken) {
+        const port = getServerPort();
+        console.log('[waitForHealth] Starting health check, port:', port, 'maxAttempts:', maxAttempts);
         for (let i = 0; i < maxAttempts; i++) {
           try {
-            const resp = await fetchWithTimeout(`http://127.0.0.1:${getServerPort()}/health`, { 
+            const url = `http://127.0.0.1:${port}/health`;
+            console.log('[waitForHealth] Attempt', i + 1, 'checking:', url);
+            const resp = await fetchWithTimeout(url, { 
               headers: { 'X-CEP-Panel': 'sync' }, 
               cache: 'no-store' 
             }, 5000); // 5 second timeout per attempt
+            console.log('[waitForHealth] Response:', resp.status, resp.ok);
             if (resp.ok) return true;
           } catch (e) {
+            console.log('[waitForHealth] Attempt', i + 1, 'failed:', e.message);
             // ignore until attempts exhausted
           }
           if (expectedToken != null && expectedToken !== runToken) return false;
           await new Promise(r => setTimeout(r, delayMs));
         }
+        console.log('[waitForHealth] All attempts failed');
         return false;
       }
 

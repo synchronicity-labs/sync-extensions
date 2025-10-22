@@ -1898,7 +1898,8 @@ app.post('/jobs', async (req, res) => {
     // Auto-convert AIFF from AE to WAV so the rest of the pipeline can read it
     try { if (audioPath) { audioPath = await convertIfAiff(audioPath); } } catch(_){}
     const vStat = await safeStat(videoPath); const aStat = await safeStat(audioPath);
-    const overLimit = ((vStat && vStat.size > 20*1024*1024) || (aStat && aStat.size > 20*1024*1024));
+    // Only check file size limits when using local files (not R2 URLs)
+    const overLimit = (!videoUrl || !audioUrl) && ((vStat && vStat.size > 20*1024*1024) || (aStat && aStat.size > 20*1024*1024));
     slog('[jobs:create]', 'model=', model||'lipsync-2-pro', 'overLimit=', overLimit, 'v=', vStat&&vStat.size, 'a=', aStat&&aStat.size, 'r2=', true, 'bucket=', R2_BUCKET);
     
     // Track job creation
@@ -1919,15 +1920,23 @@ app.post('/jobs', async (req, res) => {
       console.log('[jobs:create] Missing syncApiKey, rejecting request');
       return res.status(400).json({ error: 'syncApiKey required' });
     }
+    // If URLs aren't provided, use local paths and upload to R2 (like cost estimation)
     if (!videoUrl || !audioUrl){
       if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
       const videoExists = await safeExists(videoPath);
       const audioExists = await safeExists(audioPath);
       if (!videoExists || !audioExists) return res.status(400).json({ error: 'Video or audio file not found' });
+
+      console.log('[jobs:create] Uploading sources to R2 for lipsync job');
+      videoUrl = await r2Upload(await resolveSafeLocalPath(videoPath));
+      audioUrl = await r2Upload(await resolveSafeLocalPath(audioPath));
+    } else {
+      console.log('[jobs:create] Using provided R2 URLs for video and audio');
     }
 
     const limit1GB = 1024*1024*1024;
-    if ((vStat && vStat.size > limit1GB) || (aStat && aStat.size > limit1GB)){
+    // Only check file size limits when using local files (not R2 URLs)
+    if ((!videoUrl || !audioUrl) && ((vStat && vStat.size > limit1GB) || (aStat && aStat.size > limit1GB))){
       return res.status(400).json({ error: 'Files over 1GB are not allowed. Please use smaller files.' });
     }
 

@@ -554,6 +554,7 @@
               if (r.ok && j && j.ok && j.url){ 
                 uploadedVideoUrl = j.url;
                 window.uploadedVideoUrl = j.url; // Set window-scoped variable for cost estimation
+                localStorage.setItem('uploadedVideoUrl', j.url); // Persist for lipsync
                 console.log('[Video Upload] Set uploadedVideoUrl:', j.url);
                 if (window.showToast) {
                   window.showToast('video uploaded successfully');
@@ -653,6 +654,7 @@
               if (r.ok && j && j.ok && j.url){ 
                 uploadedAudioUrl = j.url;
                 window.uploadedAudioUrl = j.url; // Set window-scoped variable for cost estimation
+                localStorage.setItem('uploadedAudioUrl', j.url); // Persist for lipsync
                 if (window.showToast) {
                   window.showToast('audio uploaded successfully');
                 }
@@ -787,6 +789,7 @@
                   if (r.ok && j && j.ok && j.url){ 
                     uploadedVideoUrl = j.url;
                     window.uploadedVideoUrl = j.url;
+                    localStorage.setItem('uploadedVideoUrl', j.url); // Persist for lipsync
                     console.log('[Video Upload] Set uploadedVideoUrl (drag&drop):', j.url);
                     uploadSuccess = true;
                     
@@ -1019,6 +1022,7 @@
                   if (r.ok && j && j.ok && j.url){ 
                     uploadedAudioUrl = j.url;
                     window.uploadedAudioUrl = j.url;
+                    localStorage.setItem('uploadedAudioUrl', j.url); // Persist for lipsync
                     uploadSuccess = true;
                     
                     // Debug logging
@@ -1912,6 +1916,7 @@
                     if (uploadResponse.ok && uploadResult && uploadResult.ok && uploadResult.url) {
                       uploadedAudioUrl = uploadResult.url;
                       window.uploadedAudioUrl = uploadResult.url;
+                      localStorage.setItem('uploadedAudioUrl', uploadResult.url); // Persist for lipsync
                       console.log('[Dubbing] Uploaded dubbed audio to R2:', uploadResult.url);
                     } else {
                       console.warn('[Dubbing] R2 upload failed:', uploadResponse.status, uploadResult);
@@ -2596,6 +2601,7 @@
             if (uploadResponse.ok && uploadResult && uploadResult.ok && uploadResult.url) {
               uploadedAudioUrl = uploadResult.url;
               window.uploadedAudioUrl = uploadResult.url;
+              localStorage.setItem('uploadedAudioUrl', uploadResult.url); // Persist for lipsync
             }
           } catch (uploadError) {
             console.warn('Upload for cost estimation failed:', uploadError);
