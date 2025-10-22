@@ -36,8 +36,8 @@ if (isSpawnedByCEP) {
   console.info = () => {};
 }
 
-// Load .env from project root (one level up from server directory)
-const envPath = path.join(process.cwd(), '..', '.env');
+// Load .env from project root
+const envPath = path.join(process.cwd(), '.env');
 console.log('Looking for .env at:', envPath);
 console.log('Current working directory:', process.cwd());
 console.log('.env file exists:', require('fs').existsSync(envPath));
