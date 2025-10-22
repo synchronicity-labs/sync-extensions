@@ -262,7 +262,7 @@
       }
 
       // Fetch voices from backend
-      const response = await fetch(`http://127.0.0.1:3000/tts/voices?apiKey=${encodeURIComponent(apiKey)}`);
+      const response = await fetch(`http://127.0.0.1:3000/tts/voices?elevenApiKey=${encodeURIComponent(apiKey)}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch voices');
@@ -469,7 +469,7 @@
           text: text,
           voiceId: selectedVoiceId,
           model: 'eleven_turbo_v2_5',
-          apiKey: apiKey,
+          elevenApiKey: apiKey,
           voiceSettings: {
             stability: voiceSettings.stability,
             similarity_boost: voiceSettings.similarityBoost

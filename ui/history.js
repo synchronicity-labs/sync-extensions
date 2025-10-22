@@ -54,8 +54,7 @@ window.updateHistory = async function() {
   // Check API key first
   const settingsStr = localStorage.getItem('syncSettings') || '{}';
   const settings = JSON.parse(settingsStr);
-  // Check both old and new property names for backwards compatibility
-  const apiKey = settings.syncApiKey || settings.apiKey || '';
+  const apiKey = settings.syncApiKey || '';
   
   console.log('[History] API key check:', { 
     hasApiKey: !!apiKey, 
@@ -63,7 +62,7 @@ window.updateHistory = async function() {
     settingsStr: settingsStr,
     settingsKeys: Object.keys(settings),
     hasSyncApiKey: !!settings.syncApiKey,
-    hasLegacyApiKey: !!settings.apiKey
+    hasLegacyApiKey: false
   });
   
   // Debug logging
@@ -73,7 +72,7 @@ window.updateHistory = async function() {
     hasApiKey: !!apiKey,
     apiKeyLength: apiKey ? apiKey.length : 0,
     hasSyncApiKey: !!settings.syncApiKey,
-    hasOldApiKey: !!settings.apiKey
+    hasOldApiKey: false
   });
   
   if (!apiKey) {
@@ -173,6 +172,17 @@ window.updateHistory = async function() {
       console.warn('[History] Failed to load jobs from server:', e);
     }
     // Don't clear isLoadingFromServer here - let renderHistoryPage handle it
+  }
+  
+  // If we have jobs but no visible cards yet (thumbnails still loading), show loading state
+  if (window.jobs && window.jobs.length > 0 && !hasRenderedItems && !isShowingLoading && !isShowingEmpty) {
+    console.log('[History] Jobs loaded but no cards rendered yet, showing loading state...');
+    historyList.innerHTML = `
+      <div class="history-loading-state">
+        ${loaderHTML({ size: 'lg', color: 'white' })}
+        <div class="history-loading-text">loading thumbnails...</div>
+      </div>
+    `;
   }
   
   // Get jobs from global window.jobs array

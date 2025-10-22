@@ -576,42 +576,16 @@ function _findPresetForAudio(format){
   return '';
 }
 
-function _tempOutPath(ext){
+function _getTempPath(ext){
   try{
-    var baseFolder = null;
-    try { baseFolder = Folder.userDocuments; } catch(_) {}
-    if (!baseFolder || !baseFolder.exists) {
-      try { baseFolder = Folder.temp; } catch(_) {}
-    }
-    if (!baseFolder || !baseFolder.exists) return '';
-    var dir = new Folder(baseFolder.fsName + '/sync_extension_temp');
-    if (!dir.exists) { try { if (!dir.create()) { return ''; } } catch(e){ return ''; } }
-    var f = new File(dir.fsName + '/inout_' + (new Date().getTime()) + '_' + Math.floor(Math.random()*10000) + '.' + ext);
+    // Always use global Application Support folder for temp files (same as AE)
+    var root = Folder.userData.fsName; // ~/Library/Application Support on macOS
+    var uploadsFolder = new Folder(root + '/sync. extensions/uploads');
+    if (!uploadsFolder.exists) { try { if (!uploadsFolder.create()) { return ''; } } catch(e){ return ''; } }
+    
+    var f = new File(uploadsFolder.fsName + '/inout_' + (new Date().getTime()) + '_' + Math.floor(Math.random()*10000) + '.' + ext);
     return f && f.fsName ? f.fsName : '';
   }catch(e){ return ''; }
-}
-
-function _projectTempPath(ext){
-  try{
-    if (app && app.project && app.project.path){
-      var projFile = new File(app.project.path);
-      var parent = projFile && projFile.parent ? projFile.parent : null;
-      if (parent && parent.exists){
-        var dir = new Folder(parent.fsName + '/sync_extension_temp');
-        if (!dir.exists) dir.create();
-        var f = new File(dir.fsName + '/inout_' + (new Date().getTime()) + '_' + Math.floor(Math.random()*10000) + '.' + ext);
-        return f && f.fsName ? f.fsName : '';
-      }
-    }
-  }catch(e){}
-  return '';
-}
-
-function _chooseOutPath(ext){
-  var p = _projectTempPath(ext);
-  if (p) return p;
-  p = _tempOutPath(ext);
-  return p;
 }
 
 function _waitForFile(path, ms){
@@ -715,7 +689,7 @@ function PPRO_exportInOutVideo(payloadJson){
     try { var pf = new File(presetPath); if (!pf || !pf.exists) { return _respond({ ok:false, error:'Preset path missing', preset:presetPath }); } } catch(e) { return _respond({ ok:false, error:'Preset path invalid: '+String(e), preset:presetPath }); }
     var ext=''; try{ ext = String(seq.getExportFileExtension(presetPath)||''); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     if(!ext) ext = (codec==='h264')?'.mp4':'.mov';
-    var out = _chooseOutPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
+    var out = _getTempPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
     if (String(out).toLowerCase().indexOf(ext.toLowerCase()) === -1) { out = out.replace(/\.[^\.]+$/, '') + ext; }
 
     var ok=false; try{ ok = seq.exportAsMediaDirect(out, presetPath, 1); }catch(e){ return _respond({ ok:false, error:'exportAsMediaDirect failed: '+String(e), out: out }); }
@@ -746,7 +720,7 @@ function PPRO_exportInOutAudio(payloadJson){
     try { var pf = new File(presetPath); if (!pf || !pf.exists) { return _respond({ ok:false, error:'Preset path missing', preset:presetPath }); } } catch(e) { return _respond({ ok:false, error:'Preset path invalid: '+String(e), preset:presetPath }); }
     var ext=''; try{ ext = String(seq.getExportFileExtension(presetPath)||''); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     if(!ext) ext = (format==='mp3')?'.mp3':'.wav';
-    var out = _chooseOutPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
+    var out = _getTempPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
     if (String(out).toLowerCase().indexOf(ext.toLowerCase()) === -1) { out = out.replace(/\.[^\.]+$/, '') + ext; }
 
     var ok=false; try{ ok = seq.exportAsMediaDirect(out, presetPath, 1); }catch(e){ return _respond({ ok:false, error:'exportAsMediaDirect failed: '+String(e), out: out }); }

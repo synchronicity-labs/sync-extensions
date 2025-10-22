@@ -1,5 +1,25 @@
+      // Global variables for uploaded URLs
+      let uploadedVideoUrl = '';
+      let uploadedAudioUrl = '';
+
       function updateLipsyncButton() {
         const btn = document.getElementById('lipsyncBtn');
+        if (!btn) {
+          console.error('[Lipsync Button] Button element not found');
+          if (window.debugLog) {
+            window.debugLog('lipsync_button_update', {
+              selectedVideo: window.selectedVideo,
+              selectedVideoUrl: window.selectedVideoUrl,
+              selectedAudio: window.selectedAudio,
+              selectedAudioUrl: window.selectedAudioUrl,
+              hasVideo: !!(window.selectedVideo || window.selectedVideoUrl),
+              hasAudio: !!(window.selectedAudio || window.selectedAudioUrl),
+              willEnable: false,
+              buttonFound: false
+            });
+          }
+          return;
+        }
         const hasVideo = !!(window.selectedVideo || window.selectedVideoUrl);
         const hasAudio = !!(window.selectedAudio || window.selectedAudioUrl);
         
@@ -14,10 +34,23 @@
           willEnable: hasVideo && hasAudio
         });
         
-        if (hasVideo && hasAudio) {
-          btn.disabled = false;
-        } else {
-          btn.disabled = true;
+        if (window.debugLog) {
+          window.debugLog('lipsync_button_update', {
+            selectedVideo: window.selectedVideo,
+            selectedVideoUrl: window.selectedVideoUrl,
+            selectedAudio: window.selectedAudio,
+            selectedAudioUrl: window.selectedAudioUrl,
+            hasVideo,
+            hasAudio,
+            willEnable: hasVideo && hasAudio,
+            buttonFound: true,
+            disabled: btn.disabled
+          });
+        }
+        
+        const shouldEnable = hasVideo && hasAudio;
+        if (btn.disabled === shouldEnable) {
+          btn.disabled = !shouldEnable;
         }
       }
 
@@ -207,7 +240,7 @@
             }
             if (!localPath) { renderWaveform(canvas, [], 0, displayWidth, displayHeight); return; }
             await window.ensureAuthToken();
-            const resp = await fetch('http://127.0.0.1:3000/waveform/file?'+new URLSearchParams({ path: localPath }), { headers: window.window.authHeaders(), cache:'no-store' });
+            const resp = await fetch('http://127.0.0.1:3000/waveform/file?'+new URLSearchParams({ path: localPath }), { headers: window.authHeaders(), cache:'no-store' });
             if (!resp.ok) { renderWaveform(canvas, [], 0); return; }
             const ab = await resp.arrayBuffer();
             const ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -268,7 +301,7 @@
           const videoSrc = window.selectedVideoIsUrl ? window.selectedVideoUrl : `file://${window.selectedVideo.replace(/ /g, '%20')}`;
           videoPreview.innerHTML = `
             <div class="custom-video-player">
-              <video id="mainVideo" class="video-element" src="${videoSrc}" preload="metadata">
+              <video id="mainVideo" class="video-element" src="${videoSrc}" preload="metadata" playsinline>
                 <source src="${videoSrc}" type="video/mp4">
               </video>
               <!-- Center play button overlay -->
@@ -514,13 +547,14 @@
             // Clear any status messages
             try{
               const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-              const body = { path: selectedVideo, apiKey: settings.apiKey||'' };
+              const body = { path: window.selectedVideo, apiKey: settings.syncApiKey || '' };
               await window.ensureAuthToken();
               const r = await fetch('http://127.0.0.1:3000/upload', { method:'POST', headers: window.authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body) });
               const j = await r.json().catch(()=>null);
               if (r.ok && j && j.ok && j.url){ 
                 uploadedVideoUrl = j.url;
                 window.uploadedVideoUrl = j.url; // Set window-scoped variable for cost estimation
+                console.log('[Video Upload] Set uploadedVideoUrl:', j.url);
                 if (window.showToast) {
                   window.showToast('video uploaded successfully');
                 }
@@ -606,14 +640,13 @@
             window.selectedAudio = raw;
             window.selectedAudioUrl = ''; // Clear URL selection
             window.selectedAudioIsUrl = false;
-            window.selectedAudioUrl = ''; // Clear global variable
             updateLipsyncButton();
             renderInputPreview();
             updateInputStatus();
             // Clear any status messages
             try{
               const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-              const body = { path: selectedAudio, apiKey: settings.apiKey||'' };
+              const body = { path: window.selectedAudio, apiKey: settings.syncApiKey || '' };
               await window.ensureAuthToken();
               const r = await fetch('http://127.0.0.1:3000/upload', { method:'POST', headers: window.authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body) });
               const j = await r.json().catch(()=>null);
@@ -717,7 +750,6 @@
             window.selectedVideo = res.path; window.selectedVideoIsTemp = true;
             window.selectedVideoUrl = ''; // Clear URL selection
             window.selectedVideoIsUrl = false;
-            window.selectedVideoUrl = ''; // Clear global variable
             console.log('[Video Selection] In/out selected:', window.selectedVideo);
             updateLipsyncButton(); renderInputPreview(); if (statusEl) statusEl.textContent = '';
             updateInputStatus();
@@ -728,14 +760,14 @@
             // Clear any status messages
             try{
               const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-              const body = { path: selectedVideo, apiKey: settings.apiKey||'' };
+              const body = { path: window.selectedVideo, apiKey: settings.syncApiKey || '' };
               await window.ensureAuthToken();
               
               // Add timeout and retry logic for uploads
               let uploadSuccess = false;
               let lastError = null;
               
-              console.log('[Video Upload] Starting upload for:', selectedVideo);
+              console.log('[Video Upload] Starting upload for:', window.selectedVideo);
               
               for (let attempt = 1; attempt <= 3; attempt++) {
                 try {
@@ -755,6 +787,7 @@
                   if (r.ok && j && j.ok && j.url){ 
                     uploadedVideoUrl = j.url;
                     window.uploadedVideoUrl = j.url;
+                    console.log('[Video Upload] Set uploadedVideoUrl (drag&drop):', j.url);
                     uploadSuccess = true;
                     
                     // Debug logging
@@ -961,7 +994,7 @@
             // Clear any status messages
             try{
               const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-              const body = { path: selectedAudio, apiKey: settings.apiKey||'' };
+              const body = { path: window.selectedAudio, apiKey: settings.syncApiKey || '' };
               await window.ensureAuthToken();
               
               // Add timeout and retry logic for uploads
@@ -1119,7 +1152,7 @@
         }
         
         // Only show "ready for lipsync" when both video and audio are selected
-        if ((selectedVideo || selectedVideoUrl) && (selectedAudio || selectedAudioUrl)) {
+        if ((window.selectedVideo || window.selectedVideoUrl) && (window.selectedAudio || window.selectedAudioUrl)) {
           if (typeof window.showToast === 'function') {
             window.showToast('ready for lipsync', 'success');
           }
@@ -1130,7 +1163,7 @@
         const fromVideoBtn = document.querySelector('.audio-upload .action-btn[data-action="audio-from-video"]');
         if (!fromVideoBtn) return;
         
-        const hasVideo = !!(selectedVideo || selectedVideoUrl);
+        const hasVideo = !!(window.selectedVideo || window.selectedVideoUrl);
         
         if (hasVideo) {
           fromVideoBtn.disabled = false;
@@ -1206,22 +1239,7 @@
             selectedVideo: window.selectedVideo
           });
           
-          // Debug logging
-          try {
-            fetch('http://127.0.0.1:3000/debug', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                type: 'video_duration_update', 
-                duration: video.duration,
-                durationStr: durationStr,
-                src: video.src,
-                readyState: video.readyState,
-                selectedVideo: window.selectedVideo,
-                hostConfig: window.HOST_CONFIG
-              })
-            }).catch(() => {});
-          } catch(_){ }
+          // Debug logging removed - too noisy
         };
 
         // Check if metadata is already loaded, also try after a short delay
@@ -1255,30 +1273,10 @@
           }
         }, 200);
         
-        // Force metadata loading for WebM files by triggering a play/pause cycle
+        // Optimize video loading - remove forced play/pause cycle that causes lag
         video.addEventListener('canplay', () => {
           console.log('Video canplay event fired, duration:', video.duration);
-          if (!video.duration || video.duration === 0) {
-            console.log('Duration still null after canplay, triggering play/pause');
-            video.play().then(() => {
-              setTimeout(() => {
-                video.pause();
-                video.currentTime = 0;
-                console.log('After play/pause cycle, duration:', video.duration);
-                updateVideoDuration();
-              }, 100);
-            }).catch(() => {
-              console.log('Play failed, trying seek method');
-              video.currentTime = 0.01;
-              setTimeout(() => {
-                video.currentTime = 0;
-                console.log('After seek method, duration:', video.duration);
-                updateVideoDuration();
-              }, 100);
-            });
-          } else {
-            updateVideoDuration();
-          }
+          updateVideoDuration();
         });
         
         // Fallback: try updating duration after delays in case metadata loads asynchronously
@@ -1531,22 +1529,7 @@
             selectedAudio: window.selectedAudio
           });
           
-          // Debug logging
-          try {
-            fetch('http://127.0.0.1:3000/debug', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                type: 'audio_duration_update', 
-                duration: audio.duration,
-                durationStr: durationStr,
-                src: audio.src,
-                readyState: audio.readyState,
-                selectedAudio: window.selectedAudio,
-                hostConfig: window.HOST_CONFIG
-              })
-            }).catch(() => {});
-          } catch(_){ }
+          // Debug logging removed - too noisy
         };
 
         // Check if metadata is already loaded, also try after a short delay
@@ -1849,6 +1832,14 @@
              // Show loading state
              dubbingSubmitBtn.disabled = true;
              dubbingSubmitBtn.innerHTML = window.loaderHTML({ size: 'sm', color: 'white' });
+             
+             // Disable lipsync button during dubbing
+             const lipsyncBtn = document.getElementById('lipsyncBtn');
+             if (lipsyncBtn) {
+               lipsyncBtn.disabled = true;
+               const span = lipsyncBtn.querySelector('span');
+               if (span) span.textContent = 'dubbing...';
+             }
               
               // Show loading state in audio preview
               const audioPreview = document.getElementById('audioPreview');
@@ -1876,7 +1867,7 @@
                   audioPath: selectedAudio,
                   audioUrl: selectedAudioUrl,
                   targetLang: targetLang,
-                  apiKey: elevenLabsApiKey
+                  elevenApiKey: elevenLabsApiKey
                 };
                 
                 const controller = new AbortController();
@@ -1907,7 +1898,8 @@
                   
                   // Upload dubbed audio to R2 for lipsync
                   try {
-                    const uploadBody = { path: window.selectedAudio, apiKey: settings.apiKey || '' };
+                    console.log('[Dubbing] Starting R2 upload for dubbed audio:', window.selectedAudio);
+                    const uploadBody = { path: window.selectedAudio, apiKey: settings.syncApiKey || '' };
                     const uploadResponse = await fetch('http://127.0.0.1:3000/upload', {
                       method: 'POST',
                       headers: window.authHeaders({'Content-Type': 'application/json'}),
@@ -1915,14 +1907,17 @@
                     });
                     
                     const uploadResult = await uploadResponse.json().catch(() => null);
+                    console.log('[Dubbing] R2 upload response:', uploadResponse.ok, uploadResult);
                     
                     if (uploadResponse.ok && uploadResult && uploadResult.ok && uploadResult.url) {
                       uploadedAudioUrl = uploadResult.url;
                       window.uploadedAudioUrl = uploadResult.url;
                       console.log('[Dubbing] Uploaded dubbed audio to R2:', uploadResult.url);
+                    } else {
+                      console.warn('[Dubbing] R2 upload failed:', uploadResponse.status, uploadResult);
                     }
                   } catch (uploadError) {
-                    console.warn('Upload of dubbed audio failed:', uploadError);
+                    console.warn('[Dubbing] Upload of dubbed audio failed:', uploadError);
                   }
                   
                   // Re-render the audio preview with the new dubbed audio
@@ -1952,6 +1947,14 @@
                // Reset submit button
                dubbingSubmitBtn.disabled = false;
                dubbingSubmitBtn.innerHTML = '<i data-lucide="arrow-right" style="width: 18px; height: 18px;"></i>';
+                
+                // Re-enable lipsync button
+                const lipsyncBtn = document.getElementById('lipsyncBtn');
+                if (lipsyncBtn) {
+                  lipsyncBtn.disabled = false;
+                  const span = lipsyncBtn.querySelector('span');
+                  if (span) span.textContent = 'lipsync';
+                }
                 
                 // Re-initialize Lucide icons
                 if (typeof lucide !== 'undefined' && lucide.createIcons) {
@@ -2031,14 +2034,34 @@
       }
 
       function renderWaveform(canvas, bars, progress, displayWidthOverride, displayHeightOverride) {
+        if (!canvas) {
+          console.error('[Waveform] Canvas is null or undefined');
+          return;
+        }
+        
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          console.error('[Waveform] Could not get canvas context');
+          return;
+        }
+        
         const displayWidth = displayWidthOverride || canvas.clientWidth || canvas.offsetWidth || 600;
         const displayHeight = displayHeightOverride || canvas.clientHeight || canvas.offsetHeight || 40;
+        
+        if (displayWidth <= 0 || displayHeight <= 0) {
+          console.error('[Waveform] Invalid canvas dimensions:', displayWidth, displayHeight);
+          return;
+        }
         
         // Clear canvas
         ctx.clearRect(0, 0, displayWidth, displayHeight);
         
         const progressX = progress * displayWidth;
+        
+        if (!Array.isArray(bars)) {
+          console.error('[Waveform] Bars is not an array:', bars);
+          return;
+        }
         
         bars.forEach(bar => {
           // Color based on progress: orange for played, grey for unplayed
@@ -2052,7 +2075,12 @@
           const radius = 2;
           
           ctx.beginPath();
-          ctx.roundRect(x, y, barWidth, barHeight, radius);
+          if (ctx.roundRect) {
+            ctx.roundRect(x, y, barWidth, barHeight, radius);
+          } else {
+            // Fallback for browsers without roundRect support
+            ctx.rect(x, y, barWidth, barHeight);
+          }
           ctx.fill();
         });
       }
@@ -2062,27 +2090,58 @@
       }
 
       function clearVideoSelection() {
-        try { const v = document.getElementById('mainVideo'); if (v) { v.pause(); v.currentTime = 0; v.removeAttribute('src'); v.load(); } } catch(_){ }
+        try {
+          const v = document.getElementById('mainVideo');
+          if (v) {
+            v.pause();
+            v.currentTime = 0;
+            v.removeAttribute('src');
+            v.load();
+          }
+        } catch(_) {
+          // Ignore video cleanup errors
+        }
         console.log('[Video Selection] Clearing video selection');
         window.selectedVideo = null;
         window.selectedVideoIsTemp = false;
         window.selectedVideoUrl = '';
         window.selectedVideoIsUrl = false;
-        window.selectedVideoUrl = ''; // Clear global variable
         renderInputPreview();
         updateInputStatus();
         updateFromVideoButton();
+        
+        // Reset cost estimation
+        if (typeof scheduleEstimate === 'function') {
+          scheduleEstimate();
+        }
       }
 
       function clearAudioSelection() {
-        try { const a = document.getElementById('audioPlayer'); if (a) { try { if (typeof a.__waveformCleanup === 'function') a.__waveformCleanup(); } catch(_){} a.pause(); a.currentTime = 0; a.removeAttribute('src'); a.load(); } } catch(_){ }
+        try {
+          const a = document.getElementById('audioPlayer');
+          if (a) {
+            if (typeof a.__waveformCleanup === 'function') {
+              a.__waveformCleanup();
+            }
+            a.pause();
+            a.currentTime = 0;
+            a.removeAttribute('src');
+            a.load();
+          }
+        } catch(_) {
+          // Ignore audio cleanup errors
+        }
         window.selectedAudio = null;
         window.selectedAudioIsTemp = false;
         window.selectedAudioUrl = '';
         window.selectedAudioIsUrl = false;
-        window.selectedAudioUrl = ''; // Clear global variable
         renderInputPreview();
         updateInputStatus();
+        
+        // Reset cost estimation
+        if (typeof scheduleEstimate === 'function') {
+          scheduleEstimate();
+        }
       }
 
       function showUrlInputModal(type) {
@@ -2138,15 +2197,15 @@
           
           // Set URL selection
           if (type === 'video') {
-            selectedVideoUrl = url;
-            selectedVideoIsUrl = true;
-            selectedVideo = null; // Clear file selection
+            window.selectedVideoUrl = url;
+            window.selectedVideoIsUrl = true;
+            window.selectedVideo = null; // Clear file selection
             window.selectedVideoIsTemp = false;
             updateFromVideoButton();
           } else {
-            selectedAudioUrl = url;
-            selectedAudioIsUrl = true;
-            selectedAudio = null; // Clear file selection
+            window.selectedAudioUrl = url;
+            window.selectedAudioIsUrl = true;
+            window.selectedAudio = null; // Clear file selection
             window.selectedAudioIsTemp = false;
           }
           
@@ -2409,7 +2468,7 @@
         
         try {
           // Check if video is selected
-          if (!selectedVideo && !selectedVideoUrl) {
+          if (!window.selectedVideo && !window.selectedVideoUrl) {
             console.log('No video selected');
             if (typeof window.showToast === 'function') {
               window.showToast('please select a video first', 'error');
@@ -2417,7 +2476,7 @@
             return;
           }
           
-          console.log('Video selected:', selectedVideo || selectedVideoUrl);
+          console.log('Video selected:', window.selectedVideo || window.selectedVideoUrl);
 
           if (typeof window.showToast === 'function') {
             window.showToast('loading...', 'info');
@@ -2429,7 +2488,7 @@
           
           // Debug logging for DOM elements
           try {
-            const debugMsg = `[${new Date().toISOString()}] DOM elements check - renderAudio: ${renderAudioEl ? 'found' : 'null'}, settings.apiKey: ${settings.apiKey ? 'found' : 'null'}\n`;
+            const debugMsg = `[${new Date().toISOString()}] DOM elements check - renderAudio: ${renderAudioEl ? 'found' : 'null'}, settings.syncApiKey: ${settings.syncApiKey ? 'found' : 'null'}\n`;
             const fs = require('fs');
             const path = require('path');
             const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
@@ -2440,10 +2499,10 @@
           
           // Prepare request body
           const body = {
-            videoPath: selectedVideo || '',
-            videoUrl: selectedVideoUrl || '',
+            videoPath: window.selectedVideo || '',
+            videoUrl: window.selectedVideoUrl || '',
             format: audioFormat,
-            apiKey: settings.apiKey || ''
+            apiKey: settings.syncApiKey || ''
           };
 
           // Debug logging
@@ -2468,7 +2527,7 @@
           try {
             response = await fetch('http://127.0.0.1:3000/extract-audio', {
               method: 'POST',
-              headers: window.window.authHeaders({'Content-Type': 'application/json'}),
+              headers: window.authHeaders({'Content-Type': 'application/json'}),
               body: JSON.stringify(body)
             });
             console.log('Response received:', response.status, response.statusText);
@@ -2500,7 +2559,7 @@
             return;
           }
 
-          if (!result.path) {
+          if (!result.audioPath) {
             if (typeof window.showToast === 'function') {
               window.showToast('no audio path returned', 'error');
             }
@@ -2508,11 +2567,10 @@
           }
 
           // Set the extracted audio
-          window.selectedAudio = result.path;
+          window.selectedAudio = result.audioPath;
           window.selectedAudioIsTemp = true;
           window.selectedAudioUrl = ''; // Clear URL selection
           window.selectedAudioIsUrl = false;
-          window.selectedAudioUrl = ''; // Clear global variable
 
           updateLipsyncButton();
           renderInputPreview();
@@ -2525,7 +2583,7 @@
           // Upload for cost estimation
           try {
             const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
-            const uploadBody = { path: selectedAudio, apiKey: settings.apiKey || '' };
+            const uploadBody = { path: window.selectedAudio, apiKey: settings.syncApiKey || '' };
             
             const uploadResponse = await fetch('http://127.0.0.1:3000/upload', {
               method: 'POST',
@@ -2730,7 +2788,7 @@
           volumeBtn.addEventListener('click', () => {
             video.muted = !video.muted;
             if (video.muted) {
-              volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+              volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" stroke-width="2"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" stroke-width="2"/></svg>';
             } else {
               volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
             }
@@ -2759,9 +2817,9 @@
           
           // Upload to cloud if API key is available
           const settings = window.getSettings?.() || {};
-          if (settings.apiKey) {
+          if (settings.syncApiKey) {
             try {
-              const uploadBody = { path: selectedAudio, apiKey: settings.apiKey };
+              const uploadBody = { path: window.selectedAudio, apiKey: settings.syncApiKey };
               const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

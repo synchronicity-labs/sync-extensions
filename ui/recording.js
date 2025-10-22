@@ -183,7 +183,7 @@
 
       videoStream = await navigator.mediaDevices.getUserMedia({ 
         video: videoConstraints, 
-        audio: false 
+        audio: true 
       });
 
       // Hide dropzone, show recording UI
@@ -240,10 +240,6 @@
 
       videoMediaRecorder.onstart = () => {
         console.log('Video MediaRecorder started, state:', videoMediaRecorder.state);
-      };
-
-      videoMediaRecorder.onstop = () => {
-        console.log('Video MediaRecorder stopped, state:', videoMediaRecorder.state);
       };
 
       videoMediaRecorder.onerror = (event) => {
@@ -405,6 +401,11 @@
       return;
     }
     
+    // Show loading toast immediately
+    if (window.showToast) {
+      window.showToast('loading...', 'info');
+    }
+    
     // Wait a bit for any remaining data to be captured
     await new Promise(resolve => setTimeout(resolve, 200));
     
@@ -434,7 +435,7 @@
         type: blob.type
       });
       
-      // Save to file
+      // Save to file (will be converted to MP4 by server)
       const fileName = `recording_${Date.now()}.${extension}`;
       const result = await saveRecordedFile(blob, fileName, 'video');
       
@@ -459,7 +460,7 @@
           const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
             method: 'POST',
             headers: window.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ path: result.path, apiKey: settings.apiKey || '' })
+            body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
           });
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
@@ -499,6 +500,11 @@
             selectedAudio: window.selectedAudio
           });
           window.renderInputPreview('videoRecording');
+          
+          // Show success toast after preview is rendered
+          if (window.showToast) {
+            window.showToast('recording ready', 'success');
+          }
         } else {
           console.error('renderInputPreview function not available');
           if (window.debugLog) window.debugLog('renderInputPreview_call_from_video', {
@@ -728,10 +734,6 @@
         console.log('Audio MediaRecorder started, state:', audioMediaRecorder.state);
       };
 
-      audioMediaRecorder.onstop = () => {
-        console.log('Audio MediaRecorder stopped, state:', audioMediaRecorder.state);
-      };
-
       audioMediaRecorder.onerror = (event) => {
         console.error('Audio MediaRecorder error:', event.error);
       };
@@ -937,7 +939,7 @@
         type: blob.type
       });
       
-      // Save to file
+      // Save to file (will be converted to MP4 by server)
       const fileName = `recording_${Date.now()}.${extension}`;
       const result = await saveRecordedFile(blob, fileName, 'audio');
       
@@ -962,7 +964,7 @@
           const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
             method: 'POST',
             headers: window.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ path: result.path, apiKey: settings.apiKey || '' })
+            body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
           });
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
@@ -1069,28 +1071,9 @@
   // Save recorded file via server
   async function saveRecordedFile(blob, fileName, type) {
     try {
-      // Get save location from settings
-      const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
-      const saveLocation = settings.saveLocation || 'project';
-      
-      // Get target directory
-      let targetDir = '';
-      
-      if (saveLocation === 'documents') {
-        // Server will handle Documents path
-        targetDir = 'documents';
-      } else {
-        // Get project directory from ExtendScript
-        try {
-          targetDir = await getProjectSaveDirectory();
-          if (!targetDir) {
-            targetDir = 'documents'; // Fallback
-          }
-        } catch (error) {
-          console.warn('Failed to get project directory, using documents fallback:', error);
-          targetDir = 'documents';
-        }
-      }
+      // Recordings should always go to uploads folder, not project folders
+      // This prevents recordings from cluttering project directories
+      const targetDir = 'uploads';
 
       // Use FormData to send file efficiently
       const formData = new FormData();

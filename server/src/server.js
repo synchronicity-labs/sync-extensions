@@ -692,15 +692,15 @@ app.get('/audio/convert', async (req, res) => {
 // ElevenLabs dubbing endpoint
 app.post('/dubbing', async (req, res) => {
   try {
-    const { audioPath, audioUrl, targetLang, apiKey } = req.body || {};
+    const { audioPath, audioUrl, targetLang, elevenApiKey } = req.body || {};
     tlog('POST /dubbing', 'targetLang='+targetLang, 'audioPath='+audioPath, 'audioUrl='+audioUrl);
     
     if (!targetLang) {
       return res.status(400).json({ error: 'Target language required' });
     }
     
-    if (!apiKey) {
-      return res.status(400).json({ error: 'ElevenLabs API key required' });
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
     }
     
     let localAudioPath = audioPath;
@@ -713,10 +713,9 @@ app.post('/dubbing', async (req, res) => {
           return res.status(400).json({ error: 'Failed to download audio from URL' });
         }
         
-        // Create temporary file
-        const tempDir = os.tmpdir();
+        // Create temporary file in uploads directory
         const tempFileName = `temp_audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
-        localAudioPath = path.join(tempDir, tempFileName);
+        localAudioPath = path.join(DIRS.uploads, tempFileName);
         
         const buffer = await response.arrayBuffer();
         fs.writeFileSync(localAudioPath, Buffer.from(buffer));
@@ -761,7 +760,7 @@ app.post('/dubbing', async (req, res) => {
       const dubbingResponse = await fetch('https://api.elevenlabs.io/v1/dubbing', {
         method: 'POST',
         headers: {
-          'xi-api-key': apiKey,
+          'xi-api-key': elevenApiKey,
         },
         body: formData,
         signal: AbortSignal.timeout(300000) // 5 minute timeout
@@ -799,7 +798,7 @@ app.post('/dubbing', async (req, res) => {
           
           const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
             headers: {
-              'xi-api-key': apiKey,
+              'xi-api-key': elevenApiKey,
             },
             signal: AbortSignal.timeout(10000)
           });
@@ -817,7 +816,7 @@ app.post('/dubbing', async (req, res) => {
             // Get the dubbed audio
             const audioResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${targetLang}`, {
               headers: {
-                'xi-api-key': apiKey,
+                'xi-api-key': elevenApiKey,
               },
               signal: AbortSignal.timeout(30000)
             });
@@ -826,10 +825,9 @@ app.post('/dubbing', async (req, res) => {
               throw new Error(`Failed to get dubbed audio: ${audioResponse.status}`);
             }
             
-            // Save the dubbed audio to a temporary file
-            const tempDir = os.tmpdir();
+            // Save the dubbed audio to uploads directory
             const outputFileName = `dubbed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
-            const outputPath = path.join(tempDir, outputFileName);
+            const outputPath = path.join(DIRS.uploads, outputFileName);
             
             const audioBuffer = await audioResponse.arrayBuffer();
             fs.writeFileSync(outputPath, Buffer.from(audioBuffer));
@@ -876,7 +874,7 @@ app.post('/dubbing', async (req, res) => {
 // ElevenLabs TTS endpoint
 app.post('/tts/generate', async (req, res) => {
   try {
-    const { text, voiceId, apiKey, model = 'eleven_turbo_v2_5', voiceSettings } = req.body || {};
+    const { text, voiceId, elevenApiKey, model = 'eleven_turbo_v2_5', voiceSettings } = req.body || {};
     tlog('POST /tts/generate', 'voiceId='+voiceId, 'model='+model, 'text='+text?.substring(0, 50));
     
     if (!text) {
@@ -887,8 +885,8 @@ app.post('/tts/generate', async (req, res) => {
       return res.status(400).json({ error: 'Voice ID required' });
     }
     
-    if (!apiKey) {
-      return res.status(400).json({ error: 'ElevenLabs API key required' });
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
     }
     
     // Use provided voice settings or defaults
@@ -902,7 +900,7 @@ app.post('/tts/generate', async (req, res) => {
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         method: 'POST',
         headers: {
-          'xi-api-key': apiKey,
+          'xi-api-key': elevenApiKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -951,17 +949,17 @@ app.post('/tts/generate', async (req, res) => {
 // ElevenLabs list voices endpoint
 app.get('/tts/voices', async (req, res) => {
   try {
-    const { apiKey } = req.query;
+    const { elevenApiKey } = req.query;
     tlog('GET /tts/voices');
     
-    if (!apiKey) {
-      return res.status(400).json({ error: 'ElevenLabs API key required' });
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
     }
     
     try {
       const response = await fetch('https://api.elevenlabs.io/v1/voices', {
         headers: {
-          'xi-api-key': apiKey,
+          'xi-api-key': elevenApiKey,
         },
         signal: AbortSignal.timeout(10000)
       });
@@ -1035,7 +1033,7 @@ app.post('/extract-audio', async (req, res) => {
     
     try {
       const { extractAudioFromVideo } = require('./video-audio-extractor.cjs');
-      const audioPath = await extractAudioFromVideo(localVideoPath, fmt);
+      const audioPath = await extractAudioFromVideo(localVideoPath, fmt, DIRS);
       
       if (!audioPath || !fs.existsSync(audioPath)) {
         return res.status(500).json({ error: 'audio extraction failed' });
@@ -1176,7 +1174,8 @@ app.post('/debug', async (req, res) => {
       logFile = path.join(DIRS.logs, 'sync_ppro_debug.log');
     }
     
-    const logMessage = `[${timestamp}] [debug] ${JSON.stringify(body)}`;
+    // Format log message for better readability
+    const logMessage = `[${timestamp}] [${body.type || 'debug'}] ${JSON.stringify(body, null, 2)}`;
     
     // Write to appropriate log file (don't log to console to avoid duplication in server log)
     try { fs.appendFileSync(logFile, logMessage + "\n"); } catch(_){ }
@@ -1205,14 +1204,19 @@ app.post('/recording/save', upload.single('file'), async (req, res) => {
     const { targetDir, type } = req.body || {};
     const fileName = req.file.originalname || `recording_${Date.now()}.webm`;
 
-    // Determine save directory
+    // Determine save directory - recordings should go to uploads folder, not project folders
     let saveDir;
     if (targetDir === 'documents') {
       saveDir = DOCS_DEFAULT_DIR;
+    } else if (targetDir === 'uploads') {
+      // Explicit uploads folder request
+      saveDir = TEMP_DEFAULT_DIR;
     } else if (targetDir && typeof targetDir === 'string' && path.isAbsolute(targetDir)) {
-      saveDir = targetDir;
+      // For recordings, always use uploads folder regardless of project setting
+      // This prevents recordings from cluttering project folders
+      saveDir = TEMP_DEFAULT_DIR; // Use uploads folder
     } else {
-      saveDir = DOCS_DEFAULT_DIR;
+      saveDir = TEMP_DEFAULT_DIR; // Use uploads folder for recordings
     }
 
     // Ensure directory exists
@@ -1222,9 +1226,11 @@ app.post('/recording/save', upload.single('file'), async (req, res) => {
       tlog('recording:save:mkdir:error', e.message);
     }
 
-    // Save file and process with FFmpeg to ensure proper metadata
+    // Save file and process with FFmpeg to convert WebM to MP4
     const inputPath = path.join(saveDir, `temp_${fileName}`);
-    const outputPath = path.join(saveDir, fileName);
+    // Convert WebM to MP4 for sync API compatibility
+    const outputFileName = fileName.replace(/\.webm$/i, '.mp4');
+    const outputPath = path.join(saveDir, outputFileName);
     
     // Write temporary file
     await fs.promises.writeFile(inputPath, req.file.buffer);
@@ -1242,11 +1248,17 @@ app.post('/recording/save', upload.single('file'), async (req, res) => {
         throw new Error('Input file is empty');
       }
       
-      // Process with FFmpeg to ensure proper metadata
+      // Process with FFmpeg to convert WebM to MP4 with proper metadata
       await new Promise((resolve, reject) => {
         ffmpeg(inputPath)
           .outputOptions([
-            '-c', 'copy',  // Copy streams without re-encoding
+            '-c:v', 'libx264',  // Use H.264 video codec for MP4
+            '-c:a', 'aac',      // Use AAC audio codec for MP4
+            '-preset', 'ultrafast',  // Fastest encoding preset for better playback
+            '-crf', '28',       // Lower quality for smoother playback
+            '-profile:v', 'baseline',  // Baseline profile for better compatibility
+            '-level', '3.0',    // Lower level for smoother playback
+            '-movflags', '+faststart',  // Optimize for streaming/playback
             '-avoid_negative_ts', 'make_zero',  // Fix timestamp issues
             '-fflags', '+genpts'  // Generate presentation timestamps
           ])
@@ -1367,7 +1379,7 @@ app.get('/recording/file', async (req, res) => {
 // Upload endpoint (PUBLIC - needed for file picker)
 app.post('/upload', async (req, res) => {
   try {
-    const { path: filePath, apiKey } = req.body || {};
+    const { path: filePath, syncApiKey } = req.body || {};
     
     if (!filePath) {
       return res.status(400).json({ error: 'File path required' });
@@ -1819,6 +1831,7 @@ async function r2UploadInternal(localPath){
     }
     // Handle HTML parsing errors from R2
     if (error.message && error.message.includes('Expected closing tag')) {
+      slog('[r2] HTML parsing error - likely invalid response format:', error.message);
       throw new Error('R2 service error. Please check your R2 configuration and try again.');
     }
     throw error;
@@ -1830,9 +1843,9 @@ const SYNC_API_BASE = 'https://api.sync.so/v2';
 // Proxy models
 app.get('/models', async (req, res) => {
   try{
-    const { apiKey } = req.query;
-    if (!apiKey) return res.status(400).json({ error: 'API key required' });
-    const r = await fetch(`${SYNC_API_BASE}/models`, { headers: { 'x-api-key': String(apiKey) }, signal: AbortSignal.timeout(10000) });
+    const { syncApiKey } = req.query;
+    if (!syncApiKey) return res.status(400).json({ error: 'syncApiKey required' });
+    const r = await fetch(`${SYNC_API_BASE}/models`, { headers: { 'x-api-key': String(syncApiKey) }, signal: AbortSignal.timeout(10000) });
     const j = await r.json().catch(()=>({}));
     if (!r.ok) return res.status(r.status).json(j);
     res.json(j);
@@ -1842,11 +1855,11 @@ app.get('/models', async (req, res) => {
 // Proxy list generations
 app.get('/generations', async (req, res) => {
   try{
-    const { apiKey, status } = req.query;
-    if (!apiKey) return res.status(400).json({ error: 'API key required' });
+    const { syncApiKey, status } = req.query;
+    if (!syncApiKey) return res.status(400).json({ error: 'syncApiKey required' });
     const url = new URL(`${SYNC_API_BASE}/generations`);
     if (status) url.searchParams.set('status', String(status));
-    const r = await fetch(url.toString(), { headers: { 'x-api-key': String(apiKey) }, signal: AbortSignal.timeout(10000) });
+    const r = await fetch(url.toString(), { headers: { 'x-api-key': String(syncApiKey) }, signal: AbortSignal.timeout(10000) });
     const j = await r.json().catch(()=>({}));
     if (!r.ok) return res.status(r.status).json(j);
     res.json(j);
@@ -1877,7 +1890,10 @@ function normalizeOutputDir(p){
 
 app.post('/jobs', async (req, res) => {
   try{
-    let { videoPath, audioPath, videoUrl, audioUrl, isTempVideo, isTempAudio, model, temperature, activeSpeakerOnly, detectObstructions, options = {}, apiKey, outputDir } = req.body || {};
+    // Log every incoming request for debugging
+    console.log('[jobs:create] Request received:', JSON.stringify(req.body, null, 2));
+    
+    let { videoPath, audioPath, videoUrl, audioUrl, isTempVideo, isTempAudio, model, temperature, activeSpeakerOnly, detectObstructions, options = {}, syncApiKey, outputDir } = req.body || {};
     ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
     // Auto-convert AIFF from AE to WAV so the rest of the pipeline can read it
     try { if (audioPath) { audioPath = await convertIfAiff(audioPath); } } catch(_){}
@@ -1899,8 +1915,9 @@ app.post('/jobs', async (req, res) => {
       hostApp: APP_ID
     });
     
-    if (!apiKey) {
-      return res.status(400).json({ error: 'API key required' });
+    if (!syncApiKey) {
+      console.log('[jobs:create] Missing syncApiKey, rejecting request');
+      return res.status(400).json({ error: 'syncApiKey required' });
     }
     if (!videoUrl || !audioUrl){
       if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
@@ -1932,7 +1949,7 @@ app.post('/jobs', async (req, res) => {
       syncJobId: null,
       outputPath: null,
       outputDir: normalizeOutputDir(outputDir || '') || null,
-      apiKey,
+      syncApiKey,
     };
     jobs.push(job);
     if (jobs.length > 500) { jobs = jobs.slice(-500); }
@@ -1997,12 +2014,12 @@ app.get('/jobs/:id/download', async (req,res)=>{
 
 app.post('/jobs/:id/save', async (req,res)=>{
   try{
-    const { location = 'project', targetDir = '', apiKey: keyOverride } = req.body || {};
+    const { location = 'project', targetDir = '', syncApiKey: keyOverride } = req.body || {};
     let job = jobs.find(j => String(j.id) === String(req.params.id));
-    // If not local, construct a cloud-only placeholder with sync id and apiKey
+    // If not local, construct a cloud-only placeholder with sync id and syncApiKey
     if (!job) {
-      if (!keyOverride) return res.status(404).json({ error:'Job not found and apiKey missing' });
-      job = { id: String(req.params.id), syncJobId: String(req.params.id), status: 'completed', outputDir: '', apiKey: keyOverride };
+      if (!keyOverride) return res.status(404).json({ error:'Job not found and syncApiKey missing' });
+      job = { id: String(req.params.id), syncJobId: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
     }
 
     // Enforce per-project when selected: if 'project', require targetDir; otherwise fallback to temp, not Documents
@@ -2050,9 +2067,9 @@ app.get('/costs', (_req, res)=>{
 app.post('/costs', async (req, res) => {
   try{
     slog('[costs] received POST');
-    let { videoPath, audioPath, videoUrl, audioUrl, model = 'lipsync-2-pro', apiKey, options = {} } = req.body || {};
+    let { videoPath, audioPath, videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey, options = {} } = req.body || {};
     ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
-    if (!apiKey) return res.status(400).json({ error: 'API key required' });
+    if (!syncApiKey) return res.status(400).json({ error: 'syncApiKey required' });
     // If URLs aren't provided, use local paths and upload to R2
     if (!videoUrl || !audioUrl){
       if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
@@ -2075,7 +2092,7 @@ app.post('/costs', async (req, res) => {
       options: opts
     };
     try { slog('[costs] request', 'model=', body.model, 'video=', videoUrl, 'audio=', audioUrl, 'options=', JSON.stringify(opts)); } catch(_){ }
-    const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, { method:'POST', headers: { 'x-api-key': apiKey, 'content-type': 'application/json', 'accept': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+    const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, { method:'POST', headers: { 'x-api-key': syncApiKey, 'content-type': 'application/json', 'accept': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
     const text = await safeText(resp);
     try { slog('[costs] response', resp.status, (text||'').slice(0,200)); } catch(_){ }
     if (!resp.ok) { slog('[costs] sync api error', resp.status, text); return res.status(resp.status).json({ error: text || 'cost failed' }); }
@@ -2134,7 +2151,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
         options: (job.options && typeof job.options === 'object') ? job.options : {}
       };
       const resp = await fetch(`${SYNC_API_BASE}/generate`, {
-        method: 'POST', headers: { 'x-api-key': job.apiKey, 'accept':'application/json', 'content-type':'application/json' }, body: JSON.stringify(body),
+        method: 'POST', headers: { 'x-api-key': job.syncApiKey, 'accept':'application/json', 'content-type':'application/json' }, body: JSON.stringify(body),
         signal: AbortSignal.timeout(120000) // 2 minute timeout
       });
       if (!resp.ok){ const t = await safeText(resp); slog('[create:url:direct] error', resp.status, t); throw new Error(`create(url) failed ${resp.status} ${t}`); }
@@ -2157,7 +2174,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
       };
       const resp = await fetch(`${SYNC_API_BASE}/generate`, {
         method: 'POST',
-        headers: { 'x-api-key': job.apiKey, 'accept':'application/json', 'content-type':'application/json' },
+        headers: { 'x-api-key': job.syncApiKey, 'accept':'application/json', 'content-type':'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(120000) // 2 minute timeout
       });
@@ -2182,7 +2199,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
   };
   const resp = await fetch(`${SYNC_API_BASE}/generate`, {
     method: 'POST',
-    headers: { 'x-api-key': job.apiKey, 'accept':'application/json', 'content-type':'application/json' },
+    headers: { 'x-api-key': job.syncApiKey, 'accept':'application/json', 'content-type':'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(120000) // 2 minute timeout
   });
@@ -2192,9 +2209,9 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
 }
 
 async function fetchGeneration(job){
-  let resp = await fetch(`${SYNC_API_BASE}/generate/${job.syncJobId}`, { headers: { 'x-api-key': job.apiKey }, signal: AbortSignal.timeout(10000) });
+  let resp = await fetch(`${SYNC_API_BASE}/generate/${job.syncJobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   if (!resp.ok && resp.status === 404){
-    resp = await fetch(`${SYNC_API_BASE}/generations/${job.syncJobId}`, { headers: { 'x-api-key': job.apiKey }, signal: AbortSignal.timeout(10000) });
+    resp = await fetch(`${SYNC_API_BASE}/generations/${job.syncJobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   }
   if (!resp.ok) return null;
   return await resp.json();
@@ -2386,30 +2403,13 @@ async function startServer() {
       });
       if (r && r.ok) {
         console.log(`Existing Sync Extension server detected on http://${HOST}:${PORT}`);
-        // Try to determine version drift; if drift, request exit of old server
-        try {
-          const currentManifestVersion = await getCurrentVersion();
-          const vResp = await fetch(`http://${HOST}:${PORT}/update/version`, { 
-            method: 'GET',
-            timeout: 5000
-          }).catch(()=>null);
-          const vJson = vResp ? await vResp.json().catch(()=>null) : null;
-          const otherVersion = vJson && vJson.version ? String(vJson.version) : '';
-          if (currentManifestVersion && otherVersion && compareSemver(currentManifestVersion, otherVersion) > 0){
-            console.log(`Existing server version ${otherVersion} older than manifest ${currentManifestVersion}, requesting shutdown...`);
-            await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
-              method:'POST',
-              timeout: 5000
-            }).catch(()=>{});
-            await new Promise(r2=>setTimeout(r2, 600));
-          } else {
-            console.log(`Port ${PORT} in use by healthy server; exiting child`);
-            process.exit(0);
-          }
-        } catch(_){
-          console.log(`Port ${PORT} in use by healthy server; exiting child`);
-          process.exit(0);
-        }
+        // Always replace the existing server to ensure fresh code is running
+        console.log(`Requesting shutdown of existing server to replace with fresh code...`);
+        await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+          method:'POST',
+          timeout: 5000
+        }).catch(()=>{});
+        await new Promise(r2=>setTimeout(r2, 1000)); // Wait longer for graceful shutdown
       }
     } catch(_) { /* ignore */ }
     const srv = app.listen(PORT, HOST, () => {
@@ -2427,8 +2427,13 @@ async function startServer() {
             timeout: 5000
           });
           if (r && r.ok) {
-            console.log(`Port ${PORT} in use by healthy server; exiting child`);
-            // Another healthy instance is already serving requests on this port.
+            console.log(`Port ${PORT} in use by healthy server; requesting shutdown to replace...`);
+            // Request shutdown of existing server to replace with fresh code
+            await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+              method:'POST',
+              timeout: 5000
+            }).catch(()=>{});
+            await new Promise(r2=>setTimeout(r2, 1000));
             // Exit cleanly so any spawner (e.g., the CEP panel) doesn't leave a zombie process.
             process.exit(0);
           }
@@ -2463,7 +2468,7 @@ async function resolveSafeLocalPath(p){
     const isTempItems = p.indexOf('/TemporaryItems/') !== -1;
     if (!isTempItems) return p;
     // macOS workaround: copy from TemporaryItems to readable location
-    const docs = path.join(os.homedir(), 'Documents', 'sync_extension_temp');
+    const docs = DIRS.uploads; // Use uploads folder instead of Documents/sync_extension_temp
     try {
       await fs.promises.access(docs);
     } catch {

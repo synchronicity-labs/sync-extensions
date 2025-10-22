@@ -343,9 +343,9 @@
             }
             return; 
           }
-          selectedVideoIsTemp = false;
-          selectedVideo = raw;
-          console.log('[Video Selection] Drag & drop selected:', selectedVideo);
+          window.selectedVideoIsTemp = false;
+          window.selectedVideo = raw;
+          console.log('[Video Selection] Drag & drop selected:', window.selectedVideo);
           updateLipsyncButton();
           renderInputPreview();
           if (typeof window.showToast === 'function') {
@@ -353,7 +353,7 @@
           }
           try{
             const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-            const body = { path: selectedVideo, apiKey: settings.apiKey||'' };
+            const body = { path: window.selectedVideo, apiKey: settings.syncApiKey || '' };
             await ensureAuthToken();
             const r = await fetch('http://127.0.0.1:3000/upload', { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body) });
             const j = await r.json().catch(()=>null);
@@ -410,8 +410,8 @@
             }
             return; 
           }
-          selectedAudioIsTemp = false;
-          selectedAudio = raw;
+          window.selectedAudioIsTemp = false;
+          window.selectedAudio = raw;
           updateLipsyncButton();
           renderInputPreview();
           updateInputStatus();
@@ -420,7 +420,7 @@
           }
           try{
             const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-            const body = { path: selectedAudio, apiKey: settings.apiKey||'' };
+            const body = { path: window.selectedAudio, apiKey: settings.syncApiKey || '' };
             await ensureAuthToken();
             const r = await fetch('http://127.0.0.1:3000/upload', { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body) });
             const j = await r.json().catch(()=>null);

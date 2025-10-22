@@ -33,20 +33,24 @@ function tlog(){
 }
 
 // Fast video-to-audio extraction for MP4/MOV only using Node.js libraries
-async function extractAudioFromVideo(videoPath, outputFormat = 'wav') {
+async function extractAudioFromVideo(videoPath, outputFormat = 'wav', dirs = null) {
   tlog('extractAudioFromVideo start', videoPath, '->', outputFormat);
   
   const ext = path.extname(videoPath).toLowerCase();
-  const outputPath = videoPath.replace(/\.[^.]+$/, `.${outputFormat}`);
+  const baseDir = path.dirname(videoPath);
+  const outputDir = dirs && dirs.uploads ? dirs.uploads : baseDir;
+  const outputPath = path.join(outputDir, path.basename(videoPath).replace(/\.[^.]+$/, `.${outputFormat}`));
   
   try {
-    // Only support MP4 and MOV as per requirements
+    // Support MP4, MOV, and WebM (convert WebM to MP4 first)
     if (ext === '.mp4') {
       return await extractAudioFromMP4(videoPath, outputPath, outputFormat);
     } else if (ext === '.mov') {
       return await extractAudioFromMOV(videoPath, outputPath, outputFormat);
+    } else if (ext === '.webm') {
+      return await extractAudioFromWebM(videoPath, outputPath, outputFormat);
     } else {
-      throw new Error(`Unsupported video format: ${ext}. Only MP4 and MOV are supported.`);
+      throw new Error(`Unsupported video format: ${ext}. Only MP4, MOV, and WebM are supported.`);
     }
   } catch (error) {
     tlog('extractAudioFromVideo error:', error.message);
@@ -156,6 +160,59 @@ async function extractAudioFromMOV(videoPath, outputPath, format) {
     
   } catch (error) {
     tlog('extractAudioFromMOV error:', error.message);
+    throw error;
+  }
+}
+
+// WebM audio extraction using FFmpeg
+async function extractAudioFromWebM(videoPath, outputPath, format) {
+  tlog('extractAudioFromWebM start', videoPath);
+  
+  try {
+    const { spawn } = require('child_process');
+    const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+    
+    // Use FFmpeg to extract audio from WebM
+    const ffmpegArgs = [
+      '-i', videoPath,
+      '-vn', // No video
+      '-acodec', 'pcm_s16le', // 16-bit PCM
+      '-ar', '44100', // Sample rate
+      '-ac', '2', // Stereo
+      '-f', 'wav', // WAV format
+      '-y', // Overwrite output
+      outputPath
+    ];
+    
+    tlog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
+    
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
+      
+      let stderr = '';
+      
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          tlog('FFmpeg WebM extraction successful');
+          resolve(outputPath);
+        } else {
+          tlog('FFmpeg WebM error:', stderr);
+          reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
+        }
+      });
+      
+      ffmpeg.on('error', (error) => {
+        tlog('FFmpeg WebM spawn error:', error.message);
+        reject(error);
+      });
+    });
+    
+  } catch (error) {
+    tlog('extractAudioFromWebM error:', error.message);
     throw error;
   }
 }

@@ -5,12 +5,6 @@ node_modules/
 *.log
 .DS_Store
 dist/
-release.sh
-local-release.sh
-
-# CEP build artifacts (created by GitHub Actions)
-com.sync.extension.ae.panel/
-com.sync.extension.ppro.panel/
-
-# Legacy release artifacts (now handled by GitHub Actions)
-dist/releases/
+/bin/local-release.sh
+/bin/local-resolve-release.sh
+.resolve-workflow/

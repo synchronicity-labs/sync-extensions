@@ -1,18 +1,36 @@
       console.log('Core.js loaded and executing');
       
-      // Debug logging helper
+      // Debug logging helper - cleaner format
       function debugLog(type, payload) {
         try {
-          fetch('http://127.0.0.1:3000/debug', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          const timestamp = new Date().toISOString();
+          const host = window.HOST_CONFIG?.hostId || 'unknown';
+          
+          // Only log important events to reduce noise
+          const importantEvents = [
+            'core_loaded', 'ui_loaded', 'lipsync_button_clicked', 
+            'video_record_clicked', 'audio_record_clicked',
+            'renderInputPreview_called', 'upload_complete',
+            'cost_estimation_no_files', 'cost_api_request_start',
+            'lipsync_start', 'lipsync_abort_missing_files', 'lipsync_abort_no_api_key',
+            'lipsync_button_setup', 'lipsync_function_missing', 'lipsync_button_update'
+          ];
+          
+          if (importantEvents.includes(type)) {
+            // Clean, readable log format
+            const logData = {
               type,
-              timestamp: new Date().toISOString(),
-              hostConfig: window.HOST_CONFIG,
+              timestamp,
+              host,
               ...payload
-            })
-          }).catch(() => {});
+            };
+            
+            fetch('http://127.0.0.1:3000/debug', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(logData)
+            }).catch(() => {});
+          }
         } catch (_) {}
       }
       window.debugLog = window.debugLog || debugLog;
@@ -20,34 +38,29 @@
       debugLog('core_loaded');
       
       let cs = null;
-      let selectedVideo = null;
-      let selectedAudio = null;
+      // Media selection variables are managed globally via window.selectedVideo, window.selectedAudio, etc.
       let jobs = [];
       window.jobs = jobs; // Expose jobs globally for history.js
       let insertingGuard = false;
       let runToken = 0;
       let currentFetchController = null;
       
-      let selectedVideoIsTemp = false;
-      let selectedAudioIsTemp = false;
+      // Media selection flags are managed globally via window.selectedVideoIsTemp, window.selectedAudioIsTemp, etc.
       let estimateTimer = null;
       let hasStartedBackendForCost = false;
 
-      let uploadedVideoUrl = '';
-      let uploadedAudioUrl = '';
       let costToken = 0;
       
-      // URL input support
-      let selectedVideoUrl = '';
-      let selectedAudioUrl = '';
-      let selectedVideoIsUrl = false;
-      let selectedAudioIsUrl = false;
+      // Offline state management
+      let isOffline = false;
+      let serverStartupTime = Date.now();
+      let offlineCheckInterval = null;
+      let consecutiveFailures = 0;
+      const MAX_FAILURES = 3; // Show offline after 3 consecutive failures
       
-      // Expose variables globally for cost estimation
-      window.uploadedVideoUrl = uploadedVideoUrl;
-      window.uploadedAudioUrl = uploadedAudioUrl;
-      window.selectedVideoUrl = selectedVideoUrl;
-      window.selectedAudioUrl = selectedAudioUrl;
+      // URL input support - variables are managed globally via window.selectedVideoUrl, window.selectedAudioUrl, etc.
+      // uploadedVideoUrl and uploadedAudioUrl are set by media.js after R2 uploads complete
+      // Media selection variables are initialized in media.js
       
       // Timeout wrapper for fetch requests to prevent hanging
       async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
@@ -67,6 +80,116 @@
             throw new Error('Request timeout');
           }
           throw error;
+        }
+      }
+      
+      // Check server status
+      async function checkServerStatus() {
+        try {
+          const response = await fetchWithTimeout('http://127.0.0.1:3000/health', {}, 3000);
+          if (response.ok) {
+            consecutiveFailures = 0; // Reset failure count
+            if (isOffline) {
+              setOfflineState(false);
+            }
+            return true;
+          }
+        } catch (error) {
+          // Server is down
+        }
+        
+        consecutiveFailures++;
+        
+        // Only show offline state after 5 seconds of startup AND 3 consecutive failures
+        if (Date.now() - serverStartupTime > 5000 && consecutiveFailures >= MAX_FAILURES) {
+          setOfflineState(true);
+        }
+        return false;
+      }
+      
+      // Set offline state and update UI
+      function setOfflineState(offline) {
+        if (isOffline === offline) return;
+        
+        isOffline = offline;
+        window.isOffline = offline;
+        
+        if (offline) {
+          showOfflineState();
+        } else {
+          hideOfflineState();
+        }
+      }
+      
+      // Show offline state
+      function showOfflineState() {
+        // Show in sources tab
+        const sourcesTab = document.getElementById('sources');
+        if (sourcesTab) {
+          sourcesTab.innerHTML = `
+            <div class="offline-state">
+              <div class="offline-icon">
+                <i data-lucide="wifi-off"></i>
+              </div>
+              <div class="offline-message">
+                hmm... you might be offline, or<br>
+                the local server is down. <a onclick="if(window.nle && typeof window.nle.startBackend === 'function') { window.nle.startBackend(); }">fix this</a>
+              </div>
+            </div>
+          `;
+          // Initialize lucide icons
+          if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            requestAnimationFrame(() => {
+              lucide.createIcons();
+            });
+          }
+        }
+        
+        // Show in history tab
+        const historyList = document.getElementById('historyList');
+        if (historyList) {
+          historyList.innerHTML = `
+            <div class="history-empty-state">
+              <div class="history-empty-icon">
+                <i data-lucide="wifi-off"></i>
+              </div>
+              <div class="history-empty-message">
+                hmm... you might be offline, or<br>
+                the local server is down. <a onclick="if(window.nle && typeof window.nle.startBackend === 'function') { window.nle.startBackend(); }">fix this</a>
+              </div>
+            </div>
+          `;
+          // Initialize lucide icons
+          if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            requestAnimationFrame(() => {
+              lucide.createIcons();
+            });
+          }
+        }
+      }
+      
+      // Hide offline state and restore normal UI
+      function hideOfflineState() {
+        // Reload the page to restore normal UI
+        window.location.reload();
+      }
+      
+      // Start offline checking
+      function startOfflineChecking() {
+        if (offlineCheckInterval) return;
+        
+        // Check immediately
+        checkServerStatus();
+        
+        // Then check every 5 seconds
+        offlineCheckInterval = setInterval(checkServerStatus, 5000);
+      }
+      
+      // Stop offline checking
+      function stopOfflineChecking() {
+        if (offlineCheckInterval) {
+          clearInterval(offlineCheckInterval);
+          offlineCheckInterval = null;
         }
       }
       
@@ -619,14 +742,23 @@
                 if (selector.includes('audio-from-video')) {
                   console.log('From video button found and handler attached:', el);
                 }
+                if (selector.includes('lipsyncBtn')) {
+                  console.log('Lipsync button found and handler attached:', el);
+                }
               } else {
                 if (selector.includes('audio-from-video')) {
                   console.error('From video button NOT FOUND with selector:', selector);
+                }
+                if (selector.includes('lipsyncBtn')) {
+                  console.error('Lipsync button NOT FOUND with selector:', selector);
                 }
               }
             } catch(e){
               if (selector.includes('audio-from-video')) {
                 console.error('Error attaching handler to from video button:', e);
+              }
+              if (selector.includes('lipsyncBtn')) {
+                console.error('Error attaching handler to lipsync button:', e);
               }
             } 
           }
@@ -718,7 +850,7 @@
           on('.audio-upload .action-btn[data-action="audio-from-video"]', async function(){ 
             // Log to debug file for CEP debugging
             try {
-              const debugMsg = `[${new Date().toISOString()}] FROM VIDEO BUTTON CLICKED - selectedVideo: ${selectedVideo || 'null'}, selectedVideoUrl: ${selectedVideoUrl || 'null'}, selectAudioFromVideo exists: ${typeof window.selectAudioFromVideo}, ensureAuthToken exists: ${typeof window.ensureAuthToken}\n`;
+              const debugMsg = `[${new Date().toISOString()}] FROM VIDEO BUTTON CLICKED - selectedVideo: ${window.selectedVideo || 'null'}, selectedVideoUrl: ${window.selectedVideoUrl || 'null'}, selectAudioFromVideo exists: ${typeof window.selectAudioFromVideo}, ensureAuthToken exists: ${typeof window.ensureAuthToken}\n`;
               const fs = require('fs');
               const path = require('path');
               const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
@@ -778,19 +910,41 @@
           on('.url-clear-btn[data-action="audio-url-clear"]', function(){ try{ clearAudioUrl(); }catch(_){ } });
           
           // Lipsync button
+          const lipsyncBtn = document.querySelector('#lipsyncBtn');
+          console.log('Lipsync button found:', !!lipsyncBtn, 'disabled:', lipsyncBtn?.disabled);
+          debugLog('lipsync_button_setup', { 
+            buttonFound: !!lipsyncBtn, 
+            disabled: lipsyncBtn?.disabled,
+            textContent: lipsyncBtn?.textContent 
+          });
+          
           on('#lipsyncBtn', function(){ 
             try{ 
+              console.log('Lipsync button clicked!');
+              debugLog('lipsync_button_clicked', { timestamp: new Date().toISOString() });
+              
               // Disable button immediately
               const btn = document.getElementById('lipsyncBtn');
               if (btn) {
                 btn.disabled = true;
                 btn.textContent = 'submitting...';
+                console.log('Button disabled and text changed to submitting...');
+              } else {
+                console.error('Lipsync button not found when trying to disable it');
               }
               if (window.showToast) {
                 window.showToast('submitting...', 'info');
               }
-              startLipsync(); 
-            }catch(_){ } 
+              console.log('About to call startLipsync()');
+              if (window.startLipsync) {
+                window.startLipsync();
+              } else {
+                console.error('startLipsync function not found on window');
+                debugLog('lipsync_function_missing', { startLipsyncAvailable: false });
+              } 
+            }catch(e){ 
+              console.error('Error in lipsync button handler:', e);
+            } 
           });
 
           // Close stub menus on outside click
@@ -811,6 +965,17 @@
       (function ensureDnDZones(){
         try{
           if (typeof initDragAndDrop === 'function') initDragAndDrop();
+        }catch(_){ }
+      })();
+
+      // Start offline checking when DOM is ready
+      (function startOfflineCheck(){
+        try{
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startOfflineChecking);
+          } else {
+            startOfflineChecking();
+          }
         }catch(_){ }
       })();
 

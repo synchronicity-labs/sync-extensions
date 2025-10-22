@@ -7,8 +7,8 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               type: 'scheduleEstimate_called',
-              selectedVideo: selectedVideo || '',
-              selectedAudio: selectedAudio || '',
+              selectedVideo: window.selectedVideo || '',
+              selectedAudio: window.selectedAudio || '',
               uploadedVideoUrl: window.uploadedVideoUrl || '',
               uploadedAudioUrl: window.uploadedAudioUrl || '',
               hostConfig: window.HOST_CONFIG
@@ -47,8 +47,8 @@
               type: 'estimateCost_called',
               auto: auto,
               retry: retry,
-              selectedVideo: selectedVideo || '',
-              selectedAudio: selectedAudio || '',
+              selectedVideo: window.selectedVideo || '',
+              selectedAudio: window.selectedAudio || '',
               uploadedVideoUrl: window.uploadedVideoUrl || '',
               uploadedAudioUrl: window.uploadedAudioUrl || '',
               hostConfig: window.HOST_CONFIG
@@ -57,8 +57,8 @@
         } catch(_){ }
         
         try{
-          // Before selection: show $0.00
-          if ((!selectedVideo && !selectedVideoUrl) || (!selectedAudio && !selectedAudioUrl)) {
+          // Before selection: show $0.00 only when BOTH video and audio are missing
+          if ((!window.selectedVideo && !window.selectedVideoUrl) && (!window.selectedAudio && !window.selectedAudioUrl)) {
             // Debug logging
             try {
               fetch('http://127.0.0.1:3000/debug', {
@@ -66,8 +66,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   type: 'cost_estimation_no_files',
-                  selectedVideo: selectedVideo || '',
-                  selectedAudio: selectedAudio || '',
+                  selectedVideo: window.selectedVideo || '',
+                  selectedAudio: window.selectedAudio || '',
                   hostConfig: window.HOST_CONFIG
                 })
               }).catch(() => {});
@@ -80,13 +80,61 @@
             return;
           }
           const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-          const apiKey = settings.apiKey||'';
+          const apiKey = settings.syncApiKey || '';
           // Check if we have uploaded URLs, direct URLs, OR local file paths for cost estimation
           const hasUploadedUrls = !!(window.uploadedVideoUrl && window.uploadedAudioUrl);
           const hasDirectUrls = !!(window.selectedVideoUrl && window.selectedAudioUrl);
-          const hasLocalFiles = !!(selectedVideo && selectedAudio);
-          const hasMixedInputs = (window.selectedVideoUrl && selectedAudio) || (selectedVideo && window.selectedAudioUrl);
+          const hasLocalFiles = !!(window.selectedVideo && window.selectedAudio);
+          const hasMixedInputs = (window.selectedVideoUrl && window.selectedAudio) || (window.selectedVideo && window.selectedAudioUrl);
           const canEstimate = hasUploadedUrls || hasDirectUrls || hasLocalFiles || hasMixedInputs;
+          
+          // Debug logging for URL state
+          if (window.uploadedVideoUrl || window.uploadedAudioUrl) {
+            console.log('[Cost Estimation] URL state:', {
+              uploadedVideoUrl: window.uploadedVideoUrl,
+              uploadedAudioUrl: window.uploadedAudioUrl,
+              hasUploadedUrls: hasUploadedUrls
+            });
+          }
+          
+          // Show "estimating..." immediately when files are selected, even if uploads are in progress
+          const hasFilesSelected = !!(window.selectedVideo || window.selectedVideoUrl) && !!(window.selectedAudio || window.selectedAudioUrl);
+          if (hasFilesSelected && !canEstimate) {
+            if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
+            try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
+            
+            // Debug logging
+            try {
+              fetch('http://127.0.0.1:3000/debug', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'cost_estimation_files_selected_waiting_upload',
+                  selectedVideo: window.selectedVideo || '',
+                  selectedAudio: window.selectedAudio || '',
+                  uploadedVideoUrl: window.uploadedVideoUrl || '',
+                  uploadedAudioUrl: window.uploadedAudioUrl || '',
+                  hasUploadedUrls: hasUploadedUrls,
+                  hasLocalFiles: hasLocalFiles,
+                  canEstimate: canEstimate,
+                  hostConfig: window.HOST_CONFIG
+                })
+              }).catch(() => {});
+            } catch(_){ }
+            
+            // Retry after a delay if files still not ready, but limit retries
+            if (retry !== false && (retry === undefined || retry < 30)) {
+              setTimeout(() => estimateCost(auto, (retry || 0) + 1), 2000);
+            } else if (retry >= 30) {
+              // After 30 retries (60 seconds), show error
+              if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> $0.00'; }
+              if (typeof window.showToast === 'function') {
+                window.showToast('upload timeout - please try again', 'error');
+              }
+              try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> $0.00'; }catch(_){ }
+            }
+            return;
+          }
           
           // Debug logging for URL state
           try {
@@ -148,7 +196,7 @@
                   type: 'cost_estimation_waiting',
                   uploadedVideoUrl: window.uploadedVideoUrl || '',
                   uploadedAudioUrl: window.uploadedAudioUrl || '',
-                  hasUrls: hasUrls,
+                  hasUploadedUrls: hasUploadedUrls,
                   hasLocalFiles: hasLocalFiles,
                   canEstimate: canEstimate,
                   retry: retry,
@@ -177,25 +225,25 @@
           } else if (hasUploadedUrls) {
             console.log('[Cost] Using uploaded URLs for estimation:', { uploadedVideoUrl: window.uploadedVideoUrl, uploadedAudioUrl: window.uploadedAudioUrl });
           } else if (hasLocalFiles) {
-            console.log('[Cost] Using local file paths for estimation:', { selectedVideo, selectedAudio });
+            console.log('[Cost] Using local file paths for estimation:', { selectedVideo: window.selectedVideo, selectedAudio: window.selectedAudio });
           } else if (hasMixedInputs) {
             console.log('[Cost] Using mixed inputs for estimation:', { 
-              video: window.selectedVideoUrl || selectedVideo, 
-              audio: window.selectedAudioUrl || selectedAudio 
+              video: window.selectedVideoUrl || window.selectedVideo, 
+              audio: window.selectedAudioUrl || window.selectedAudio 
             });
           }
           if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
           try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
           const body = {
-            videoPath: selectedVideo || '',
-            audioPath: selectedAudio || '',
+            videoPath: window.selectedVideo || '',
+            audioPath: window.selectedAudio || '',
             videoUrl: window.uploadedVideoUrl || window.selectedVideoUrl || '',
             audioUrl: window.uploadedAudioUrl || window.selectedAudioUrl || '',
             model: (document.querySelector('input[name="model"]:checked')||{}).value || 'lipsync-2-pro',
             temperature: parseFloat(document.getElementById('temperature').value),
             activeSpeakerOnly: document.getElementById('activeSpeakerOnly').checked,
             detectObstructions: document.getElementById('detectObstructions').checked,
-            apiKey,
+            syncApiKey: apiKey,
             options: {
               sync_mode: (document.getElementById('syncMode')||{}).value || 'loop',
               temperature: parseFloat(document.getElementById('temperature').value),
@@ -317,7 +365,7 @@
       // When backend is ready, if both inputs were already selected, re-estimate cost
       try {
         window.addEventListener('sync-backend-ready', function(){
-          try { if (selectedVideo && selectedAudio) scheduleEstimate(); } catch(_){ }
+          try { if (window.selectedVideo && window.selectedAudio) scheduleEstimate(); } catch(_){ }
         });
       } catch(_){ }
 
