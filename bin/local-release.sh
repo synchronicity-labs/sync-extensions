@@ -67,9 +67,11 @@ copy_common_files() {
   # Bundled Node binaries for local spawn
   rsync -a --delete \
     "$REPO_DIR/bin/" "$dest/bin/" || true
-  # Copy .env if it exists
+  # Copy .env if it exists (check both repo root and server directory)
   if [ -f "$REPO_DIR/.env" ]; then
     rsync -a "$REPO_DIR/.env" "$dest/.env"
+  elif [ -f "$REPO_DIR/server/.env" ]; then
+    rsync -a "$REPO_DIR/server/.env" "$dest/.env"
   fi
 }
 
