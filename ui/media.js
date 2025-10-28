@@ -2466,16 +2466,22 @@
       }
 
       async function selectAudioFromVideo() {
-        // Log to debug file for CEP debugging
-        try {
-          const debugMsg = `[${new Date().toISOString()}] selectAudioFromVideo called - selectedVideo: ${selectedVideo || 'null'}, selectedVideoUrl: ${selectedVideoUrl || 'null'}\n`;
-          const fs = require('fs');
-          const path = require('path');
-          const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
-          fs.appendFileSync(debugFile, debugMsg);
-        } catch(e) {}
+        // Temporarily stop offline checking during extraction
+        if (typeof stopOfflineChecking === 'function') {
+          stopOfflineChecking();
+        }
         
         try {
+          // Log to debug file for CEP debugging
+          try {
+            const debugFile = window.getDebugLogPath();
+            if (debugFile) {
+              const debugMsg = `[${new Date().toISOString()}] selectAudioFromVideo called - selectedVideo: ${window.selectedVideo || 'null'}, selectedVideoUrl: ${window.selectedVideoUrl || 'null'}\n`;
+              const fs = require('fs');
+              fs.appendFileSync(debugFile, debugMsg);
+            }
+          } catch(e) {}
+          
           // Check if video is selected
           if (!window.selectedVideo && !window.selectedVideoUrl) {
             console.log('No video selected');
@@ -2497,11 +2503,12 @@
           
           // Debug logging for DOM elements
           try {
-            const debugMsg = `[${new Date().toISOString()}] DOM elements check - renderAudio: ${renderAudioEl ? 'found' : 'null'}, settings.syncApiKey: ${settings.syncApiKey ? 'found' : 'null'}\n`;
-            const fs = require('fs');
-            const path = require('path');
-            const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
-            fs.appendFileSync(debugFile, debugMsg);
+            const debugFile = window.getDebugLogPath();
+            if (debugFile) {
+              const debugMsg = `[${new Date().toISOString()}] DOM elements check - renderAudio: ${renderAudioEl ? 'found' : 'null'}, settings.syncApiKey: ${settings.syncApiKey ? 'found' : 'null'}\n`;
+              const fs = require('fs');
+              fs.appendFileSync(debugFile, debugMsg);
+            }
           } catch(e) {}
           
           const audioFormat = renderAudioEl ? renderAudioEl.value : 'wav';
@@ -2534,16 +2541,29 @@
           console.log('Making request to extract-audio endpoint...');
           let response;
           try {
-            response = await fetch('http://127.0.0.1:3000/extract-audio', {
-              method: 'POST',
-              headers: window.authHeaders({'Content-Type': 'application/json'}),
-              body: JSON.stringify(body)
-            });
+            const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+            const fetchFn = typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch;
+            const timeoutMs = typeof fetchWithTimeout === 'function' ? 300000 : undefined;
+            
+            if (timeoutMs) {
+              response = await fetchFn(`http://127.0.0.1:${port}/extract-audio`, {
+                method: 'POST',
+                headers: window.authHeaders({'Content-Type': 'application/json'}),
+                body: JSON.stringify(body)
+              }, timeoutMs);
+            } else {
+              response = await fetchFn(`http://127.0.0.1:${port}/extract-audio`, {
+                method: 'POST',
+                headers: window.authHeaders({'Content-Type': 'application/json'}),
+                body: JSON.stringify(body)
+              });
+            }
             console.log('Response received:', response.status, response.statusText);
           } catch (error) {
             console.error('Fetch error:', error);
             if (typeof window.showToast === 'function') {
-              window.showToast('network error: ' + error.message, 'error');
+              const errorMsg = error.name === 'AbortError' ? 'Request timeout - server may be offline' : 'network error: ' + error.message;
+              window.showToast(errorMsg, 'error');
             }
             return;
           }
@@ -2594,11 +2614,24 @@
             const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
             const uploadBody = { path: window.selectedAudio, apiKey: settings.syncApiKey || '' };
             
-            const uploadResponse = await fetch('http://127.0.0.1:3000/upload', {
-              method: 'POST',
-              headers: window.authHeaders({'Content-Type': 'application/json'}),
-              body: JSON.stringify(uploadBody)
-            });
+            const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+            const fetchFn = typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch;
+            const timeoutMs = typeof fetchWithTimeout === 'function' ? 300000 : undefined;
+            
+            let uploadResponse;
+            if (timeoutMs) {
+              uploadResponse = await fetchFn(`http://127.0.0.1:${port}/upload`, {
+                method: 'POST',
+                headers: window.authHeaders({'Content-Type': 'application/json'}),
+                body: JSON.stringify(uploadBody)
+              }, timeoutMs);
+            } else {
+              uploadResponse = await fetchFn(`http://127.0.0.1:${port}/upload`, {
+                method: 'POST',
+                headers: window.authHeaders({'Content-Type': 'application/json'}),
+                body: JSON.stringify(uploadBody)
+              });
+            }
             
             const uploadResult = await uploadResponse.json().catch(() => null);
             
@@ -2616,17 +2649,30 @@
         } catch (error) {
           // Log error to debug file for CEP debugging
           try {
-            const errorMsg = `[${new Date().toISOString()}] Audio extraction error: ${error.message}\n`;
-            const fs = require('fs');
-            const path = require('path');
-            const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
-            fs.appendFileSync(debugFile, errorMsg);
+            const debugFile = window.getDebugLogPath();
+            if (debugFile) {
+              const errorMsg = `[${new Date().toISOString()}] Audio extraction error: ${error.message}\n`;
+              const fs = require('fs');
+              fs.appendFileSync(debugFile, errorMsg);
+            }
           } catch(e) {}
           
-          if (typeof window.showToast === 'function') {
-            window.showToast('audio extraction failed', 'error');
-          }
           console.error('Audio extraction error:', error);
+          
+          if (typeof window.showToast === 'function') {
+            let errorMessage = 'audio extraction failed';
+            if (error.name === 'AbortError' || error.message.includes('timeout')) {
+              errorMessage = 'request timeout - server may be offline';
+            } else if (error.message) {
+              errorMessage = 'audio extraction failed: ' + error.message;
+            }
+            window.showToast(errorMessage, 'error');
+          }
+        } finally {
+          // Resume offline checking after extraction
+          if (typeof startOfflineChecking === 'function') {
+            startOfflineChecking();
+          }
         }
       }
 

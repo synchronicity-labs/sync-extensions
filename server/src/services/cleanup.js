@@ -28,7 +28,7 @@ export async function cleanupOldFiles(dirPath, maxAgeMs = 24 * 60 * 60 * 1000) {
             cleanedCount++;
             await tlog('cleanup:removed', filePath, 'age=', Math.round((now - stats.mtime.getTime()) / 1000 / 60), 'min');
           }
-        } catch(e) {
+        } catch (e) {
           await tlog('cleanup:error', filePath, e && e.message ? e.message : String(e));
         }
       }));
@@ -41,7 +41,7 @@ export async function cleanupOldFiles(dirPath, maxAgeMs = 24 * 60 * 60 * 1000) {
     if (cleanedCount > 0) {
       await tlog('cleanup:completed', dirPath, 'removed=', cleanedCount, 'files');
     }
-  } catch(e) {
+  } catch (e) {
     await tlog('cleanup:failed', dirPath, e && e.message ? e.message : String(e));
   }
 }

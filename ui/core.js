@@ -64,6 +64,11 @@
       
       // Timeout wrapper for fetch requests to prevent hanging
       async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+        // Fallback for environments without AbortController (CEP compatibility)
+        if (typeof AbortController === 'undefined') {
+          return fetch(url, options);
+        }
+        
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         
@@ -86,8 +91,8 @@
       // Check server status
       async function checkServerStatus() {
         try {
-          const response = await fetchWithTimeout('http://127.0.0.1:3000/health', {}, 3000);
-          if (response.ok) {
+          const response = await fetchWithTimeout('http://127.0.0.1:3000/health', {}, 5000);
+          if (response && response.ok) {
             consecutiveFailures = 0; // Reset failure count
             if (isOffline) {
               setOfflineState(false);
@@ -95,7 +100,7 @@
             return true;
           }
         } catch (error) {
-          // Server is down
+          // Server is down or network error
         }
         
         consecutiveFailures++;
@@ -193,6 +198,7 @@
         }
       }
       
+      
       // Per-install auth token for local server
       let __authToken = '';
       async function ensureAuthToken(){
@@ -216,6 +222,46 @@
       // Expose auth functions globally for media.js and other modules
       window.ensureAuthToken = ensureAuthToken;
       window.authHeaders = authHeaders;
+      
+      // Expose getServerPort globally with fallback
+      window.getServerPort = window.getServerPort || function() {
+        return window.__syncServerPort || 3000;
+      };
+      
+      // Helper to get the correct debug log file path based on host
+      window.getDebugLogPath = function() {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const os = require('os');
+          
+          // Get logs directory
+          const home = os.homedir();
+          const logsDir = process.platform === 'win32' 
+            ? path.join(home, 'AppData', 'Roaming', 'sync. extensions', 'logs')
+            : path.join(home, 'Library', 'Application Support', 'sync. extensions', 'logs');
+          
+          // Check if debug is enabled
+          const debugFlag = path.join(logsDir, 'debug.enabled');
+          if (!fs.existsSync(debugFlag)) {
+            return null; // Debug logging disabled
+          }
+          
+          // Determine host and return appropriate log file
+          const isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+          const isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === 'PPRO';
+          
+          if (isAE) {
+            return path.join(logsDir, 'sync_ae_debug.log');
+          } else if (isPPRO) {
+            return path.join(logsDir, 'sync_ppro_debug.log');
+          } else {
+            return path.join(logsDir, 'sync_server_debug.log');
+          }
+        } catch (e) {
+          return null;
+        }
+      };
       
       // UI logger removed - logging handled by file-based system per debug.md
       
@@ -852,11 +898,12 @@
           on('.audio-upload .action-btn[data-action="audio-from-video"]', async function(){ 
             // Log to debug file for CEP debugging
             try {
-              const debugMsg = `[${new Date().toISOString()}] FROM VIDEO BUTTON CLICKED - selectedVideo: ${window.selectedVideo || 'null'}, selectedVideoUrl: ${window.selectedVideoUrl || 'null'}, selectAudioFromVideo exists: ${typeof window.selectAudioFromVideo}, ensureAuthToken exists: ${typeof window.ensureAuthToken}\n`;
-              const fs = require('fs');
-              const path = require('path');
-              const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
-              fs.appendFileSync(debugFile, debugMsg);
+              const debugFile = window.getDebugLogPath();
+              if (debugFile) {
+                const debugMsg = `[${new Date().toISOString()}] FROM VIDEO BUTTON CLICKED - selectedVideo: ${window.selectedVideo || 'null'}, selectedVideoUrl: ${window.selectedVideoUrl || 'null'}, selectAudioFromVideo exists: ${typeof window.selectAudioFromVideo}, ensureAuthToken exists: ${typeof window.ensureAuthToken}\n`;
+                const fs = require('fs');
+                fs.appendFileSync(debugFile, debugMsg);
+              }
             } catch(e) {}
             
             try {
@@ -865,21 +912,23 @@
               } else {
                 // Log error to debug file
                 try {
-                  const errorMsg = `[${new Date().toISOString()}] ERROR: window.selectAudioFromVideo is not a function!\n`;
-                  const fs = require('fs');
-                  const path = require('path');
-                  const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
-                  fs.appendFileSync(debugFile, errorMsg);
+                  const debugFile = window.getDebugLogPath();
+                  if (debugFile) {
+                    const errorMsg = `[${new Date().toISOString()}] ERROR: window.selectAudioFromVideo is not a function!\n`;
+                    const fs = require('fs');
+                    fs.appendFileSync(debugFile, errorMsg);
+                  }
                 } catch(e) {}
               }
             } catch (e) {
               // Log error to debug file
               try {
-                const errorMsg = `[${new Date().toISOString()}] ERROR in selectAudioFromVideo: ${e.message}\n`;
-                const fs = require('fs');
-                const path = require('path');
-                const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
-                fs.appendFileSync(debugFile, errorMsg);
+                const debugFile = window.getDebugLogPath();
+                if (debugFile) {
+                  const errorMsg = `[${new Date().toISOString()}] ERROR in selectAudioFromVideo: ${e.message}\n`;
+                  const fs = require('fs');
+                  fs.appendFileSync(debugFile, errorMsg);
+                }
               } catch(e) {}
             }
           });

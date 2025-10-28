@@ -457,11 +457,26 @@
         try {
           const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
           await window.ensureAuthToken();
-          const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
-            method: 'POST',
-            headers: window.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
-          });
+          
+          const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+          const fetchFn = typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch;
+          const timeoutMs = typeof fetchWithTimeout === 'function' ? 300000 : undefined;
+          
+          let uploadResp;
+          if (timeoutMs) {
+            uploadResp = await fetchFn(`http://127.0.0.1:${port}/upload`, {
+              method: 'POST',
+              headers: window.authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
+            }, timeoutMs);
+          } else {
+            uploadResp = await fetchFn(`http://127.0.0.1:${port}/upload`, {
+              method: 'POST',
+              headers: window.authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
+            });
+          }
+          
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
             window.selectedVideoUrl = uploadData.url;
@@ -964,11 +979,26 @@
         try {
           const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
           await window.ensureAuthToken();
-          const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
-            method: 'POST',
-            headers: window.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
-          });
+          
+          const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+          const fetchFn = typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch;
+          const timeoutMs = typeof fetchWithTimeout === 'function' ? 300000 : undefined;
+          
+          let uploadResp;
+          if (timeoutMs) {
+            uploadResp = await fetchFn(`http://127.0.0.1:${port}/upload`, {
+              method: 'POST',
+              headers: window.authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
+            }, timeoutMs);
+          } else {
+            uploadResp = await fetchFn(`http://127.0.0.1:${port}/upload`, {
+              method: 'POST',
+              headers: window.authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ path: result.path, apiKey: settings.syncApiKey || '' })
+            });
+          }
+          
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
             window.selectedAudioUrl = uploadData.url;
@@ -1095,10 +1125,22 @@
         blobSize: blob.size
       });
       
-      const response = await fetch('http://127.0.0.1:3000/recording/save', {
-        method: 'POST',
-        body: formData
-      });
+      const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+      const fetchFn = typeof fetchWithTimeout === 'function' ? fetchWithTimeout : fetch;
+      const timeoutMs = typeof fetchWithTimeout === 'function' ? 300000 : undefined;
+      
+      let response;
+      if (timeoutMs) {
+        response = await fetchFn(`http://127.0.0.1:${port}/recording/save`, {
+          method: 'POST',
+          body: formData
+        }, timeoutMs);
+      } else {
+        response = await fetchFn(`http://127.0.0.1:${port}/recording/save`, {
+          method: 'POST',
+          body: formData
+        });
+      }
 
       console.log('Server response:', response.status, response.statusText);
 
@@ -1118,6 +1160,9 @@
       }
     } catch (error) {
       console.error('Save recorded file error:', error);
+      if (error.name === 'AbortError' || error.message.includes('timeout')) {
+        throw new Error('Request timeout - server may be offline or processing is taking too long');
+      }
       throw error;
     }
   }

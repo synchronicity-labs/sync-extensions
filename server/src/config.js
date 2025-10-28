@@ -79,11 +79,11 @@ export const DIRS = {
 };
 
 // Initialize directories with silent logging
-try { fs.mkdirSync(DIRS.logs, { recursive: true }); } catch(e){}
-try { fs.mkdirSync(DIRS.cache, { recursive: true }); } catch(_){}
-try { fs.mkdirSync(DIRS.state, { recursive: true }); } catch(e){}
-try { fs.mkdirSync(DIRS.uploads, { recursive: true }); } catch(_){}
-try { fs.mkdirSync(DIRS.updates, { recursive: true }); } catch(e){}
+try { fs.mkdirSync(DIRS.logs, { recursive: true }); } catch (e){}
+try { fs.mkdirSync(DIRS.cache, { recursive: true }); } catch (_){}
+try { fs.mkdirSync(DIRS.state, { recursive: true }); } catch (e){}
+try { fs.mkdirSync(DIRS.uploads, { recursive: true }); } catch (_){}
+try { fs.mkdirSync(DIRS.updates, { recursive: true }); } catch (e){}
 
 export const HOST = process.env.HOST || '127.0.0.1';
 export const DEFAULT_PORT = 3000;

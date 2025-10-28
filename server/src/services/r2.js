@@ -64,7 +64,7 @@ async function r2UploadInternal(localPath){
       expiresIn: 3600,
       signableHeaders: new Set(['host']),
       unsignableHeaders: new Set(['host'])
-    }).catch((signError) => {
+    }).catch ((signError) => {
       slog(`sign error ${signError.message}`);
       return `${R2_ENDPOINT_URL}/${R2_BUCKET}/${key}`;
     });
@@ -100,8 +100,8 @@ export async function r2Upload(localPath){
       r2UploadInternal(localPath),
       timeoutPromise
     ]);
-  } catch(e) {
-    try { tlog('r2Upload:error', e && e.message ? e.message : String(e)); } catch(_){}
+  } catch (e) {
+    try { tlog('r2Upload:error', e && e.message ? e.message : String(e)); } catch (_){}
     if (e.message && e.message.includes('EPIPE')) {
       throw new Error('Upload connection lost. Please try again.');
     }

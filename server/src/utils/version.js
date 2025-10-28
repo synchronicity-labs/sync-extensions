@@ -6,12 +6,12 @@ export function parseBundleVersion(xmlText){
   try{
     const m = /ExtensionBundleVersion\s*=\s*"([^"]+)"/i.exec(String(xmlText||''));
     if (m && m[1]) return m[1].trim();
-  }catch(_){ }
+  }catch (_){ }
   return '';
 }
 
 export function normalizeVersion(v){
-  try{ return String(v||'').trim().replace(/^v/i, ''); }catch(_){ return ''; }
+  try{ return String(v||'').trim().replace(/^v/i, ''); }catch (_){ return ''; }
 }
 
 export function compareSemver(a, b){
@@ -30,7 +30,7 @@ export async function getCurrentVersion(){
       const xml = fs.readFileSync(MANIFEST_PATH, 'utf8');
       const version = parseBundleVersion(xml);
       if (version) return version;
-    } catch(_) {}
+    } catch (_) {}
     
     const extensionsDir = path.join(EXT_ROOT, 'extensions');
     if (fs.existsSync(extensionsDir)) {
@@ -41,10 +41,10 @@ export async function getCurrentVersion(){
           const xml = fs.readFileSync(manifestPath, 'utf8');
           const version = parseBundleVersion(xml);
           if (version) return version;
-        } catch(_) {}
+        } catch (_) {}
       }
     }
     
     return '';
-  }catch(_){ return ''; }
+  }catch (_){ return ''; }
 }

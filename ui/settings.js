@@ -4,6 +4,9 @@
         return port;
       }
       
+      // Expose getServerPort globally for use in other modules
+      window.getServerPort = getServerPort;
+      
       // Checkmark management functions
       function showCheckmark(checkmarkId) {
         const checkmark = document.getElementById(checkmarkId);

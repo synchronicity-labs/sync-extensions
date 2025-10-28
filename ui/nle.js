@@ -45,6 +45,12 @@
           try {
             if (typeof require !== 'undefined') {
               var fs = require('fs');
+              var path = require('path');
+              // Only log if debug.enabled flag exists
+              var flagPath = path.join(path.dirname(logFilePath), 'debug.enabled');
+              if (!fs.existsSync(flagPath)) {
+                return; // Debug logging disabled
+              }
               fs.appendFileSync(logFilePath, new Date().toISOString() + ' ' + message + '\n');
             }
           } catch(e) {

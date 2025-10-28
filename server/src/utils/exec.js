@@ -48,20 +48,20 @@ export function execPowerShell(command, options = {}) {
         reject(error);
       });
     } else {
-      exec(command, options).then(resolve).catch(reject);
+      exec(command, options).then(resolve).catch (reject);
     }
   });
 }
 
 export async function runRobocopy(src, dest, filePattern){
   if (process.platform !== 'win32') { throw new Error('runRobocopy is Windows-only'); }
-  try { if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
+  try { if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true }); } catch (e){ try { tlog("silent catch:", e.message); } catch (_){} }
   const args = [`"${src}"`, `"${dest}"`];
   if (filePattern) args.push(`"${filePattern}"`);
   const baseCmd = `robocopy ${args.join(' ')} /E /NFL /NDL /NJH /NJS`;
   const psCmd = `$ErrorActionPreference='Stop'; ${baseCmd}; if ($LASTEXITCODE -lt 8) { exit 0 } else { exit $LASTEXITCODE }`;
-  try { tlog('robocopy start', baseCmd); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
+  try { tlog('robocopy start', baseCmd); } catch (e){ try { tlog("silent catch:", e.message); } catch (_){} }
   await execPowerShell(psCmd);
-  try { tlog('robocopy ok', baseCmd); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
+  try { tlog('robocopy ok', baseCmd); } catch (e){ try { tlog("silent catch:", e.message); } catch (_){} }
 }
 
