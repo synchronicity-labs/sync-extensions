@@ -1,235 +1,936 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="x-ua-compatible" content="ie=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>sync. extension</title>
-    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-        <link rel="stylesheet" href="ui/styles.css">
-    <script src="lib/CSInterface.js"></script>
+    <title>sync.</title>
+    <link rel="stylesheet" href="ui/styles.css" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script type="text/javascript" src="lib/CSInterface.js"></script>
+    
+    <!-- PostHog Analytics -->
+    <script>
+      (function(){
+        var s=document.createElement('script');
+        s.src='https://cdn.posthog.com/posthog.js'; 
+        s.async=true;
+        s.onload=function(){
+          // Get distinctId from server to ensure consistency
+          fetch('http://127.0.0.1:3000/telemetry/test')
+            .then(response => response.json())
+            .then(data => {
+              const distinctId = data.distinctId || 'unknown';
+              
+              posthog.init('phc_82dxgIiZvuUFV41LErIq8UGCNYmisHq8Fn3a4LGtsYO', {
+                api_host: 'https://us.i.posthog.com',
+                autocapture: false,           // be explicit about what you send
+                capture_pageview: false,      // panels aren't real pages
+                disable_session_recording: true, // turn ON later if you need replay
+                distinct_id: distinctId       // Use same ID as server
+              });
+              
+              // Track panel initialization
+              posthog.capture('ui_panel_loaded', {
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                distinctId: distinctId
+              });
+              
+              // Set up event listeners after PostHog is initialized
+              setupPostHogEventListeners();
+            })
+            .catch(error => {
+              console.warn('Failed to get distinctId from server, using fallback:', error);
+              // Fallback initialization
+              posthog.init('phc_82dxgIiZvuUFV41LErIq8UGCNYmisHq8Fn3a4LGtsYO', {
+                api_host: 'https://us.i.posthog.com',
+                autocapture: false,
+                capture_pageview: false,
+                disable_session_recording: true
+              });
+              
+              posthog.capture('ui_panel_loaded', {
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                fallback: true
+              });
+              
+              // Set up event listeners after PostHog is initialized
+              setupPostHogEventListeners();
+            });
+          
+          // Function to set up all PostHog event listeners
+          function setupPostHogEventListeners() {
+            // Track tab switches
+            document.querySelectorAll('.tab-switch').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const tab = btn.dataset.tab;
+                posthog.capture('ui_tab_switched', {
+                  tab: tab,
+                  timestamp: new Date().toISOString()
+                });
+              });
+            });
+            
+            // Track button clicks
+            document.querySelectorAll('[data-action]').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const action = btn.dataset.action;
+                posthog.capture('ui_button_clicked', {
+                  action: action,
+                  timestamp: new Date().toISOString()
+                });
+              });
+            });
+            
+            // Track model selection
+            document.querySelectorAll('input[name="model"]').forEach(radio => {
+              radio.addEventListener('change', () => {
+                if (radio.checked) {
+                  posthog.capture('ui_model_selected', {
+                    model: radio.value,
+                    timestamp: new Date().toISOString()
+                  });
+                }
+              });
+            });
+            
+            // Track settings changes
+            document.querySelectorAll('.api-key-input').forEach(input => {
+              input.addEventListener('input', () => {
+                const hasValue = input.value.length > 0;
+                posthog.capture('ui_api_key_entered', {
+                  field: input.id,
+                  hasValue: hasValue,
+                  timestamp: new Date().toISOString()
+                });
+              });
+            });
+            
+            // Track save location changes
+            document.querySelectorAll('[data-save-location]').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const location = btn.dataset.saveLocation;
+                posthog.capture('ui_save_location_changed', {
+                  location: location,
+                  timestamp: new Date().toISOString()
+                });
+              });
+            });
+            
+            // Track render format changes
+            document.querySelectorAll('[data-video-format], [data-audio-format]').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const format = btn.dataset.videoFormat || btn.dataset.audioFormat;
+                const type = btn.dataset.videoFormat ? 'video' : 'audio';
+                posthog.capture('ui_render_format_changed', {
+                  type: type,
+                  format: format,
+                  timestamp: new Date().toISOString()
+                });
+              });
+            });
+            
+            // Track lipsync button clicks
+            const lipsyncBtn = document.getElementById('lipsyncBtn');
+            if (lipsyncBtn) {
+              lipsyncBtn.addEventListener('click', () => {
+                posthog.capture('ui_run_clicked', {
+                  timestamp: new Date().toISOString()
+                });
+              });
+            }
+          }
+        };
+        document.head.appendChild(s);
+      })();
+    </script>
   </head>
   <body>
-    <div id="debugBanner" style="display:none;background:#7c3aed;color:#fff;padding:6px 10px;font-size:12px;text-align:center;">DEBUG: development build — cost via 127.0.0.1</div>
-    <div class="container">
-      <div class="header">
-        <img src="icons/sync_logo_text@2x.png" alt="sync." style="height: 24px; width: auto;">
-      </div>
+    <div class="app-container">
       
-      <div class="tabs">
-        <div class="tab active" onclick="showTab('sources')">sources</div>
-        <div class="tab" onclick="showTab('history')">history</div>
-        <div class="tab" onclick="showTab('settings')">settings</div>
-      </div>
-      
-      <div id="sources" class="tab-content active">
-        <!-- Video section -->
-        <div class="input-section video-section" id="videoSection">
-          <div class="input-dropzone" id="videoDropzone" onclick="selectVideo()">
-            <div class="dropzone-inner">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 3v12m0-12l-4 4m4-4l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="4" y="14" width="16" height="6" rx="2" stroke="currentColor" stroke-width="1.5"/>
-              </svg>
-              <p class="dropzone-title">drag and drop to upload</p>
-              <p class="dropzone-sub">mp4 and mov accepted</p>
-              <div class="dropzone-buttons">
-                <button class="btn btn-outline" onclick="event.stopPropagation(); selectVideo()">upload</button>
-                <button class="btn btn-outline" onclick="event.stopPropagation(); selectVideoInOut()">in/out points</button>
-              </div>
-            </div>
-          </div>
-          <div id="videoPreview" style="display: none;"></div>
+      <!-- Header -->
+      <div class="app-header">
+        <div class="header-section header-left">
+          <a href="https://sync.so" class="logo">
+            <img src="icons/white_icon.png" alt="sync." width="32" height="32" />
+          </a>
         </div>
 
-        <!-- Audio section -->
-        <div class="input-section audio-section" id="audioSection">
-          <div class="input-dropzone" id="audioDropzone" onclick="selectAudio()">
-            <div class="dropzone-inner">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 3v12m0-12l-4 4m4-4l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="4" y="14" width="16" height="6" rx="2" stroke="currentColor" stroke-width="1.5"/>
-              </svg>
-              <p class="dropzone-title">click to upload or drag audio file</p>
-              <p class="dropzone-sub">mp3 or wav accepted</p>
-              <div class="dropzone-buttons">
-                <button class="btn btn-outline" onclick="event.stopPropagation(); selectAudio()">upload</button>
-                <button class="btn btn-outline" onclick="event.stopPropagation(); selectAudioInOut()">in/out points</button>
-              </div>
-            </div>
-          </div>
-          <div id="audioPreview" style="display: none;"></div>
-        </div>
-
-        <!-- Bottom info container -->
-        <div class="bottom-info-container">
-          <div class="bottom-info-left">
-            <span id="costDisplay">cost: n/a</span>
-          </div>
-          <div class="bottom-info-center">
-            <span id="statusMessage">ready to lipsync</span>
-          </div>
-          <div class="bottom-info-right">
-            <span id="currentModel">lipsync-2-pro</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" onclick="showTab('settings')" style="cursor: pointer; margin-left: 8px;">
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+        <div class="header-section header-center">
+          <div class="tab-switcher">
+            <button class="tab-switch active" data-tab="sources">
+              <i data-lucide="film"></i>
+              <span>sources</span>
+            </button>
+            <button class="tab-switch" data-tab="history">
+              <i data-lucide="history"></i>
+              <span>history</span>
+            </button>
           </div>
         </div>
 
-        <!-- Lipsync button -->
-        <button class="lipsync-button" id="lipsyncBtn" onclick="startLipsync()" disabled>
-          <img src="icons/white_icon.png" alt="sync" style="height: 20px; width: auto; margin-right: 8px;">
-          lipsync
+        <div class="header-section header-right">
+          <div class="profile-menu">
+            <button class="profile-btn">
+              <img src="icons/avatar.png" alt="Profile" class="avatar" width="32" height="32" />
         </button>
-
-        <!-- Hidden elements -->
-        <div style="display:none;">
-          <button id="clearBtn" onclick="clearSelection()">clear</button>
-          <div id="postActions">
-            <button id="saveBtn" onclick="saveLatest()">save</button>
-            <button id="insertBtn" onclick="insertLatest()">insert</button>
+            <div class="profile-dropdown">
+              <div class="dropdown-content">
+                <div class="dropdown-item-wrapper">
+              <div class="dropdown-item" data-tab="settings">
+                    <i data-lucide="settings" style="color: #ff7700;"></i>
+                <span>extension settings</span>
+          </div>
+                </div>
+                <a href="https://sync.so/billing/subscription" class="dropdown-item" target="_blank" rel="noopener noreferrer">
+                  <i data-lucide="credit-card" style="color: #ff7700;"></i>
+                <span>billing</span>
+              </a>
+                <a href="https://sync.so/settings/api-keys" class="dropdown-item" target="_blank" rel="noopener noreferrer">
+                  <i data-lucide="key" style="color: #ff7700;"></i>
+                <span>api keys</span>
+              </a>
+                <a href="https://docs.sync.so/" class="dropdown-item" target="_blank" rel="noopener noreferrer">
+                  <i data-lucide="help-circle" style="color: #ff7700;"></i>
+                <span>docs and support</span>
+              </a>
+              <div class="dropdown-version">
+                  <p>
+                    v.0.4.0 ·
+                    <span class="update-link">check for updates</span>
+                  </p>
+                </div>
+      </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div id="history" class="tab-content">
-        <div class="tab-container">
-          <div id="historyList">
-            <div class="empty-state">
-              no generations yet
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="settings" class="tab-content">
-        <div class="tab-container">
-          <div class="settings-group">
-            <label class="settings-label">choose model</label>
-            <div class="radio-group" id="modelGroup">
-              <div class="radio-item">
-                <input type="radio" name="model" value="lipsync-2-pro" id="lipsync2pro" checked>
-                <label for="lipsync2pro">
-                  <div class="model-name">lipsync-2-pro</div>
-                  <div class="model-desc">lipsync-2 optimized for the highest resolution</div>
-                </label>
-                <span class="new-badge">new</span>
+      <!-- Content Wrapper -->
+      <div class="content-wrapper">
+        
+        <!-- Sources Tab -->
+        <div id="sources" class="tab-pane active">
+          <div class="sources-container">
+            
+            <!-- Video Upload -->
+            <div class="upload-box video-upload" id="videoSection">
+              <div id="videoDropzone" class="upload-content">
+                <div class="upload-visual">
+                  <div class="icon-group">
+                    <div class="icon-float rotate-15" style="top: 15.62px; left: 124.62px;">
+                      <i data-lucide="file-video" style="width: 39px; height: 39px; color: #525258;"></i>
+                    </div>
+                    <div class="icon-float rotate-neg-15" style="top: 24.41px; left: 69.4px;">
+                      <i data-lucide="clapperboard" style="width: 32px; height: 32px; color: #3b3b40;"></i>
+                    </div>
+                    <div class="icon-bg"></div>
+                    <i data-lucide="file-video-2" class="icon-main" style="width: 48px; height: 48px; color: #d4d4d4;"></i>
+                  </div>
+                  <p class="upload-text">drop video file here to upload</p>
+                </div>
+                <div class="upload-actions">
+                  <div class="action-row">
+                    <button class="action-btn" data-action="video-upload">
+                      <i data-lucide="upload"></i>
+                      <span>upload</span>
+                    </button>
+                    <button class="action-btn" data-action="video-inout">
+                      <i data-lucide="square-dashed-mouse-pointer"></i>
+                      <span>use in/out</span>
+                    </button>
+                  </div>
+                  <div class="action-row">
+                    <button class="action-btn" data-action="video-record">
+                      <i data-lucide="webcam"></i>
+                      <span>record</span>
+                    </button>
+                    <button class="action-btn" data-action="video-link">
+                      <i data-lucide="link"></i>
+                      <span>link url</span>
+                    </button>
+                  </div>
+                  <div class="url-input-container" id="videoUrlInput" style="display: none;">
+                    <div class="url-input-wrapper">
+                      <input type="url" class="url-input-field" id="videoUrlField" placeholder="paste video url here...">
+                      <button class="url-clear-btn" data-action="video-url-clear">
+                        <i data-lucide="x"></i>
+                      </button>
+                    </div>
+                    <button class="url-submit-btn" data-action="video-url-submit">
+                      <i data-lucide="cloud-download"></i>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div class="radio-item">
-                <input type="radio" name="model" value="lipsync-2" id="lipsync2">
-                <label for="lipsync2">
-                  <div class="model-name">lipsync-2</div>
-                  <div class="model-desc">best lipsync model, matches speaker style</div>
-                </label>
-              </div>
-              <div class="radio-item">
-                <input type="radio" name="model" value="lipsync-1.9.0-beta" id="lipsync19">
-                <label for="lipsync19">
-                  <div class="model-name">lipsync-1.9.0-beta</div>
-                  <div class="model-desc">our fastest lipsync model yet</div>
-                </label>
-              </div>
+              <div id="videoPreview" style="display: none;"></div>
             </div>
-          </div>
         
-        <div class="settings-group">
-          <label class="settings-label">preferences</label>
-          <div class="preference-item">
-            <label class="preference-label">temperature: <span id="tempValue">0.5</span></label>
-            <input type="range" class="slider" id="temperature" min="0" max="1" step="0.1" value="0.5">
-          </div>
-          
-          <div class="preference-item">
-            <label class="preference-label">lipsync only active speaker</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="activeSpeakerOnly">
-              <label for="activeSpeakerOnly" class="toggle-label"></label>
+            <!-- Audio Upload -->
+            <div class="upload-box audio-upload" id="audioSection">
+              <div id="audioDropzone" class="upload-content">
+                <div class="upload-visual">
+                  <div class="icon-group icon-group-audio">
+                    <div class="icon-float rotate-15" style="top: 15.62px; left: 124.62px;">
+                      <i data-lucide="audio-lines" style="width: 39px; height: 39px; color: #525258;"></i>
+                    </div>
+                    <div class="icon-float rotate-neg-15" style="top: 24.41px; left: 69.4px;">
+                      <i data-lucide="mic" style="width: 32px; height: 32px; color: #3b3b40;"></i>
+                    </div>
+                    <div class="icon-bg icon-bg-audio"></div>
+                    <i data-lucide="file-audio" class="icon-main" style="width: 48px; height: 48px; color: #d4d4d4;"></i>
+                  </div>
+                  <p class="upload-text">choose an audio to sync</p>
+                </div>
+                <div class="upload-actions">
+                  <div class="action-row">
+                    <button class="action-btn" data-action="audio-upload">
+                      <i data-lucide="upload"></i>
+                      <span>upload</span>
+                    </button>
+                    <button class="action-btn" data-action="audio-inout">
+                      <i data-lucide="square-dashed-mouse-pointer"></i>
+                      <span>use in/out</span>
+                    </button>
+                  </div>
+                  <div class="action-row">
+                    <button class="action-btn" data-action="audio-record">
+                      <i data-lucide="mic"></i>
+                      <span>record</span>
+                    </button>
+                    <button class="action-btn" data-action="audio-link">
+                      <i data-lucide="link"></i>
+                      <span>link url</span>
+                    </button>
+                  </div>
+                  <div class="url-input-container" id="audioUrlInput" style="display: none;">
+                    <div class="url-input-wrapper">
+                      <input type="url" class="url-input-field" id="audioUrlField" placeholder="paste audio url here...">
+                      <button class="url-clear-btn" data-action="audio-url-clear">
+                        <i data-lucide="x"></i>
+                      </button>
+                    </div>
+                    <button class="url-submit-btn" data-action="audio-url-submit">
+                      <i data-lucide="cloud-download"></i>
+                    </button>
+                  </div>
+                  <div class="action-row">
+                    <button class="action-btn" data-action="audio-from-video">
+                      <i data-lucide="video"></i>
+                      <span>from video</span>
+                    </button>
+                    <button class="action-btn" data-action="audio-tts">
+                      <i data-lucide="sparkles"></i>
+                      <span>from text</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div id="audioPreview" style="display: none;"></div>
+              
+              <!-- TTS Interface (hidden by default) -->
+              <div id="ttsInterface" class="tts-textarea" style="display: none;">
+                <button class="tts-close-x" id="ttsCloseX" title="Back to audio upload">
+                  <i data-lucide="x"></i>
+                </button>
+                <div class="tts-text-area">
+                  <textarea 
+                    id="ttsTextInput" 
+                    class="tts-text-input" 
+                    placeholder="add your text to speech here, choose voice below"
+                    maxlength="5000"
+                  ></textarea>
+                </div>
+                <div class="tts-controls">
+                  <div class="tts-controls-left">
+                    <button class="tts-btn" id="ttsUploadBtn">
+                      <i data-lucide="upload"></i>
+                    </button>
+                  </div>
+                  <div class="tts-controls-right">
+                    <div class="tts-duration">dur: <span id="ttsDuration">-</span></div>
+                    <button class="tts-voice-btn" id="ttsVoiceSelectBtn">
+                      <i data-lucide="user"></i>
+                      <span id="ttsSelectedVoice">rachel</span>
+                    </button>
+                    <button class="tts-btn" id="ttsSettingsBtn">
+                      <i data-lucide="sliders-horizontal"></i>
+                    </button>
+                    <button class="tts-preview-btn" id="ttsPreviewBtn">
+                      <i data-lucide="audio-lines"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="custom-dropdown-menu" id="ttsMenu" style="display: none;">
+                <div class="custom-dropdown-option" data-value="placeholder">
+                  <i data-lucide="type"></i>
+                  <span>text-to-speech (coming soon)</span>
+                </div>
+              </div>
+              <div class="custom-dropdown-menu" id="dubbingMenu" style="display: none;">
+                <div class="custom-dropdown-option" data-value="placeholder">
+                  <i data-lucide="audio-lines"></i>
+                  <span>dubbing (coming soon)</span>
+                </div>
+              </div>
             </div>
+            
+            <!-- Status and hidden inputs for existing logic -->
+            <p id="statusMessage"></p>
+            <input type="hidden" id="renderVideo" value="h264" />
+            <input type="hidden" id="renderAudio" value="wav" />
+            <input type="hidden" id="temperature" value="0.5" />
+            <input type="hidden" id="activeSpeakerOnly" />
+            <input type="hidden" id="detectObstructions" />
           </div>
-          
-          <div class="preference-item">
-            <label class="preference-label">detect obstructions</label>
-            <div class="toggle-switch">
-              <input type="checkbox" id="detectObstructions">
-              <label for="detectObstructions" class="toggle-label"></label>
+        </div>
+        
+        <!-- History Tab -->
+        <div id="history" class="tab-pane">
+          <div class="history-wrapper">
+            <div id="historyList" class="history-list-container">
+              <!-- History items will be rendered here by JavaScript -->
             </div>
           </div>
         </div>
 
-        <div class="settings-group">
-          <label class="settings-label">sync. mode</label>
-          <select id="syncMode" class="input-field">
-            <option value="loop">loop</option>
-            <option value="bounce">bounce</option>
-            <option value="cut_off">cut_off</option>
-            <option value="remap">remap</option>
-            <option value="silence">silence</option>
-          </select>
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-pane">
+          <div class="settings-container">
+            <div class="settings-header">
+              <div class="settings-tabs-nav">
+                <button class="settings-tab-btn active" data-settings-tab="global">
+                  <span>global settings</span>
+                  <div class="tab-underline"></div>
+                </button>
+                <button class="settings-tab-btn" data-settings-tab="render">
+                  <span>render settings</span>
+                  <div class="tab-underline"></div>
+                </button>
+              </div>
+            </div>
+            
+            <!-- Global Settings -->
+            <div id="global" class="settings-tab-pane active">
+              <div class="settings-section api-keys-section">
+                <h3 class="settings-section-title">api keys</h3>
+                <div class="api-keys-wrapper">
+                  <div class="api-key-row">
+                    <input type="password" id="syncApiKey" class="api-key-input" placeholder="sync. api key" data-key-prefix="sk-" />
+                    <div class="api-key-buttons">
+                      <i data-lucide="check" class="api-key-checkmark" id="syncApiKeyCheck"></i>
+                      <button class="api-key-btn copy-btn" title="Copy" data-target="syncApiKey">
+                        <i data-lucide="copy"></i>
+                  </button>
+                      <button class="api-key-btn info-btn" title="Info" data-url="https://docs.sync.so/quickstart#create-your-api-key">
+                        <i data-lucide="info"></i>
+                  </button>
+                </div>
+                  </div>
+                  <div class="api-key-row">
+                    <input type="password" id="elevenlabsApiKey" class="api-key-input" placeholder="elevenlabs api key" data-key-prefix="sk_" />
+                    <div class="api-key-buttons">
+                      <i data-lucide="check" class="api-key-checkmark" id="elevenlabsApiKeyCheck"></i>
+                      <button class="api-key-btn copy-btn" title="Copy" data-target="elevenlabsApiKey">
+                        <i data-lucide="copy"></i>
+                  </button>
+                      <button class="api-key-btn info-btn" title="Info" data-url="https://elevenlabs.io/app/settings/api-keys">
+                        <i data-lucide="info"></i>
+                  </button>
+                    </div>
+                  </div>
+                </div>
         </div>
         
-        <div class="settings-group">
-          <label class="settings-label">render video</label>
-          <select id="renderVideo" class="input-field">
-            <option value="h264">h.264 (match source)</option>
-            <option value="prores_422">prores 422 (match source)</option>
-            <option value="prores_422_proxy">prores 422 proxy (match source)</option>
-            <option value="prores_422_lt">prores 422 LT (match source)</option>
-            <option value="prores_422_hq">prores 422 HQ (match source)</option>
-          </select>
-        </div>
+              <div class="settings-section save-files-section">
+                <h3 class="settings-section-title">save files</h3>
+                <div class="save-files-grid">
+                  <button class="save-option active" data-save-location="project">
+                    <i data-lucide="list-video" style="width: 45px; height: 45px;"></i>
+                    <span>per project folder (sync. outputs)</span>
+                  </button>
+                  <button class="save-option" data-save-location="universal">
+                    <i data-lucide="folder-open-dot" style="width: 45px; height: 45px;"></i>
+                    <span>universal folder in ~/documents</span>
+                  </button>
+                </div>
+              </div>
+            </div>
 
-        <div class="settings-group">
-          <label class="settings-label">render audio</label>
-          <select id="renderAudio" class="input-field">
-            <option value="wav">wav (match timeline)</option>
-            <option value="mp3">mp3 (320 kbps)</option>
-          </select>
-        </div>
-        
-        <div class="settings-group">
-          <label class="settings-label">save location</label>
-          <div class="radio-group">
-            <div class="radio-item">
-              <input type="radio" name="saveLocation" value="project" id="saveProject" checked>
-              <label for="saveProject">per project folder (sync. outputs)</label>
+            <!-- Render Settings -->
+            <div id="render" class="settings-tab-pane">
+              <!-- Video Settings -->
+              <div class="settings-section render-video-section">
+                <h3 class="settings-section-title">video settings</h3>
+                <div class="render-grid">
+                  <button class="render-option video-option active" data-video-format="mp4">
+                    <span class="render-format-name">mp4</span>
+                    <span class="render-format-desc">h.264</span>
+                  </button>
+                  <div class="render-option video-option prores-container" data-video-format="prores">
+                    <div class="prores-header">
+                      <span class="render-format-name">prores</span>
+                    </div>
+                    <div class="prores-options">
+                      <button class="prores-option" data-prores-type="422">422</button>
+                      <button class="prores-option" data-prores-type="422hq">422 hq</button>
+                      <button class="prores-option" data-prores-type="422proxy">422 proxy</button>
+                      <button class="prores-option" data-prores-type="422lt">422 lt</button>
+                </div>
+              </div>
+                </div>
+                <p class="render-hint">need other codecs? <a href="mailto:hello@sync.so" target="_blank" rel="noopener noreferrer">let us know.</a></p>
+              </div>
+
+              <!-- Audio Settings -->
+              <div class="settings-section render-audio-section">
+                <h3 class="settings-section-title">audio settings</h3>
+                <div class="render-grid">
+                  <button class="render-option audio-option" data-audio-format="mp3">
+                    <span class="render-format-name">mp3</span>
+                    <span class="render-format-desc">320kbps</span>
+                  </button>
+                  <button class="render-option audio-option active" data-audio-format="wav">
+                    <span class="render-format-name">wav</span>
+                    <span class="render-format-desc">32bit</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="radio-item">
-              <input type="radio" name="saveLocation" value="documents" id="saveDocuments">
-              <label for="saveDocuments">universal folder in ~/Documents</label>
-            </div>
           </div>
         </div>
         
-        <div class="settings-group">
-          <label class="settings-label">api key</label>
-          <div style="position: relative;">
-            <input type="password" class="input-field with-checkmark" id="apiKey" placeholder="enter your sync.so api key">
-            <span class="input-checkmark" id="apiKeyCheck">✓</span>
-          </div>
         </div>
         
-        <div class="settings-group" id="updateSection">
-          <label class="settings-label">extension</label>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <div id="versionDisplay" style="color:#7a7a7a; font-size:11px; user-select:text;">version …</div>
-            <button class="btn btn-outline" id="checkUpdateBtn" onclick="checkForUpdate()">check updates</button>
-            <button class="btn" id="applyUpdateBtn" style="display:none;" onclick="applyUpdate()">update</button>
-          </div>
-          <div id="updateStatus" style="color:#7a7a7a; font-size:11px; margin-top:6px; display:none;"></div>
+      <!-- Bottom Bar -->
+      <div class="bottom-bar">
+        <div class="bottom-content">
+          <button class="model-btn" id="modelSelectorBtn">
+            <span id="currentModel">lipsync-2</span>
+            <i data-lucide="chevron-down"></i>
+            <div class="update-dot"></div>
+          </button>
+          <button class="lipsync-btn" id="lipsyncBtn" disabled>
+            <img src="icons/white_icon.png" alt="sync." width="16" height="16" />
+            <span>lipsync</span>
+          </button>
+        </div>
+        <p class="cost-display" id="costDisplay">
+          <span class="cost-label">est. cost:</span> $0.00
+        </p>
+        </div>
+        
         </div>
     
+      <!-- URL Input Modal -->
+      <div class="url-input-overlay" id="urlInputOverlay" style="display: none;">
+        <div class="url-input-modal">
+          <div class="url-input-content">
+            <button class="url-input-close" id="urlInputClose">
+              <i data-lucide="x"></i>
+            </button>
+            <div class="url-input-field-wrapper">
+              <input type="text" id="urlInput" class="url-input-field" placeholder="paste video url here..." autocomplete="off">
+              <button class="url-input-submit" id="urlInputSubmit">
+                <i data-lucide="arrow-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TTS Voice Selector Overlay -->
+      <div class="model-selector-overlay" id="ttsVoiceSelectorOverlay" style="display: none;">
+        <div class="model-selector-panel">
+          <div class="model-panel-handle"></div>
+          
+          <div class="model-selector-header">
+            <h3>choose voice</h3>
+            <button class="model-selector-close" id="ttsVoiceSelectorClose">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          
+          <!-- Search -->
+          <div class="tts-voice-search">
+            <i data-lucide="search" class="tts-voice-search-icon"></i>
+            <input type="text" id="ttsVoiceSearch" class="tts-voice-search-input" placeholder="find voice">
+          </div>
+          
+          <!-- Voice List with Clone Button -->
+          <div class="tts-voice-list-wrapper">
+            <div class="tts-voice-list" id="ttsVoiceList">
+              <div class="tts-voice-loading">
+                <div class="tts-progress-spinner"></div>
+                <span>loading voices...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- TTS Voice Settings Popup -->
+      <div class="tts-settings-popup" id="ttsSettingsPopup" style="display: none;">
+        <div class="tts-settings-content">
+          <h3 class="tts-settings-title">voice settings</h3>
+          
+          <div class="tts-setting-item">
+            <div class="tts-setting-header">
+              <span class="tts-setting-label">stability: <span id="ttsStabilityValue">0.5</span></span>
+              <button class="tts-setting-help">
+                <i data-lucide="help-circle"></i>
+              </button>
+            </div>
+            <div class="tts-slider-container">
+              <span class="tts-slider-min">0</span>
+              <input type="range" id="ttsStabilitySlider" class="tts-slider" min="0" max="1" step="0.01" value="0.5">
+              <span class="tts-slider-max">1</span>
+            </div>
+          </div>
+          
+          <div class="tts-setting-item">
+            <div class="tts-setting-header">
+              <span class="tts-setting-label">similarity boost: <span id="ttsSimilarityValue">0.8</span></span>
+              <button class="tts-setting-help">
+                <i data-lucide="help-circle"></i>
+              </button>
+            </div>
+            <div class="tts-slider-container">
+              <span class="tts-slider-min">0</span>
+              <input type="range" id="ttsSimilaritySlider" class="tts-slider" min="0" max="1" step="0.01" value="0.8">
+              <span class="tts-slider-max">1</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Voice Clone Modal -->
+      <div class="model-selector-overlay" id="ttsVoiceCloneOverlay" style="display: none;">
+        <div class="model-selector-panel">
+          <div class="model-panel-handle"></div>
+          
+          <div class="model-selector-header">
+            <h3>create custom voice</h3>
+            <button class="model-selector-close" id="ttsVoiceCloneClose">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          
+          <div class="tts-clone-content">
+            <!-- Voice Name Input -->
+            <div class="tts-clone-field">
+              <label class="tts-clone-label">voice name</label>
+              <input type="text" id="ttsCloneVoiceName" class="tts-clone-input" placeholder="custom voice 1" value="custom voice 1" />
+            </div>
+            
+            <!-- Upload/Record Area -->
+            <div class="tts-clone-upload-area">
+              <p class="tts-clone-upload-text">Upload or record audio sample</p>
+              <p class="tts-clone-upload-hint">mp3, max 10MB</p>
+              <div class="tts-clone-upload-buttons">
+                <button class="tts-clone-upload-btn" id="ttsCloneBrowseBtn">
+                  <i data-lucide="upload"></i>
+                  <span>browse</span>
+                </button>
+                <button class="tts-clone-upload-btn" id="ttsCloneRecordBtn">
+                  <i data-lucide="mic"></i>
+                  <span>record</span>
+                </button>
+              </div>
+            </div>
+            
+            <p class="tts-clone-divider-text">or extract sample from existing</p>
+            
+            <!-- Video Button -->
+            <button class="tts-clone-video-btn" id="ttsCloneFromVideoBtn">
+              <i data-lucide="video"></i>
+              <span>video</span>
+            </button>
+            
+            <!-- Voice Samples List -->
+            <div class="tts-clone-samples-section">
+              <label class="tts-clone-label">voice samples</label>
+              <div id="ttsCloneSamplesList" class="tts-clone-samples">
+                <!-- Sample items will be added dynamically -->
+                <div class="tts-clone-sample-item">
+                  <button class="tts-clone-sample-btn">
+                    <i data-lucide="play"></i>
+                    <span>sample2-recorded.mp3</span>
+                  </button>
+                  <button class="tts-clone-sample-delete">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+                <div class="tts-clone-sample-item">
+                  <button class="tts-clone-sample-btn">
+                    <i data-lucide="play"></i>
+                    <span>sample1-uploaded.mp3</span>
+                  </button>
+                  <button class="tts-clone-sample-delete">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="tts-clone-actions">
+              <button class="tts-clone-cancel-btn" id="ttsCloneCancelBtn">cancel</button>
+              <button class="tts-clone-save-btn" id="ttsCloneSaveBtn">save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model Selector Overlay -->
+      <div class="model-selector-overlay" id="modelSelectorOverlay">
+        <div class="model-selector-panel">
+          <div class="model-panel-handle"></div>
+          
+          <div class="model-selector-header">
+            <h3>choose model</h3>
+            <button class="model-selector-close" id="modelSelectorClose">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          
+          <div class="model-options">
+            <label class="model-option">
+              <input type="radio" name="model" value="lipsync-2-pro" />
+              <div class="model-option-icon"></div>
+              <div class="model-option-content">
+                <div class="model-option-title">
+                  <span class="model-name">lipsync-2-pro</span>
+                  <span class="model-badge">new</span>
+                </div>
+                <span class="model-desc">lipsync-2 optimized for the highest resolution</span>
+              </div>
+            </label>
+            
+            <label class="model-option">
+              <input type="radio" name="model" value="lipsync-2" />
+              <div class="model-option-icon">
+                <i data-lucide="check"></i>
+              </div>
+              <div class="model-option-content">
+                <div class="model-option-title">
+                  <span class="model-name">lipsync-2</span>
+                </div>
+                <span class="model-desc">our best model yet: high-rez, matches speaker style</span>
+              </div>
+            </label>
+            
+            <label class="model-option">
+              <input type="radio" name="model" value="lipsync-1.9.0-beta" />
+              <div class="model-option-icon"></div>
+              <div class="model-option-content">
+                <div class="model-option-title">
+                  <span class="model-name">lipsync-1.9.0-beta</span>
+                </div>
+                <span class="model-desc">our fastest lipsync model yet</span>
+              </div>
+            </label>
+          </div>
+          
+          <div class="model-divider"></div>
+          
+          <div class="model-section-title">preferences</div>
+          
+          <div class="model-settings">
+            <div class="model-setting-row">
+              <label class="model-setting-label">
+                <span>temperature: <span id="modelTempValue">0.5</span></span>
+                <div class="tooltip-wrapper">
+                  <i data-lucide="circle-help" class="model-info-icon"></i>
+                  <div class="tooltip">
+                    <strong>temperature</strong><br>
+                    controls generation randomness. higher temperature gets more creative results.
+                  </div>
+                </div>
+              </label>
+              <div class="model-slider-wrapper">
+                <input type="range" id="modelTemperature" class="model-slider" min="0" max="1" step="0.1" value="0.5" />
+              </div>
+            </div>
+            
+            <div class="model-setting-row model-setting-switch model-setting-dropdown">
+              <label class="model-setting-label">
+                <span>sync mode</span>
+                <div class="tooltip-wrapper">
+                  <i data-lucide="circle-help" class="model-info-icon"></i>
+                  <div class="tooltip">
+                    <strong>sync mode</strong><br>
+                    defines how to handle duration mismatches between video and audio inputs.
+                  </div>
+                </div>
+              </label>
+              <div class="custom-dropdown-wrapper">
+                <button type="button" class="custom-dropdown-trigger" id="syncModeBtn">
+                  <span id="syncModeValue">loop</span>
+                  <i data-lucide="chevron-down"></i>
+                </button>
+                <div class="custom-dropdown-menu" id="syncModeMenu">
+                  <div class="custom-dropdown-option" data-value="bounce">
+                    <i data-lucide="circle-dot"></i>
+                    <span>bounce</span>
+                  </div>
+                  <div class="custom-dropdown-option" data-value="loop">
+                    <i data-lucide="repeat"></i>
+                    <span>loop</span>
+                  </div>
+                  <div class="custom-dropdown-option" data-value="cutoff">
+                    <i data-lucide="scissors"></i>
+                    <span>cut off</span>
+                  </div>
+                  <div class="custom-dropdown-option" data-value="silence">
+                    <i data-lucide="mic-off"></i>
+                    <span>silence</span>
+                  </div>
+                  <div class="custom-dropdown-option" data-value="remap">
+                    <i data-lucide="copy-check"></i>
+                    <span>remap</span>
+                  </div>
+                </div>
+                <input type="hidden" id="syncMode" value="loop" />
+              </div>
+            </div>
+            
+            <div class="model-setting-row model-setting-switch">
+              <label class="model-setting-label">
+                <span>lipsync only active speaker</span>
+                <div class="tooltip-wrapper">
+                  <i data-lucide="circle-help" class="model-info-icon"></i>
+                  <div class="tooltip">
+                    <strong>active speaker detection (asd)</strong><br>
+                    when enabled, only detected active speaker will be lipsynced. it only works when source video has original audio.
+                  </div>
+                </div>
+              </label>
+              <label class="model-toggle">
+                <input type="checkbox" id="modelActiveSpeaker" />
+                <span class="model-toggle-slider"></span>
+              </label>
+            </div>
+            
+            <div class="model-setting-row model-setting-switch">
+              <label class="model-setting-label">
+                <span>detect obstructions</span>
+                <div class="tooltip-wrapper">
+                  <i data-lucide="circle-help" class="model-info-icon"></i>
+                  <div class="tooltip">
+                    <strong>obstructions</strong><br>
+                    when enabled, automatically detects objects covering the lower face (e.g., hands, microphones) and blends original frames using precise masks for smoother, natural results without artifacts.
+                  </div>
+                </div>
+              </label>
+              <label class="model-toggle">
+                <input type="checkbox" id="modelDetectObstructions" />
+                <span class="model-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    
+        <script src="ui/loader.js"></script>
         <script src="ui/nle.js"></script>
+        <script src="ui/dnd.js"></script>
+        <script src="ui/jobs.js"></script>
         <script src="ui/core.js"></script>
         <script src="ui/media.js"></script>
-        <script src="ui/dnd.js"></script>
         <script src="ui/host-detection.js"></script>
-        <script src="ui/history.js"></script>
-        <script src="ui/jobs.js"></script>
+        <script src="ui/thumbnails.js"></script>
+    <script src="ui/history.js"></script>
         <script src="ui/settings.js"></script>
         <script src="ui/cost.js"></script>
+        <script src="ui/tts.js"></script>
+        <script src="ui/recording.js"></script>
         <script src="ui/bootstrap.js"></script>
+        
+        <script>
+          // Initialize Lucide icons when DOM is ready
+          function initLucideIcons() {
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+              lucide.createIcons();
+            }
+          }
+          
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initLucideIcons);
+          } else {
+            initLucideIcons();
+          }
+        </script>
+    
+    <script>
+      // Tab switching
+      document.querySelectorAll('.tab-switch').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          
+          // Use showTab function to handle tab switching properly
+          if (typeof window.showTab === 'function') {
+            window.showTab(tab);
+          } else {
+            // Fallback to manual switching
+            document.querySelectorAll('.tab-switch').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+            document.getElementById(tab).classList.add('active');
+          }
+        });
+      });
+      
+      // Profile dropdown
+      const profileBtn = document.querySelector('.profile-btn');
+      const dropdown = document.querySelector('.profile-dropdown');
+      
+      profileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.classList.toggle('show');
+      });
+      
+      // Dropdown items with tab attribute
+      document.querySelectorAll('.dropdown-item[data-tab]').forEach(item => {
+        item.addEventListener('click', () => {
+          const tab = item.dataset.tab;
+          
+          // Clear all tabs
+          document.querySelectorAll('.tab-switch').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+          
+          // Show selected tab
+          document.getElementById(tab).classList.add('active');
+          
+          // Close dropdown
+          dropdown.classList.remove('show');
+        });
+      });
+      
+      document.addEventListener('click', () => {
+        dropdown.classList.remove('show');
+      });
+      
+      dropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      
+      // Settings tab switching
+      document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.settingsTab;
+          
+          // Update buttons
+          document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          
+          // Update panes
+          document.querySelectorAll('.settings-tab-pane').forEach(p => p.classList.remove('active'));
+          document.getElementById(tab).classList.add('active');
+        });
+      });
+    </script>
   </body>
 </html>

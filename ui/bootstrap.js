@@ -1,7 +1,9 @@
       (function(){
         async function init(){
           try { if (typeof loadSettings === 'function') loadSettings(); } catch(_){ }
+          try { if (typeof loadJobsLocal === 'function') loadJobsLocal(); } catch(_){ }
           try { if (typeof updateModelDisplay === 'function') updateModelDisplay(); } catch(_){ }
+          try { if (typeof updateFromVideoButton === 'function') updateFromVideoButton(); } catch(_){ }
           
           // Helper function to check health on a specific port
           async function checkHealth(port) {
@@ -64,6 +66,8 @@
             if (healthy && serverPort) {
               window.__syncServerPort = serverPort;
               try { window.dispatchEvent(new CustomEvent('sync-backend-ready', { detail: { port: serverPort, source: 'bootstrap' } })); } catch(_){ }
+              // Load jobs from server once backend is ready
+              try { if (typeof loadJobsFromServer === 'function') await loadJobsFromServer(); } catch(_){ }
             }
           } catch(e){ }
         }

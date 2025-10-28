@@ -1,53 +1,202 @@
       function saveJobsLocal() {
         try { localStorage.setItem('syncJobs', JSON.stringify(jobs)); } catch(_) {}
       }
-      function loadJobsLocal() {
+
+      function setLipsyncButtonState({ disabled, text }) {
+        try {
+          const btn = document.getElementById('lipsyncBtn');
+          if (!btn) return;
+          if (typeof disabled === 'boolean') {
+            btn.disabled = disabled;
+          }
+          if (typeof text === 'string') {
+            const label = btn.querySelector('span');
+            if (label) {
+              label.textContent = text;
+            }
+          }
+          if (window.debugLog) {
+            window.debugLog('lipsync_button_state', {
+              disabled: btn.disabled,
+              text: btn.querySelector('span')?.textContent
+            });
+          }
+        } catch(_){ }
+      }
+      window.loadJobsLocal = function loadJobsLocal() {
         try {
           const raw = localStorage.getItem('syncJobs');
-          if (raw) { jobs = JSON.parse(raw) || []; }
+          if (raw) { 
+            jobs = JSON.parse(raw) || []; 
+            window.jobs = jobs; // Update global reference
+          }
         } catch(_) {}
       }
 
       async function startLipsync() {
-        if (!selectedVideo || !selectedAudio) return;
+        console.log('[LIPSYNC] Function called - starting execution');
+        try {
+          if (window.debugLog) {
+            window.debugLog('startLipsync_called', { timestamp: new Date().toISOString() });
+          }
+        } catch (e) {
+          console.error('Error in startLipsync debug log:', e);
+        }
+        const resetLipsyncButton = () => setLipsyncButtonState({ disabled: false, text: 'lipsync' });
+        // Debug logging for job submission
+        console.log('[Job Submission] Starting lipsync with:', {
+          selectedVideo: window.selectedVideo,
+          selectedVideoUrl: window.selectedVideoUrl,
+          uploadedVideoUrl: window.uploadedVideoUrl,
+          selectedAudio: window.selectedAudio,
+          selectedAudioUrl: window.selectedAudioUrl,
+          uploadedAudioUrl: window.uploadedAudioUrl,
+          hasVideo: !!(window.selectedVideo || window.selectedVideoUrl || window.uploadedVideoUrl),
+          hasAudio: !!(window.selectedAudio || window.selectedAudioUrl || window.uploadedAudioUrl)
+        });
+        
+        // Debug: Check if R2 URLs are available for job submission
+        console.log('[Job Submission] R2 URL availability:', {
+          hasUploadedVideoUrl: !!window.uploadedVideoUrl,
+          hasUploadedAudioUrl: !!window.uploadedAudioUrl,
+          uploadedVideoUrlValue: window.uploadedVideoUrl,
+          uploadedAudioUrlValue: window.uploadedAudioUrl
+        });
+        
+        if (window.debugLog) {
+          window.debugLog('lipsync_start', {
+            selectedVideo: window.selectedVideo,
+            selectedAudio: window.selectedAudio,
+            hasVideo: !!(window.selectedVideo || window.selectedVideoUrl),
+            hasAudio: !!(window.selectedAudio || window.selectedAudioUrl)
+          });
+        }
+        
+        // Restore uploaded URLs from localStorage if window variables are empty
+        if (!window.uploadedVideoUrl) {
+          window.uploadedVideoUrl = localStorage.getItem('uploadedVideoUrl') || '';
+        }
+        if (!window.uploadedAudioUrl) {
+          window.uploadedAudioUrl = localStorage.getItem('uploadedAudioUrl') || '';
+        }
+        
+        // Restore selected URLs from localStorage if window variables are empty
+        if (!window.selectedVideoUrl) {
+          window.selectedVideoUrl = localStorage.getItem('selectedVideoUrl') || '';
+        }
+        if (!window.selectedAudioUrl) {
+          window.selectedAudioUrl = localStorage.getItem('selectedAudioUrl') || '';
+        }
+        
+        // Debug: Log the exact state before validation
+        console.log('[File Validation] Checking files:', {
+          selectedVideo: window.selectedVideo,
+          selectedVideoUrl: window.selectedVideoUrl,
+          uploadedVideoUrl: window.uploadedVideoUrl,
+          selectedAudio: window.selectedAudio,
+          selectedAudioUrl: window.selectedAudioUrl,
+          uploadedAudioUrl: window.uploadedAudioUrl
+        });
+        
+        // Debug: Check if uploaded URLs exist but are empty strings
+        console.log('[File Validation] Uploaded URL details:', {
+          uploadedVideoUrlType: typeof window.uploadedVideoUrl,
+          uploadedVideoUrlLength: window.uploadedVideoUrl ? window.uploadedVideoUrl.length : 0,
+          uploadedVideoUrlValue: window.uploadedVideoUrl,
+          uploadedAudioUrlType: typeof window.uploadedAudioUrl,
+          uploadedAudioUrlLength: window.uploadedAudioUrl ? window.uploadedAudioUrl.length : 0,
+          uploadedAudioUrlValue: window.uploadedAudioUrl
+        });
+        
+        // Check if we have files for both video and audio (like cost estimation)
+        const hasVideo = window.selectedVideo || window.selectedVideoUrl || window.uploadedVideoUrl;
+        const hasAudio = window.selectedAudio || window.selectedAudioUrl || window.uploadedAudioUrl;
+        
+        if (!hasVideo || !hasAudio) {
+          if (window.debugLog) {
+            window.debugLog('lipsync_abort_missing_files', {
+              selectedVideo: window.selectedVideo,
+              selectedVideoUrl: window.selectedVideoUrl,
+              uploadedVideoUrl: window.uploadedVideoUrl,
+              selectedAudio: window.selectedAudio,
+              selectedAudioUrl: window.selectedAudioUrl,
+              uploadedAudioUrl: window.uploadedAudioUrl
+            });
+            // Critical debug: log exact state when validation fails
+            window.debugLog('lipsync_abort_state_snapshot', {
+              windowUploadedVideoUrl: window.uploadedVideoUrl,
+              windowUploadedAudioUrl: window.uploadedAudioUrl,
+              windowSelectedVideo: window.selectedVideo,
+              windowSelectedAudio: window.selectedAudio,
+              windowSelectedVideoUrl: window.selectedVideoUrl,
+              windowSelectedAudioUrl: window.selectedAudioUrl,
+              validationFailed: true
+            });
+          }
+          resetLipsyncButton();
+          return;
+        }
         
         // Check for API key before proceeding
-        const apiKey = document.getElementById('apiKey').value;
+        const apiKeyElement = document.getElementById('syncApiKey');
+        const apiKey = apiKeyElement ? apiKeyElement.value : '';
         if (!apiKey || apiKey.trim() === '') {
-          const statusEl = document.getElementById('statusMessage');
-          if (statusEl) statusEl.textContent = 'API key required - add it in settings';
+          if (window.debugLog) {
+            window.debugLog('lipsync_abort_no_api_key', {
+              apiKeyElement: !!apiKeyElement,
+              apiKeyLength: apiKey ? apiKey.length : 0
+            });
+          }
+          if (typeof window.showToast === 'function') {
+            window.showToast('api key required - add it in settings', 'error');
+          }
+          resetLipsyncButton();
           return;
         }
         
         const myToken = ++runToken;
         
-        const btn = document.getElementById('lipsyncBtn');
-        btn.disabled = true;
-        btn.textContent = 'generating...';
         document.getElementById('clearBtn').style.display = 'inline-block';
-        const statusEl = document.getElementById('statusMessage');
-        statusEl.textContent = 'starting backend...';
+        if (typeof window.showToast === 'function') {
+          window.showToast('starting backend...', 'info');
+        }
         
         // Backend is already started on panel load; skip starting again to avoid AE instability
         if (!cs) cs = new CSInterface();
         ;(async function(){
           if (myToken !== runToken) return;
-          statusEl.textContent = 'waiting for backend health...';
+          if (typeof window.showToast === 'function') {
+            window.showToast('waiting for backend health...', 'info');
+          }
           
           await ensureAuthToken();
+          if (window.debugLog) {
+            window.debugLog('job_submission_health_check_start', {});
+          }
+          console.log('[Job Submission] Auth token ensured, starting health check');
           const healthy = await waitForHealth(20, 250, myToken);
+          console.log('[Job Submission] Health check result:', healthy);
+          if (window.debugLog) {
+            window.debugLog('job_submission_health_check_result', { healthy: healthy });
+          }
           if (!healthy) {
             if (myToken !== runToken) return;
-            statusEl.textContent = 'backend failed to start (health check failed)';
-            btn.disabled = false;
-            btn.textContent = 'lipsync';
+            if (window.debugLog) {
+              window.debugLog('job_submission_health_check_failed', {});
+            }
+            if (typeof window.showToast === 'function') {
+              window.showToast('backend failed to start (health check failed)', 'error');
+            }
+            resetLipsyncButton();
             document.getElementById('clearBtn').style.display = 'inline-block';
             return;
           }
           if (myToken !== runToken) return;
-          statusEl.textContent = 'backend ready. creating job...';
-          const mainBtn = document.getElementById('lipsyncBtn');
-          if (mainBtn) { mainBtn.textContent = 'submitting…'; mainBtn.disabled = true; }
+          console.log('[Job Submission] Backend ready, creating job...');
+          if (typeof window.showToast === 'function') {
+            window.showToast('backend ready. creating job...', 'info');
+          }
+          // Button state is already managed in core.js
           
           // Resolve output directory from host project
           let outputDir = null;
@@ -69,19 +218,21 @@
             }
           } catch(_){ }
 
-          // Create job via backend
+          // Create job via backend - send both paths and URLs like cost estimation
           const jobData = {
-            videoPath: selectedVideo,
-            audioPath: selectedAudio,
-            videoUrl: window.uploadedVideoUrl,
-            audioUrl: window.uploadedAudioUrl,
-            isTempVideo: !!selectedVideoIsTemp,
-            isTempAudio: !!selectedAudioIsTemp,
+            videoPath: window.selectedVideo || '',
+            audioPath: window.selectedAudio || '',
+            videoUrl: (window.uploadedVideoUrl || window.selectedVideoUrl || ''),
+            audioUrl: (window.uploadedAudioUrl || window.selectedAudioUrl || ''),
+            isTempVideo: !!(window.selectedVideoIsTemp || (!window.selectedVideoUrl && window.selectedVideo && window.selectedVideo.indexOf('/Library/Application Support/sync. extensions/uploads/') === 0)),
+            isTempAudio: !!(window.selectedAudioIsTemp || (!window.selectedAudioUrl && window.selectedAudio && window.selectedAudio.indexOf('/Library/Application Support/sync. extensions/uploads/') === 0)),
+            isVideoUrl: !!(window.uploadedVideoUrl || window.selectedVideoUrl),
+            isAudioUrl: !!(window.uploadedAudioUrl || window.selectedAudioUrl),
             model: document.querySelector('input[name="model"]:checked').value,
             temperature: parseFloat(document.getElementById('temperature').value),
             activeSpeakerOnly: document.getElementById('activeSpeakerOnly').checked,
             detectObstructions: document.getElementById('detectObstructions').checked,
-            apiKey: document.getElementById('apiKey').value,
+            syncApiKey: apiKey,
             outputDir: outputDir,
             options: {
               sync_mode: (document.getElementById('syncMode')||{}).value || 'loop',
@@ -90,8 +241,19 @@
               occlusion_detection_enabled: !!document.getElementById('detectObstructions').checked
             }
           };
+          
+          // Debug: Log the actual job data being sent
+          console.log('[Job Submission] Job data payload:', {
+            videoPath: jobData.videoPath,
+            audioPath: jobData.audioPath,
+            videoUrl: jobData.videoUrl,
+            audioUrl: jobData.audioUrl,
+            hasVideoUrl: !!jobData.videoUrl,
+            hasAudioUrl: !!jobData.audioUrl
+          });
+          
           const placeholderId = 'local-' + Date.now();
-          const localJob = { id: placeholderId, videoPath: selectedVideo, audioPath: selectedAudio, model: jobData.model, status: 'processing', createdAt: new Date().toISOString(), syncJobId: null, error: null };
+          const localJob = { id: placeholderId, videoPath: window.selectedVideo, audioPath: window.selectedAudio, model: jobData.model, status: 'processing', createdAt: new Date().toISOString(), syncJobId: null, error: null };
           jobs.push(localJob);
           saveJobsLocal();
           updateHistory();
@@ -99,7 +261,17 @@
           try {
             try { if (currentFetchController) currentFetchController.abort(); } catch(_){ }
             currentFetchController = new AbortController();
-            
+            if (window.debugLog) {
+              window.debugLog('job_submission_payload', {
+                placeholderId,
+                videoPath: jobData.videoPath,
+                audioPath: jobData.audioPath,
+                videoUrl: jobData.videoUrl,
+                audioUrl: jobData.audioUrl,
+                isVideoUrl: jobData.isVideoUrl,
+                isAudioUrl: jobData.isAudioUrl
+              });
+            }
             // Debug logging
             try {
               fetchWithTimeout('http://127.0.0.1:3000/debug', {
@@ -113,12 +285,50 @@
               }, 3000).catch(() => {});
             } catch(_){ }
             
-            const resp = await fetchWithTimeout(`http://127.0.0.1:${getServerPort()}/jobs`, { 
-              method: 'POST', 
-              headers: authHeaders({ 'Content-Type': 'application/json' }), 
-              body: JSON.stringify(jobData), 
-              signal: currentFetchController.signal 
-            }, 30000); // 30 second timeout for job submission
+          if (window.debugLog) {
+            window.debugLog('job_submission_about_to_fetch', {
+              jobData: jobData,
+              apiKeyPresent: !!jobData.syncApiKey,
+              urlStatus: {
+                videoPath: jobData.videoPath,
+                audioPath: jobData.audioPath,
+                videoUrl: jobData.videoUrl,
+                audioUrl: jobData.audioUrl,
+                uploadedVideoUrl: window.uploadedVideoUrl,
+                uploadedAudioUrl: window.uploadedAudioUrl,
+                selectedVideoUrl: window.selectedVideoUrl,
+                selectedAudioUrl: window.selectedAudioUrl
+              }
+            });
+          }
+            
+            console.log('[Job Submission] Attempting fetch to:', `http://127.0.0.1:${getServerPort()}/jobs`);
+            console.log('[Job Submission] Fetch headers:', authHeaders({ 'Content-Type': 'application/json' }));
+            
+            let resp;
+            try {
+              resp = await fetchWithTimeout(`http://127.0.0.1:${getServerPort()}/jobs`, { 
+                method: 'POST', 
+                headers: authHeaders({ 'Content-Type': 'application/json' }), 
+                body: JSON.stringify(jobData)
+              }, 30000); // 30 second timeout for job submission
+              
+              console.log('[Job Submission] Fetch response received:', {
+                ok: resp.ok,
+                status: resp.status,
+                statusText: resp.statusText
+              });
+            } catch (fetchError) {
+              console.error('[Job Submission] Fetch failed:', fetchError);
+              if (window.debugLog) {
+                window.debugLog('job_submission_fetch_error', {
+                  error: fetchError.message,
+                  name: fetchError.name,
+                  stack: fetchError.stack
+                });
+              }
+              throw fetchError;
+            }
             const text = await resp.text();
             let data = {};
             try { data = JSON.parse(text || '{}'); } catch(_) { data = { error: text }; }
@@ -141,26 +351,39 @@
             
             if (!resp.ok) { throw new Error(data && data.error ? data.error : (text || 'job creation failed')); }
             if (myToken !== runToken) return;
-            statusEl.textContent = 'job successfully submitted';
+            if (typeof window.showToast === 'function') {
+              window.showToast('job successfully submitted', 'success');
+            }
+            setLipsyncButtonState({ disabled: true, text: 'processing…' });
             jobs = jobs.map(j => j.id === placeholderId ? data : j);
             saveJobsLocal();
             updateHistory();
             // show history immediately
             try { showTab('history'); } catch(_) {}
-            // Reset button state to allow multiple submissions
-            btn.disabled = false;
-            btn.textContent = 'lipsync';
+            // Show submitted toast when history tab is shown
+            if (typeof window.showToast === 'function') {
+              window.showToast('submitted', 'success');
+            }
+            // Keep button disabled until user returns to sources tab
             document.getElementById('clearBtn').style.display = 'inline-block';
             pollJobStatus(data.id);
           } catch (error) {
             console.error('Error creating job:', error);
+            if (window.debugLog) {
+              window.debugLog('lipsync_job_error', {
+                error: String(error?.message || error),
+                placeholderId,
+                jobData
+              });
+            }
             if (myToken !== runToken) return;
-            statusEl.textContent = 'job error: ' + error.message;
+            if (typeof window.showToast === 'function') {
+              window.showToast('job error: ' + error.message, 'error');
+            }
             jobs = jobs.map(j => j.id === placeholderId ? { ...j, status: 'failed', error: error.message } : j);
             saveJobsLocal();
             updateHistory();
-            btn.disabled = false;
-            btn.textContent = 'lipsync';
+            resetLipsyncButton();
             document.getElementById('clearBtn').style.display = 'inline-block';
           }
         })();
@@ -187,8 +410,9 @@
                 .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
               
               if (latestCompleted && latestCompleted.id === jobId) {
-                const statusEl = document.getElementById('statusMessage');
-                if (statusEl) statusEl.textContent = 'lipsync completed';
+                if (typeof window.showToast === 'function') {
+                  window.showToast('lipsync completed', 'success');
+                }
                 const btn = document.getElementById('lipsyncBtn');
                 btn.style.display = 'none';
                 const audioSection = document.getElementById('audioSection');
@@ -204,7 +428,8 @@
               updateHistory();
               const btn = document.getElementById('lipsyncBtn');
               btn.disabled = false;
-              btn.textContent = 'lipsync';
+              const span = btn.querySelector('span');
+              if (span) span.textContent = 'lipsync';
               document.getElementById('postActions').style.display = 'none';
             }
           })
@@ -230,14 +455,15 @@
         try { if (currentFetchController) currentFetchController.abort(); } catch(_) {}
         currentFetchController = null;
         runToken++;
-        selectedVideo = null;
-        selectedAudio = null;
-        selectedVideoIsTemp = false;
-        selectedAudioIsTemp = false;
+        window.selectedVideo = null;
+        window.selectedAudio = null;
+        window.selectedVideoIsTemp = false;
+        window.selectedAudioIsTemp = false;
         updateInputStatus();
         const btn = document.getElementById('lipsyncBtn');
         btn.disabled = true;
-        btn.textContent = 'lipsync';
+        const span = btn.querySelector('span');
+        if (span) span.textContent = 'lipsync';
         document.getElementById('clearBtn').style.display = 'none';
         document.getElementById('postActions').style.display = 'none';
         const preview = document.getElementById('preview');
@@ -250,32 +476,66 @@
       function markSaved(buttonId) {
         const btn = document.getElementById(buttonId);
         if (!btn) return;
-        const original = btn.textContent;
-        const originalBg = btn.style.background;
-        const originalBorder = btn.style.borderColor;
-        btn.textContent = '✓ saved';
-        btn.style.background = '#166534';
-        btn.style.borderColor = '#166534';
-        setTimeout(()=>{ btn.textContent = original; btn.style.background = originalBg; btn.style.borderColor = originalBorder; }, 2000);
+        
+        // Show toast notification
+        if (typeof window.showToast === 'function') {
+          window.showToast('successfully saved', 'success');
+        }
+        
+        // Restore button to original structure
+        // For save button: cloud-download icon + "save" text
+        btn.innerHTML = '<i data-lucide="cloud-download"></i><span>save</span>';
+        btn.disabled = false;
+        
+        // Re-initialize Lucide icons
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+          lucide.createIcons();
+        }
       }
       function markWorking(buttonId, label){
         const btn = document.getElementById(buttonId);
         if (!btn) return ()=>{};
-        const original = btn.textContent;
+        
+        // Store original button structure (including icons)
+        const originalHTML = btn.innerHTML;
+        const originalText = btn.textContent;
+        
+        // Show working state
         btn.textContent = label || 'working…';
         btn.disabled = true;
-        return function reset(){ btn.textContent = original; btn.disabled = false; };
+        
+        return function reset(){ 
+          // Restore original structure and re-initialize icons
+          btn.innerHTML = originalHTML;
+          btn.disabled = false;
+          
+          // Re-initialize Lucide icons
+          if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+          }
+        };
       }
       function markError(buttonId, message){
         const btn = document.getElementById(buttonId);
         if (!btn) return;
-        const original = btn.textContent;
-        const originalBg = btn.style.background;
-        const originalBorder = btn.style.borderColor;
-        btn.textContent = message || 'error';
-        btn.style.background = '#7f1d1d';
-        btn.style.borderColor = '#7f1d1d';
-        setTimeout(()=>{ btn.textContent = original; btn.style.background = originalBg; btn.style.borderColor = originalBorder; }, 2000);
+        
+        // Show toast notification
+        if (typeof window.showToast === 'function') {
+          window.showToast(message || 'save failed', 'error');
+        }
+        
+        // Restore button to original structure based on button type
+        if (buttonId.startsWith('save-')) {
+          btn.innerHTML = '<i data-lucide="cloud-download"></i><span>save</span>';
+        } else if (buttonId.startsWith('insert-')) {
+          btn.innerHTML = '<i data-lucide="copy-plus"></i><span>insert</span>';
+        }
+        btn.disabled = false;
+        
+        // Re-initialize Lucide icons
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+          lucide.createIcons();
+        }
       }
 
       async function saveJob(jobId) {
@@ -304,11 +564,11 @@
             }
           } catch(_){ }
         }
-        const apiKey = (JSON.parse(localStorage.getItem('syncSettings')||'{}').apiKey)||'';
+        const apiKey = (JSON.parse(localStorage.getItem('syncSettings')||'{}').syncApiKey)||'';
         let savedPath = '';
         const reset = markWorking('save-'+jobId, 'saving…');
         try {
-          const resp = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}/save`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ location, targetDir, apiKey }) });
+          const resp = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}/save`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ location, targetDir, syncApiKey: apiKey }) });
           const data = await resp.json().catch(()=>null);
           if (resp.ok && data && data.outputPath) { savedPath = data.outputPath; }
           else if (!resp.ok) { markError('save-'+jobId, 'error'); reset(); return; }
@@ -456,14 +716,14 @@
             }
           } catch(_){ }
         }
-        const apiKey = (JSON.parse(localStorage.getItem('syncSettings')||'{}').apiKey)||'';
+        const apiKey = (JSON.parse(localStorage.getItem('syncSettings')||'{}').syncApiKey)||'';
         let savedPath = '';
         const reset = markWorking('insert-'+jobId, 'inserting…');
         const mainInsertBtn = document.getElementById('insertBtn');
         const mainInsertWasDisabled = mainInsertBtn ? mainInsertBtn.disabled : false;
         if (mainInsertBtn) { mainInsertBtn.disabled = true; mainInsertBtn.textContent = 'inserting…'; }
         try {
-          const resp = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}/save`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ location, targetDir, apiKey }) });
+          const resp = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}/save`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ location, targetDir, syncApiKey: apiKey }) });
           const data = await resp.json().catch(()=>null);
           if (resp.ok && data && data.outputPath) { savedPath = data.outputPath; }
           else if (!resp.ok) { markError('insert-'+jobId, 'error'); reset(); if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; } insertingGuard = false; return; }
@@ -544,13 +804,16 @@
                 }
                 
                 try {
-                  const statusEl = document.getElementById('statusMessage');
                   if (out && out.ok === true) { 
                     logToFile('[AE Insert] SUCCESS - marking inserted');
-                    if (statusEl) statusEl.textContent = 'inserted' + (out.diag? ' ['+out.diag+']':''); 
+                    if (typeof window.showToast === 'function') {
+                      window.showToast('inserted' + (out.diag? ' ['+out.diag+']':''), 'success');
+                    }
                   } else { 
                     logToFile('[AE Insert] FAILED - marking error: ' + (out && out.error ? out.error : 'unknown'));
-                    if (statusEl) statusEl.textContent = 'insert failed' + (out && out.error ? ' ('+out.error+')' : ''); 
+                    if (typeof window.showToast === 'function') {
+                      window.showToast('insert failed' + (out && out.error ? ' ('+out.error+')' : ''), 'error');
+                    }
                   }
                 } catch(_){ }
                 if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; }
@@ -558,8 +821,9 @@
               });
             } catch(e) {
               logToFile('[AE Insert] Error: ' + String(e));
-              const statusEl = document.getElementById('statusMessage');
-              if (statusEl) statusEl.textContent = 'insert failed (Error)';
+              if (typeof window.showToast === 'function') {
+                window.showToast('insert failed (error)', 'error');
+              }
               if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; }
               insertingGuard = false;
             }
@@ -569,9 +833,15 @@
             cs.evalScript(`PPRO_insertFileAtPlayhead(\"${payload}\")`, function(r){
                try {
                  const out = (typeof r === 'string') ? JSON.parse(r) : r;
-                 const statusEl = document.getElementById('statusMessage');
-                 if (out && out.ok === true) { if (statusEl) statusEl.textContent = 'inserted' + (out.diag? ' ['+out.diag+']':''); }
-                 else { if (statusEl) statusEl.textContent = 'insert failed' + (out && out.error ? ' ('+out.error+')' : ''); }
+                 if (out && out.ok === true) { 
+                   if (typeof window.showToast === 'function') {
+                     window.showToast('inserted' + (out.diag? ' ['+out.diag+']':''), 'success');
+                   }
+                 } else { 
+                   if (typeof window.showToast === 'function') {
+                     window.showToast('insert failed' + (out && out.error ? ' ('+out.error+')' : ''), 'error');
+                   }
+                 }
                } catch(_){ }
                if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; }
                insertingGuard = false;
@@ -605,18 +875,13 @@
         }
       }
 
-      async function loadJobsFromServer() {
-        const historyList = document.getElementById('historyList');
-        if (!historyList) return;
-        
-        // Detect if UI already has items to prevent flashing loading state
-        let hasRenderedItems = false;
-        try { hasRenderedItems = /history-item/.test(historyList.innerHTML); } catch(_){ hasRenderedItems = false; }
-        
+      window.loadJobsFromServer = async function loadJobsFromServer() {
         try {
-          const apiKey = (JSON.parse(localStorage.getItem('syncSettings')||'{}').apiKey)||'';
+          const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
+          const apiKey = settings.syncApiKey || '';
+          
           if (!apiKey) {
-            historyList.innerHTML = '<div style="color:#888; text-align:center; padding:20px;">no api key found</div>';
+            console.log('[Jobs] No API key, skipping server load');
             return;
           }
           
@@ -630,46 +895,43 @@
           }
           
           if (!healthy) {
-            if (!hasRenderedItems) historyList.innerHTML = '<div style="color:#888; text-align:center; padding:20px;">server offline</div>';
+            console.log('[Jobs] Server not healthy, skipping load');
             return;
           }
           
-          // Show loading state only when empty
-          if (!hasRenderedItems) historyList.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">loading generations...</div>';
-          
           await ensureAuthToken();
-          const gen = await fetchWithTimeout(`http://127.0.0.1:${getServerPort()}/generations?`+new URLSearchParams({ apiKey }), { headers: authHeaders() }, 15000).then(function(r){ return r.json(); }).catch(function(){ return null; });
+          const gen = await fetchWithTimeout(`http://127.0.0.1:${getServerPort()}/generations?`+new URLSearchParams({ syncApiKey: apiKey }), { headers: authHeaders() }, 15000)
+            .then(function(r){ return r.json(); })
+            .catch(function(){ return null; });
           
           if (Array.isArray(gen)) {
             jobs = gen.map(function(g){
               var arr = (g && g.input && g.input.slice) ? g.input.slice() : [];
               var vid = null, aud = null;
               for (var i=0;i<arr.length;i++){ var it = arr[i]; if (it && it.type==='video' && !vid) vid = it; if (it && it.type==='audio' && !aud) aud = it; }
+              
+              
               return {
                 id: g && g.id,
-                status: (String(g && g.status || '').toLowerCase()==='completed' ? 'completed' : String(g && g.status || 'processing').toLowerCase()),
+                status: String(g && g.status || 'processing').toLowerCase(),
                 model: g && g.model,
                 createdAt: g && g.createdAt,
+                completedAt: g && g.completedAt,
                 videoPath: (vid && vid.url) || '',
                 audioPath: (aud && aud.url) || '',
                 syncJobId: g && g.id,
-                outputPath: (g && g.outputUrl) || ''
+                outputPath: (g && g.outputUrl) || '',
+                options: g && g.options || {}
               };
             });
+            // Store jobs globally for history.js to use
+            window.jobs = jobs;
             saveJobsLocal();
-            updateHistory();
-            
-            if (gen.length === 0) {
-              historyList.innerHTML = '<div style="color:#888; text-align:center; padding:20px;">no generations yet</div>';
-            }
-            return;
+            console.log('[Jobs] Loaded', jobs.length, 'jobs from server');
+            return jobs;
           }
-          
-          // If we get here, the request failed or returned invalid data
-          historyList.innerHTML = '<div style="color:#888; text-align:center; padding:20px;">no generations yet</div>';
         } catch (e) {
-          console.warn('Failed to load cloud history');
-          historyList.innerHTML = '<div style="color:#888; text-align:center; padding:20px;">server offline</div>';
+          console.warn('[Jobs] Failed to load from server:', e);
         }
       }
 
@@ -677,10 +939,10 @@
       async function insertCompletedJob(jobId) { await insertJob(jobId); }
 
       function clearCompletedJob() {
-        selectedVideo = null;
-        selectedAudio = null;
-        selectedVideoIsTemp = false;
-        selectedAudioIsTemp = false;
+        window.selectedVideo = null;
+        window.selectedAudio = null;
+        window.selectedVideoIsTemp = false;
+        window.selectedAudioIsTemp = false;
         const btn = document.getElementById('lipsyncBtn');
         btn.style.display = 'flex';
         btn.disabled = true;

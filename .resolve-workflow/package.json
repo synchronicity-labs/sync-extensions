@@ -1,0 +1,8 @@
+{
+  "name": "sync-resolve",
+  "version": "0.1.0",
+  "main": "backend.js",
+  "dependencies": {
+    "electron": "^31.3.1"
+  }
+}

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Version="7.0" ExtensionBundleId="com.sync.extension.ae" ExtensionBundleVersion="0.8.34" ExtensionBundleName="sync. extension - After Effects">
+<ExtensionManifest xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Version="7.0" ExtensionBundleId="com.sync.extension.ae" ExtensionBundleVersion="0.8.30" ExtensionBundleName="sync. extension - After Effects">
   <ExtensionList>
-    <Extension Id="com.sync.extension.ae" Version="0.8.34"/>
+    <Extension Id="com.sync.extension.ae" Version="0.8.30"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -15,7 +15,7 @@
     </RequiredRuntimeList>
   </ExecutionEnvironment>
   <DispatchInfoList>
-    <Extension Id="com.sync.extension.ae" Version="0.8.34">
+    <Extension Id="com.sync.extension.ae" Version="0.8.30">
       <HostList>
         <Host Name="AEFT" Version="[24.0,99.9]"/>
       </HostList>
@@ -27,6 +27,10 @@
             <Parameter>--allow-insecure-localhost</Parameter>
             <Parameter>--disable-features=BlockInsecurePrivateNetworkRequests,OutOfBlinkCors</Parameter>
             <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--enable-media-stream</Parameter>
+            <Parameter>--use-fake-ui-for-media-stream</Parameter>
+            <Parameter>--autoplay-policy=no-user-gesture-required</Parameter>
+            <Parameter>--disable-web-security</Parameter>
           </CEFCommandLine>
         </Resources>
         <Lifecycle>

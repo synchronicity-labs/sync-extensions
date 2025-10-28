@@ -1404,3 +1404,104 @@ function AEFT_stopBackend() {
   }
 }
 
+// Thumbnail support functions
+function AEFT_ensureDir(dirPath) {
+  try {
+    var folder = new Folder(dirPath);
+    if (!folder.exists) {
+      folder.create();
+    }
+    return _respond({ ok: folder.exists });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+function AEFT_fileExists(filePath) {
+  try {
+    var file = new File(filePath);
+    return _respond({ ok: true, exists: file.exists });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+function AEFT_readThumbnail(filePath) {
+  try {
+    var file = new File(filePath);
+    if (!file.exists) {
+      return _respond({ ok: false, error: 'File does not exist' });
+    }
+    
+    file.open('r');
+    var data = file.read();
+    file.close();
+    
+    // Convert binary data to base64
+    var base64 = '';
+    for (var i = 0; i < data.length; i++) {
+      base64 += String.fromCharCode(data.charCodeAt(i) & 0xFF);
+    }
+    
+    var dataUrl = 'data:image/jpeg;base64,' + btoa(base64);
+    return _respond({ ok: true, dataUrl: dataUrl });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+function AEFT_saveThumbnail(payload) {
+  try {
+    var data = JSON.parse(payload);
+    var path = data.path;
+    var dataUrl = data.dataUrl;
+    
+    // Extract base64 data from data URL
+    var base64Data = dataUrl.split(',')[1];
+    
+    // Decode base64 and write to file
+    var file = new File(path);
+    file.encoding = 'BINARY';
+    file.open('w');
+    file.write(base64Decode(base64Data));
+    file.close();
+    
+    return _respond({ ok: true, path: path });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+// Base64 decoder for ExtendScript
+function base64Decode(input) {
+  var keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+  var output = "";
+  var chr1, chr2, chr3;
+  var enc1, enc2, enc3, enc4;
+  var i = 0;
+  
+  input = input.replace(/[^A-Za-z0-9\+\/\=]/g, "");
+  
+  while (i < input.length) {
+    enc1 = keyStr.indexOf(input.charAt(i++));
+    enc2 = keyStr.indexOf(input.charAt(i++));
+    enc3 = keyStr.indexOf(input.charAt(i++));
+    enc4 = keyStr.indexOf(input.charAt(i++));
+    
+    chr1 = (enc1 << 2) | (enc2 >> 4);
+    chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+    chr3 = ((enc3 & 3) << 6) | enc4;
+    
+    output = output + String.fromCharCode(chr1);
+    
+    if (enc3 != 64) {
+      output = output + String.fromCharCode(chr2);
+    }
+    if (enc4 != 64) {
+      output = output + String.fromCharCode(chr3);
+    }
+  }
+  
+  return output;
+}
+

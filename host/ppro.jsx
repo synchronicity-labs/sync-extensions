@@ -576,42 +576,16 @@ function _findPresetForAudio(format){
   return '';
 }
 
-function _tempOutPath(ext){
+function _getTempPath(ext){
   try{
-    var baseFolder = null;
-    try { baseFolder = Folder.userDocuments; } catch(_) {}
-    if (!baseFolder || !baseFolder.exists) {
-      try { baseFolder = Folder.temp; } catch(_) {}
-    }
-    if (!baseFolder || !baseFolder.exists) return '';
-    var dir = new Folder(baseFolder.fsName + '/sync_extension_temp');
-    if (!dir.exists) { try { if (!dir.create()) { return ''; } } catch(e){ return ''; } }
-    var f = new File(dir.fsName + '/inout_' + (new Date().getTime()) + '_' + Math.floor(Math.random()*10000) + '.' + ext);
+    // Always use global Application Support folder for temp files (same as AE)
+    var root = Folder.userData.fsName; // ~/Library/Application Support on macOS
+    var uploadsFolder = new Folder(root + '/sync. extensions/uploads');
+    if (!uploadsFolder.exists) { try { if (!uploadsFolder.create()) { return ''; } } catch(e){ return ''; } }
+    
+    var f = new File(uploadsFolder.fsName + '/inout_' + (new Date().getTime()) + '_' + Math.floor(Math.random()*10000) + '.' + ext);
     return f && f.fsName ? f.fsName : '';
   }catch(e){ return ''; }
-}
-
-function _projectTempPath(ext){
-  try{
-    if (app && app.project && app.project.path){
-      var projFile = new File(app.project.path);
-      var parent = projFile && projFile.parent ? projFile.parent : null;
-      if (parent && parent.exists){
-        var dir = new Folder(parent.fsName + '/sync_extension_temp');
-        if (!dir.exists) dir.create();
-        var f = new File(dir.fsName + '/inout_' + (new Date().getTime()) + '_' + Math.floor(Math.random()*10000) + '.' + ext);
-        return f && f.fsName ? f.fsName : '';
-      }
-    }
-  }catch(e){}
-  return '';
-}
-
-function _chooseOutPath(ext){
-  var p = _projectTempPath(ext);
-  if (p) return p;
-  p = _tempOutPath(ext);
-  return p;
 }
 
 function _waitForFile(path, ms){
@@ -715,7 +689,7 @@ function PPRO_exportInOutVideo(payloadJson){
     try { var pf = new File(presetPath); if (!pf || !pf.exists) { return _respond({ ok:false, error:'Preset path missing', preset:presetPath }); } } catch(e) { return _respond({ ok:false, error:'Preset path invalid: '+String(e), preset:presetPath }); }
     var ext=''; try{ ext = String(seq.getExportFileExtension(presetPath)||''); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     if(!ext) ext = (codec==='h264')?'.mp4':'.mov';
-    var out = _chooseOutPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
+    var out = _getTempPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
     if (String(out).toLowerCase().indexOf(ext.toLowerCase()) === -1) { out = out.replace(/\.[^\.]+$/, '') + ext; }
 
     var ok=false; try{ ok = seq.exportAsMediaDirect(out, presetPath, 1); }catch(e){ return _respond({ ok:false, error:'exportAsMediaDirect failed: '+String(e), out: out }); }
@@ -746,7 +720,7 @@ function PPRO_exportInOutAudio(payloadJson){
     try { var pf = new File(presetPath); if (!pf || !pf.exists) { return _respond({ ok:false, error:'Preset path missing', preset:presetPath }); } } catch(e) { return _respond({ ok:false, error:'Preset path invalid: '+String(e), preset:presetPath }); }
     var ext=''; try{ ext = String(seq.getExportFileExtension(presetPath)||''); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     if(!ext) ext = (format==='mp3')?'.mp3':'.wav';
-    var out = _chooseOutPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
+    var out = _getTempPath(ext.replace(/^\./,'')); if(!out) return _respond({ ok:false, error:'Temp path failed' });
     if (String(out).toLowerCase().indexOf(ext.toLowerCase()) === -1) { out = out.replace(/\.[^\.]+$/, '') + ext; }
 
     var ok=false; try{ ok = seq.exportAsMediaDirect(out, presetPath, 1); }catch(e){ return _respond({ ok:false, error:'exportAsMediaDirect failed: '+String(e), out: out }); }
@@ -864,4 +838,105 @@ function PPRO_diag(){
     };
     return _respond(info);
   }catch(e){ return _respond({ ok:false, error:String(e) }); }
+}
+
+// Thumbnail support functions
+function PPRO_ensureDir(dirPath) {
+  try {
+    var folder = new Folder(dirPath);
+    if (!folder.exists) {
+      folder.create();
+    }
+    return _respond({ ok: folder.exists });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+function PPRO_fileExists(filePath) {
+  try {
+    var file = new File(filePath);
+    return _respond({ ok: true, exists: file.exists });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+function PPRO_readThumbnail(filePath) {
+  try {
+    var file = new File(filePath);
+    if (!file.exists) {
+      return _respond({ ok: false, error: 'File does not exist' });
+    }
+    
+    file.open('r');
+    var data = file.read();
+    file.close();
+    
+    // Convert binary data to base64
+    var base64 = '';
+    for (var i = 0; i < data.length; i++) {
+      base64 += String.fromCharCode(data.charCodeAt(i) & 0xFF);
+    }
+    
+    var dataUrl = 'data:image/jpeg;base64,' + btoa(base64);
+    return _respond({ ok: true, dataUrl: dataUrl });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+function PPRO_saveThumbnail(payload) {
+  try {
+    var data = JSON.parse(payload);
+    var path = data.path;
+    var dataUrl = data.dataUrl;
+    
+    // Extract base64 data from data URL
+    var base64Data = dataUrl.split(',')[1];
+    
+    // Decode base64 and write to file
+    var file = new File(path);
+    file.encoding = 'BINARY';
+    file.open('w');
+    file.write(base64Decode(base64Data));
+    file.close();
+    
+    return _respond({ ok: true, path: path });
+  } catch(e) {
+    return _respond({ ok: false, error: String(e) });
+  }
+}
+
+// Base64 decoder for ExtendScript
+function base64Decode(input) {
+  var keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+  var output = "";
+  var chr1, chr2, chr3;
+  var enc1, enc2, enc3, enc4;
+  var i = 0;
+  
+  input = input.replace(/[^A-Za-z0-9\+\/\=]/g, "");
+  
+  while (i < input.length) {
+    enc1 = keyStr.indexOf(input.charAt(i++));
+    enc2 = keyStr.indexOf(input.charAt(i++));
+    enc3 = keyStr.indexOf(input.charAt(i++));
+    enc4 = keyStr.indexOf(input.charAt(i++));
+    
+    chr1 = (enc1 << 2) | (enc2 >> 4);
+    chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+    chr3 = ((enc3 & 3) << 6) | enc4;
+    
+    output = output + String.fromCharCode(chr1);
+    
+    if (enc3 != 64) {
+      output = output + String.fromCharCode(chr2);
+    }
+    if (enc4 != 64) {
+      output = output + String.fromCharCode(chr3);
+    }
+  }
+  
+  return output;
 }

@@ -6,17 +6,26 @@ import os from 'os';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
-import { exec as _exec, spawn } from 'child_process';
-import { promisify } from 'util';
-import { fileURLToPath } from 'url';
 import { createServer } from 'net';
 import { createRequire } from 'module';
+import FormData from 'form-data';
+import multer from 'multer';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import { track, identify, setUserProperties, distinctId } from './telemetry.js';
+
+// Modular imports
+import { APP_ID, EXT_ROOT, MANIFEST_PATH, EXTENSION_LOCATION, UPDATES_REPO, UPDATES_CHANNEL, GH_TOKEN, GH_UA, BASE_DIR, DIRS, HOST, DEFAULT_PORT, PORT_RANGE, isSpawnedByUI } from './config.js';
+import { tlog, tlogSync, DEBUG_LOG } from './utils/log.js';
+import { safeStat, safeStatSync, safeExists, safeText, pipeToFile } from './utils/files.js';
+import { toReadableLocalPath, resolveSafeLocalPath, normalizePaths, normalizeOutputDir, guessMime } from './utils/paths.js';
+import { parseBundleVersion, normalizeVersion, compareSemver, getCurrentVersion } from './utils/version.js';
+import { exec, execPowerShell, runRobocopy } from './utils/exec.js';
+import { scheduleCleanup } from './services/cleanup.js';
+import { r2Upload, r2Client } from './services/r2.js';
+
 const require = createRequire(import.meta.url);
 const { convertAudio } = require('./audio.cjs');
-
-// R2 client
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // ROOT CAUSE FIX: Don't write to stdout/stderr when spawned as detached process
 // The CEP panel spawns us with detached:true and pipes stdout/stderr, but stops reading them
@@ -31,8 +40,8 @@ if (isSpawnedByCEP) {
   console.info = () => {};
 }
 
-// Load .env from project root (one level up from server directory)
-const envPath = path.join(process.cwd(), '..', '.env');
+// Load .env from project root
+const envPath = path.join(process.cwd(), '.env');
 console.log('Looking for .env at:', envPath);
 console.log('Current working directory:', process.cwd());
 console.log('.env file exists:', require('fs').existsSync(envPath));
@@ -40,256 +49,30 @@ dotenv.config({ path: envPath });
 
 const app = express();
 app.disable('x-powered-by');
-const HOST = process.env.HOST || '127.0.0.1';
-const DEFAULT_PORT = 3000;
-const PORT_RANGE = [3000]; // Hardcode to 3000 for panel
 
-const exec = promisify(_exec);
+// Set FFmpeg path
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-// Better Windows PowerShell execution with spawn
-function execPowerShell(command, options = {}) {
-  return new Promise((resolve, reject) => {
-    const isWindows = process.platform === 'win32';
-    
-    if (isWindows) {
-      // Use spawn for better control on Windows
-      const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command];
-      console.log('Spawning PowerShell with args:', args);
-      console.log('Working directory:', options.cwd || process.cwd());
-      
-      const child = spawn('powershell.exe', args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        ...options
-      });
-      
-      let stdout = '';
-      let stderr = '';
-      
-      child.stdout.on('data', (data) => {
-        const output = data.toString();
-        stdout += output;
-        console.log('PowerShell stdout:', output.trim());
-      });
-      
-      child.stderr.on('data', (data) => {
-        const output = data.toString();
-        stderr += output;
-        console.log('PowerShell stderr:', output.trim());
-      });
-      
-      child.on('close', (code) => {
-        console.log(`PowerShell process exited with code: ${code}`);
-        if (code === 0) {
-          resolve({ stdout, stderr });
-        } else {
-          reject(new Error(`PowerShell exited with code ${code}: ${stderr}`));
-        }
-      });
-      
-      child.on('error', (error) => {
-        console.error('PowerShell spawn error:', error);
-        reject(error);
-      });
-    } else {
-      // Use regular exec for non-Windows
-      exec(command, options).then(resolve).catch(reject);
-    }
-  });
-}
-
-// Windows-only helper to run robocopy with correct success codes (<8)
-async function runRobocopy(src, dest, filePattern){
-  if (process.platform !== 'win32') { throw new Error('runRobocopy is Windows-only'); }
-  try { if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-  const args = [`"${src}"`, `"${dest}"`];
-  if (filePattern) args.push(`"${filePattern}"`);
-  const baseCmd = `robocopy ${args.join(' ')} /E /NFL /NDL /NJH /NJS`;
-  const psCmd = `$ErrorActionPreference='Stop'; ${baseCmd}; if ($LASTEXITCODE -lt 8) { exit 0 } else { exit $LASTEXITCODE }`;
-  try { tlog('robocopy start', baseCmd); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-  await execPowerShell(psCmd);
-  try { tlog('robocopy ok', baseCmd); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-}
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const EXT_ROOT = path.resolve(__dirname, '..', '..');
-const EXT_FOLDER = path.basename(EXT_ROOT);
-const APP_ID = EXT_FOLDER.indexOf('.ae.') !== -1 ? 'ae' : (EXT_FOLDER.indexOf('.ppro.') !== -1 ? 'premiere' : 'unknown');
-const MANIFEST_PATH = path.join(EXT_ROOT, 'CSXS', 'manifest.xml');
-
-// Detect extension installation location (user vs system-wide)
-function detectExtensionLocation() {
+// Initialize PostHog user identification
+(async () => {
   try {
-    // Method 1: Check if we're in a system-wide location
-    if (process.platform === 'darwin') {
-      if (EXT_ROOT.startsWith('/Library/Application Support/Adobe/CEP/extensions/')) {
-        return 'system';
-      }
-    } else if (process.platform === 'win32') {
-      if (EXT_ROOT.includes('Program Files') && EXT_ROOT.includes('Adobe\\CEP\\extensions')) {
-        return 'system';
-      }
-    }
-    
-    // Method 2: Check if we're in a user location
-    const home = os.homedir();
-    if (process.platform === 'darwin') {
-      if (EXT_ROOT.startsWith(path.join(home, 'Library', 'Application Support', 'Adobe', 'CEP', 'extensions'))) {
-        return 'user';
-      }
-    } else if (process.platform === 'win32') {
-      if (EXT_ROOT.includes(path.join(home, 'AppData', 'Roaming', 'Adobe', 'CEP', 'extensions'))) {
-        return 'user';
-      }
-    }
-    
-    // Method 3: Check if extension exists in both locations to determine which one is active
-    let userPath, systemPath;
-    
-    if (process.platform === 'darwin') {
-      userPath = path.join(home, 'Library', 'Application Support', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-      systemPath = path.join('/Library', 'Application Support', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-    } else if (process.platform === 'win32') {
-      userPath = path.join(home, 'AppData', 'Roaming', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-      systemPath = path.join('C:', 'Program Files', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-    }
-    
-    const userExists = fs.existsSync(userPath);
-    const systemExists = fs.existsSync(systemPath);
-    
-    if (userExists && !systemExists) return 'user';
-    if (systemExists && !userExists) return 'system';
-    if (userExists && systemExists) {
-      // Both exist, prefer user installation
-      return 'user';
-    }
-    
-    // Default to user location
-    return 'user';
+    const version = await getCurrentVersion();
+    identify({
+      extensionLocation: EXTENSION_LOCATION,
+      appId: APP_ID,
+      version: version,
+      updatesRepo: UPDATES_REPO
+    });
+    await track('server_started', {
+      extensionLocation: EXTENSION_LOCATION,
+      appId: APP_ID,
+      version: version
+    });
   } catch (e) {
-    // Default to user location on error
-    return 'user';
+    // Silent fail for telemetry
   }
-}
+})();
 
-const EXTENSION_LOCATION = detectExtensionLocation();
-const UPDATES_REPO = process.env.UPDATES_REPO || process.env.GITHUB_REPO || 'mhadifilms/sync-extensions';
-const UPDATES_CHANNEL = process.env.UPDATES_CHANNEL || 'releases'; // 'releases' or 'tags'
-const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
-const GH_UA = process.env.GITHUB_USER_AGENT || 'sync-extension-updater/1.0';
-
-// Central app-data directory resolver and subfolders
-function platformAppData(appName){
-  const home = os.homedir();
-  if (process.platform === 'win32') return path.join(home, 'AppData', 'Roaming', appName);
-  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', appName);
-  return path.join(home, '.config', appName);
-}
-const BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || platformAppData('sync. extensions');
-const DIRS = {
-  logs: path.join(BASE_DIR, 'logs'),
-  cache: path.join(BASE_DIR, 'cache'),
-  state: path.join(BASE_DIR, 'state'),
-  uploads: path.join(BASE_DIR, 'uploads'),
-  updates: path.join(BASE_DIR, 'updates')
-};
-try { fs.mkdirSync(DIRS.logs, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-try { fs.mkdirSync(DIRS.cache, { recursive: true }); } catch(_){ }
-try { fs.mkdirSync(DIRS.state, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-try { fs.mkdirSync(DIRS.uploads, { recursive: true }); } catch(_){ }
-try { fs.mkdirSync(DIRS.updates, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-
-// Debug flag and log helper to logs directory (flag file only)
-const DEBUG_FLAG_FILE = path.join(DIRS.logs, 'debug.enabled');
-let DEBUG = false;
-try { DEBUG = fs.existsSync(DEBUG_FLAG_FILE); } catch(_){ DEBUG = false; }
-const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === 'premiere') ? 'sync_ppro_debug.log' : (APP_ID === 'ae') ? 'sync_ae_debug.log' : 'sync_server_debug.log');
-// Async logging to prevent blocking the event loop
-async function tlog(){
-  if (!DEBUG) return;
-  try { 
-    const logLine = `[${new Date().toISOString()}] [server] ` + Array.from(arguments).map(a=>String(a)).join(' ') + "\n";
-    await fs.promises.appendFile(DEBUG_LOG, logLine).catch(() => {}); // Silent fail to prevent recursion
-  } catch(e){ 
-    // Silent catch to prevent infinite recursion on logging errors
-  }
-}
-
-// Synchronous version for critical startup operations only
-function tlogSync(){
-  if (!DEBUG) return;
-  try { fs.appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] [server] ` + Array.from(arguments).map(a=>String(a)).join(' ') + "\n"); } catch(e){}
-}
-
-// Detect if we're being spawned by UI auto-start (stdout/stderr captured)
-const isSpawnedByUI = process.stdout.isTTY === false && process.stderr.isTTY === false;
-
-// Async cleanup functions to prevent blocking the event loop
-async function cleanupOldFiles(dirPath, maxAgeMs = 24 * 60 * 60 * 1000) {
-  try {
-    // Check if directory exists asynchronously
-    try {
-      await fs.promises.access(dirPath);
-    } catch {
-      return; // Directory doesn't exist
-    }
-    
-    const files = await fs.promises.readdir(dirPath);
-    const now = Date.now();
-    let cleanedCount = 0;
-    
-    // Process files in batches to avoid blocking
-    const batchSize = 10;
-    for (let i = 0; i < files.length; i += batchSize) {
-      const batch = files.slice(i, i + batchSize);
-      
-      await Promise.all(batch.map(async (file) => {
-        const filePath = path.join(dirPath, file);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          if (stats.isFile() && (now - stats.mtime.getTime()) > maxAgeMs) {
-            await fs.promises.unlink(filePath);
-            cleanedCount++;
-            await tlog('cleanup:removed', filePath, 'age=', Math.round((now - stats.mtime.getTime()) / 1000 / 60), 'min');
-          }
-        } catch(e) {
-          await tlog('cleanup:error', filePath, e && e.message ? e.message : String(e));
-        }
-      }));
-      
-      // Yield control between batches
-      if (i + batchSize < files.length) {
-        await new Promise(resolve => setImmediate(resolve));
-      }
-    }
-    
-    if (cleanedCount > 0) {
-      await tlog('cleanup:completed', dirPath, 'removed=', cleanedCount, 'files');
-    }
-  } catch(e) {
-    await tlog('cleanup:failed', dirPath, e && e.message ? e.message : String(e));
-  }
-}
-
-// Schedule cleanup tasks
-function scheduleCleanup() {
-  // Cleanup uploads directory every 24 hours (remove files older than 24 hours)
-  setInterval(async () => {
-    await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000); // 24 hours
-  }, 24 * 60 * 60 * 1000); // Run every 24 hours
-  
-  // Cleanup cache directory every 6 hours (remove files older than 6 hours)
-  setInterval(async () => {
-    await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000); // 6 hours
-  }, 6 * 60 * 60 * 1000); // Run every 6 hours
-  
-  // Run initial cleanup after 1 minute
-  setTimeout(async () => {
-    await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000);
-    await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000);
-  }, 60 * 1000);
-  
-  tlogSync('cleanup:scheduled', 'uploads=24h', 'cache=6h');
-}
 
 function ghHeaders(extra){
   const h = Object.assign({ 'Accept': 'application/vnd.github+json', 'User-Agent': GH_UA }, extra||{});
@@ -301,54 +84,6 @@ async function ghFetch(url, opts){
   return await fetch(url, Object.assign({ headers: ghHeaders() }, opts||{}));
 }
 
-function parseBundleVersion(xmlText){
-  try{
-    const m = /ExtensionBundleVersion\s*=\s*"([^"]+)"/i.exec(String(xmlText||''));
-    if (m && m[1]) return m[1].trim();
-  }catch(_){ }
-  return '';
-}
-
-function normalizeVersion(v){
-  try{ return String(v||'').trim().replace(/^v/i, ''); }catch(_){ return ''; }
-}
-
-function compareSemver(a, b){
-  const pa = normalizeVersion(a).split('.').map(x=>parseInt(x,10)||0);
-  const pb = normalizeVersion(b).split('.').map(x=>parseInt(x,10)||0);
-  for (let i=0; i<Math.max(pa.length, pb.length); i++){
-    const ai = pa[i]||0; const bi = pb[i]||0;
-    if (ai > bi) return 1; if (ai < bi) return -1;
-  }
-  return 0;
-}
-
-async function getCurrentVersion(){
-  try{
-    // Try the original path first (for installed extensions)
-    try {
-      const xml = fs.readFileSync(MANIFEST_PATH, 'utf8');
-      const version = parseBundleVersion(xml);
-      if (version) return version;
-    } catch(_) {}
-    
-    // Fallback: try to find manifest in extensions subdirectories (for local development)
-    const extensionsDir = path.join(EXT_ROOT, 'extensions');
-    if (fs.existsSync(extensionsDir)) {
-      const subdirs = fs.readdirSync(extensionsDir);
-      for (const subdir of subdirs) {
-        const manifestPath = path.join(extensionsDir, subdir, 'CSXS', 'manifest.xml');
-        try {
-          const xml = fs.readFileSync(manifestPath, 'utf8');
-          const version = parseBundleVersion(xml);
-          if (version) return version;
-        } catch(_) {}
-      }
-    }
-    
-    return '';
-  }catch(_){ return ''; }
-}
 
 async function getLatestReleaseInfo(){
   const repo = UPDATES_REPO;
@@ -438,7 +173,7 @@ app.use((req, res, next) => {
       try { tlog('request:timeout', req.method, req.path); } catch(_){}
       res.status(408).json({ error: 'Request timeout' });
     }
-  }, 30000); // 30 second timeout
+  }, 300000); // 5 minute timeout (aligned with dubbing timeout)
   
   res.on('finish', () => clearTimeout(timeout));
   res.on('close', () => clearTimeout(timeout));
@@ -500,18 +235,6 @@ function saveJobs(){
   return;
 }
 loadJobs();
-// Helper to make a temp-readable copy when macOS places file in TemporaryItems (EPERM)
-const COPY_DIR = DIRS.cache;
-function toReadableLocalPath(p){
-  try{
-    if (!p || typeof p !== 'string') return '';
-    const abs = path.resolve(p);
-    if (abs.indexOf('/TemporaryItems/') === -1) return path.normalize(abs);
-    try { if (!fs.existsSync(COPY_DIR)) fs.mkdirSync(COPY_DIR, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-    const dest = path.join(COPY_DIR, path.basename(abs));
-    try { fs.copyFileSync(abs, dest); return dest; } catch(_){ return abs; }
-  }catch(_){ return String(p||''); }
-}
 
 // Rate limiting for /auth/token (1 req/sec per IP)
 const tokenRateLimit = new Map();
@@ -545,6 +268,30 @@ function requireCEPHeader(req, res, next){
 app.get('/health', (req,res)=> res.json({ status:'ok', ts: Date.now() }));
 // Friendly root
 app.get('/', (_req,res)=> res.json({ ok:true, service:'sync-extension-server' }));
+
+// PostHog connectivity test endpoint
+app.get('/telemetry/test', async (req, res) => {
+  try {
+    // Test PostHog connectivity
+    track('telemetry_test', {
+      testType: 'connectivity',
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({ 
+      ok: true, 
+      message: 'PostHog test event sent',
+      distinctId: distinctId,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      ok: false, 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 app.get('/auth/token', requireCEPHeader, (req,res)=>{
   // Only serve to localhost clients with rate limiting
   try{
@@ -636,6 +383,420 @@ app.get('/audio/convert', async (req, res) => {
   }catch(e){ if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); }
 });
 
+
+// ElevenLabs dubbing endpoint
+app.post('/dubbing', async (req, res) => {
+  try {
+    const { audioPath, audioUrl, targetLang, elevenApiKey } = req.body || {};
+    tlog('POST /dubbing', 'targetLang='+targetLang, 'audioPath='+audioPath, 'audioUrl='+audioUrl);
+    
+    if (!targetLang) {
+      return res.status(400).json({ error: 'Target language required' });
+    }
+    
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
+    }
+    
+    let localAudioPath = audioPath;
+    
+    // If URL provided, download the audio first
+    if (audioUrl && !audioPath) {
+      try {
+        const response = await fetch(audioUrl);
+        if (!response.ok) {
+          return res.status(400).json({ error: 'Failed to download audio from URL' });
+        }
+        
+        // Create temporary file in uploads directory
+        const tempFileName = `temp_audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
+        localAudioPath = path.join(DIRS.uploads, tempFileName);
+        
+        const buffer = await response.arrayBuffer();
+        fs.writeFileSync(localAudioPath, Buffer.from(buffer));
+        
+        tlog('Downloaded audio to temp file', localAudioPath);
+      } catch (error) {
+        tlog('Audio download error', error.message);
+        return res.status(400).json({ error: 'Failed to download audio: ' + error.message });
+      }
+    }
+    
+    if (!localAudioPath || typeof localAudioPath !== 'string' || !path.isAbsolute(localAudioPath)){
+      tlog('dubbing invalid path');
+      return res.status(400).json({ error: 'invalid audioPath' });
+    }
+    
+      if (!fs.existsSync(localAudioPath)) {
+        return res.status(404).json({ error: 'audio file not found' });
+      }
+
+      // Convert WAV to MP3 for ElevenLabs compatibility (ElevenLabs rejects WAV files)
+      const audioExt = path.extname(localAudioPath).toLowerCase();
+      if (audioExt === '.wav') {
+        try {
+          const { convertAudio } = require('./audio.cjs');
+          const mp3Path = localAudioPath.replace(/\.wav$/i, '.mp3');
+          await convertAudio(localAudioPath, 'mp3');
+          localAudioPath = mp3Path;
+          tlog('Converted WAV to MP3 for ElevenLabs:', localAudioPath);
+        } catch (convertError) {
+          tlog('WAV to MP3 conversion failed:', convertError.message);
+          return res.status(400).json({ error: 'Failed to convert WAV to MP3: ' + convertError.message });
+        }
+      }
+
+      try {
+      // Create ElevenLabs dubbing job
+      const formData = new FormData();
+      formData.append('file', fs.createReadStream(localAudioPath));
+      formData.append('target_lang', targetLang);
+      
+      const dubbingResponse = await fetch('https://api.elevenlabs.io/v1/dubbing', {
+        method: 'POST',
+        headers: {
+          'xi-api-key': elevenApiKey,
+        },
+        body: formData,
+        signal: AbortSignal.timeout(300000) // 5 minute timeout
+      });
+      
+      if (!dubbingResponse.ok) {
+        const errorText = await dubbingResponse.text();
+        tlog('ElevenLabs dubbing error:', dubbingResponse.status, errorText);
+        return res.status(dubbingResponse.status).json({ error: `ElevenLabs API error: ${errorText}` });
+      }
+      
+      const dubbingData = await dubbingResponse.json();
+      const dubbingId = dubbingData.dubbing_id;
+      
+      if (!dubbingId) {
+        return res.status(500).json({ error: 'No dubbing ID returned from ElevenLabs' });
+      }
+      
+      tlog('ElevenLabs dubbing job created:', dubbingId);
+      
+      // Poll for completion
+      const pollInterval = 5000; // 5 seconds
+      const maxAttempts = 60; // 5 minutes max
+      let attempts = 0;
+      
+      const pollForCompletion = async () => {
+        attempts++;
+        
+        try {
+          // Check if client is still connected
+          if (res.headersSent) {
+            tlog('Client disconnected, stopping dubbing poll');
+            return;
+          }
+          
+          const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
+            headers: {
+              'xi-api-key': elevenApiKey,
+            },
+            signal: AbortSignal.timeout(10000)
+          });
+          
+          if (!statusResponse.ok) {
+            throw new Error(`Status check failed: ${statusResponse.status}`);
+          }
+          
+          const statusData = await statusResponse.json();
+          const status = statusData.status;
+          
+          tlog('Dubbing status check:', status, 'attempt:', attempts);
+          
+          if (status === 'dubbed') {
+            // Get the dubbed audio
+            const audioResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${targetLang}`, {
+              headers: {
+                'xi-api-key': elevenApiKey,
+              },
+              signal: AbortSignal.timeout(30000)
+            });
+            
+            if (!audioResponse.ok) {
+              throw new Error(`Failed to get dubbed audio: ${audioResponse.status}`);
+            }
+            
+            // Save the dubbed audio to uploads directory
+            const outputFileName = `dubbed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
+            const outputPath = path.join(DIRS.uploads, outputFileName);
+            
+            const audioBuffer = await audioResponse.arrayBuffer();
+            fs.writeFileSync(outputPath, Buffer.from(audioBuffer));
+            
+            try {
+              const sz = fs.statSync(outputPath).size;
+              tlog('dubbing completed', 'output='+outputPath, 'bytes='+sz);
+            } catch(e){}
+            
+            // Only send response if client is still connected
+            if (!res.headersSent) {
+              res.json({ ok: true, audioPath: outputPath, dubbingId: dubbingId });
+            }
+            return;
+          } else if (status === 'failed') {
+            throw new Error('Dubbing failed');
+          } else if (attempts >= maxAttempts) {
+            throw new Error('Dubbing timeout');
+          } else {
+            // Continue polling
+            setTimeout(pollForCompletion, pollInterval);
+          }
+        } catch (error) {
+          tlog('Dubbing poll error:', error.message);
+          // Only send error response if client is still connected
+          if (!res.headersSent) {
+            res.status(500).json({ error: String(error?.message || error) });
+          }
+        }
+      };
+      
+      // Start polling
+      setTimeout(pollForCompletion, pollInterval);
+      
+    } catch(e) {
+      tlog('dubbing error:', e.message);
+      return res.status(500).json({ error: String(e?.message||e) });
+    }
+  } catch(e){ 
+    if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); 
+  }
+});
+
+// ElevenLabs TTS endpoint
+app.post('/tts/generate', async (req, res) => {
+  try {
+    const { text, voiceId, elevenApiKey, model = 'eleven_turbo_v2_5', voiceSettings } = req.body || {};
+    tlog('POST /tts/generate', 'voiceId='+voiceId, 'model='+model, 'text='+text?.substring(0, 50));
+    
+    if (!text) {
+      return res.status(400).json({ error: 'Text required' });
+    }
+    
+    if (!voiceId) {
+      return res.status(400).json({ error: 'Voice ID required' });
+    }
+    
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
+    }
+    
+    // Use provided voice settings or defaults
+    const settings = voiceSettings || {
+      stability: 0.5,
+      similarity_boost: 0.75
+    };
+    
+    try {
+      // Call ElevenLabs TTS API
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': elevenApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: text,
+          model_id: model,
+          voice_settings: {
+            stability: settings.stability,
+            similarity_boost: settings.similarity_boost,
+            style: 0.0,
+            use_speaker_boost: true
+          }
+        }),
+        signal: AbortSignal.timeout(60000) // 60 second timeout
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        tlog('ElevenLabs TTS error:', response.status, errorText);
+        return res.status(response.status).json({ error: `ElevenLabs API error: ${errorText}` });
+      }
+      
+      // Save the audio to sync extensions directory
+      const ttsDir = path.join(BASE_DIR, 'tts');
+      try { fs.mkdirSync(ttsDir, { recursive: true }); } catch(_){}
+      const outputFileName = `tts_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
+      const outputPath = path.join(ttsDir, outputFileName);
+      
+      const audioBuffer = await response.arrayBuffer();
+      fs.writeFileSync(outputPath, Buffer.from(audioBuffer));
+      
+      try {
+        const sz = fs.statSync(outputPath).size;
+        tlog('TTS completed', 'output='+outputPath, 'bytes='+sz);
+      } catch(e){}
+      
+      res.json({ ok: true, audioPath: outputPath });
+    } catch(e) {
+      tlog('TTS error:', e.message);
+      return res.status(500).json({ error: String(e?.message||e) });
+    }
+  } catch(e){ 
+    if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); 
+  }
+});
+
+// ElevenLabs list voices endpoint
+app.get('/tts/voices', async (req, res) => {
+  try {
+    const { elevenApiKey } = req.query;
+    tlog('GET /tts/voices');
+    
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
+    }
+    
+    try {
+      const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+        headers: {
+          'xi-api-key': elevenApiKey,
+        },
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        tlog('ElevenLabs voices error:', response.status, errorText);
+        return res.status(response.status).json({ error: `ElevenLabs API error: ${errorText}` });
+      }
+      
+      const data = await response.json();
+      tlog('TTS voices fetched', 'count='+data.voices?.length);
+      res.json(data);
+    } catch(e) {
+      tlog('TTS voices error:', e.message);
+      return res.status(500).json({ error: String(e?.message||e) });
+    }
+  } catch(e){ 
+    if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); 
+  }
+});
+
+// Video-to-audio extraction endpoint
+app.post('/extract-audio', async (req, res) => {
+  try{
+    const { videoPath, videoUrl, format } = req.body || {};
+    tlog('POST /extract-audio', 'format='+format, 'videoPath='+videoPath, 'videoUrl='+videoUrl, 'body='+JSON.stringify(req.body));
+    
+    if (!videoPath && !videoUrl) {
+      return res.status(400).json({ error: 'Video path or URL required' });
+    }
+    
+    let localVideoPath = videoPath;
+    
+    // If URL provided, download the video first
+    if (videoUrl && !videoPath) {
+      try {
+        const response = await fetch(videoUrl);
+        if (!response.ok) {
+          return res.status(400).json({ error: 'Failed to download video from URL' });
+        }
+        
+        // Create temporary file
+        const tempDir = os.tmpdir();
+        const tempFileName = `temp_video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp4`;
+        localVideoPath = path.join(tempDir, tempFileName);
+        
+        const buffer = await response.arrayBuffer();
+        fs.writeFileSync(localVideoPath, Buffer.from(buffer));
+        
+        tlog('Downloaded video to temp file', localVideoPath);
+      } catch (error) {
+        tlog('Video download error', error.message);
+        return res.status(400).json({ error: 'Failed to download video: ' + error.message });
+      }
+    }
+    
+    if (!localVideoPath || typeof localVideoPath !== 'string' || !path.isAbsolute(localVideoPath)){
+      tlog('extract invalid path');
+      return res.status(400).json({ error: 'invalid videoPath' });
+    }
+    
+    if (!fs.existsSync(localVideoPath)) {
+      return res.status(404).json({ error: 'video file not found' });
+    }
+    
+    const fmt = String(format||'wav').toLowerCase();
+    if (fmt !== 'wav' && fmt !== 'mp3') {
+      return res.status(400).json({ error: 'Unsupported format. Use wav or mp3.' });
+    }
+    
+    try {
+      const { extractAudioFromVideo } = require('./video-audio-extractor.cjs');
+      const audioPath = await extractAudioFromVideo(localVideoPath, fmt, DIRS);
+      
+      if (!audioPath || !fs.existsSync(audioPath)) {
+        return res.status(500).json({ error: 'audio extraction failed' });
+      }
+      
+      try {
+        const sz = fs.statSync(audioPath).size;
+        tlog('extract audio ok', 'out='+audioPath, 'bytes='+sz);
+      } catch(e){}
+      
+      res.json({ ok: true, audioPath: audioPath });
+    } catch(e) {
+      tlog('extract audio error:', e.message);
+      return res.status(500).json({ error: String(e?.message||e) });
+    }
+  } catch(e){ 
+    if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); 
+  }
+});
+
+// Public WAV file reader for quality testing (before auth middleware)
+app.get('/wav/file', async (req, res) => {
+  try{
+    const p = String(req.query.path||'');
+    if (!p || !path.isAbsolute(p)) return res.status(400).json({ error:'invalid path' });
+    let real = '';
+    try { real = fs.realpathSync(p); } catch(_){ real = p; }
+    const wasTemp = real.indexOf('/TemporaryItems/') !== -1;
+    real = toReadableLocalPath(real);
+    if (!fs.existsSync(real)) return res.status(404).json({ error:'not found' });
+    const stat = fs.statSync(real);
+    if (!stat.isFile()) return res.status(400).json({ error:'not a file' });
+    res.setHeader('Content-Type', 'audio/wav');
+    const s = fs.createReadStream(real);
+    s.pipe(res);
+    res.on('close', ()=>{
+      try {
+        // If we created a copy under COPY_DIR for TemporaryItems, delete it after serving
+        if (wasTemp && real.indexOf(COPY_DIR) === 0) { fs.unlink(real, ()=>{}); }
+      } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
+    });
+  }catch(e){ if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); }
+});
+
+// Public MP3 file reader for quality testing (before auth middleware)
+app.get('/mp3/file', async (req, res) => {
+  try{
+    const p = String(req.query.path||'');
+    if (!p || !path.isAbsolute(p)) return res.status(400).json({ error:'invalid path' });
+    let real = '';
+    try { real = fs.realpathSync(p); } catch(_){ real = p; }
+    const wasTemp = real.indexOf('/TemporaryItems/') !== -1;
+    real = toReadableLocalPath(real);
+    if (!fs.existsSync(real)) return res.status(404).json({ error:'not found' });
+    const stat = fs.statSync(real);
+    if (!stat.isFile()) return res.status(400).json({ error:'not a file' });
+    res.setHeader('Content-Type', 'audio/mpeg');
+    const s = fs.createReadStream(real);
+    s.pipe(res);
+    res.on('close', ()=>{
+      try {
+        // If we created a copy under COPY_DIR for TemporaryItems, delete it after serving
+        if (wasTemp && real.indexOf(COPY_DIR) === 0) { fs.unlink(real, ()=>{}); }
+      } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
+    });
+  }catch(e){ if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); }
+});
+
 // Public waveform file reader (before auth middleware)
 app.get('/waveform/file', async (req, res) => {
   try{
@@ -708,7 +869,8 @@ app.post('/debug', async (req, res) => {
       logFile = path.join(DIRS.logs, 'sync_ppro_debug.log');
     }
     
-    const logMessage = `[${timestamp}] [debug] ${JSON.stringify(body)}`;
+    // Format log message for better readability
+    const logMessage = `[${timestamp}] [${body.type || 'debug'}] ${JSON.stringify(body, null, 2)}`;
     
     // Write to appropriate log file (don't log to console to avoid duplication in server log)
     try { fs.appendFileSync(logFile, logMessage + "\n"); } catch(_){ }
@@ -721,10 +883,198 @@ app.post('/debug', async (req, res) => {
   }
 });
 
+// Recording save endpoint (PUBLIC - needed for recording)
+// Use raw body parser for multipart/form-data
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1024 * 1024 * 1024 } // 1GB limit
+});
+
+app.post('/recording/save', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file provided' });
+    }
+
+    const { targetDir, type } = req.body || {};
+    const fileName = req.file.originalname || `recording_${Date.now()}.webm`;
+
+    // Determine save directory - recordings should go to uploads folder, not project folders
+    let saveDir;
+    if (targetDir === 'documents') {
+      saveDir = DOCS_DEFAULT_DIR;
+    } else if (targetDir === 'uploads') {
+      // Explicit uploads folder request
+      saveDir = TEMP_DEFAULT_DIR;
+    } else if (targetDir && typeof targetDir === 'string' && path.isAbsolute(targetDir)) {
+      // For recordings, always use uploads folder regardless of project setting
+      // This prevents recordings from cluttering project folders
+      saveDir = TEMP_DEFAULT_DIR; // Use uploads folder
+    } else {
+      saveDir = TEMP_DEFAULT_DIR; // Use uploads folder for recordings
+    }
+
+    // Ensure directory exists
+    try {
+      await fs.promises.mkdir(saveDir, { recursive: true });
+    } catch(e) {
+      tlog('recording:save:mkdir:error', e.message);
+    }
+
+    // Save file and process with FFmpeg to convert WebM to MP4
+    const inputPath = path.join(saveDir, `temp_${fileName}`);
+    // Convert WebM to MP4 for sync API compatibility
+    const outputFileName = fileName.replace(/\.webm$/i, '.mp4');
+    const outputPath = path.join(saveDir, outputFileName);
+    
+    // Write temporary file
+    await fs.promises.writeFile(inputPath, req.file.buffer);
+    
+    try {
+      console.log('Processing recording with FFmpeg...');
+      console.log('Input file:', inputPath);
+      console.log('Output file:', outputPath);
+      
+      // Check if input file exists and has content
+      const inputStats = await fs.promises.stat(inputPath);
+      console.log('Input file size:', inputStats.size);
+      
+      if (inputStats.size === 0) {
+        throw new Error('Input file is empty');
+      }
+      
+      // Process with FFmpeg to convert WebM to MP4 with proper metadata
+      await new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+          .outputOptions([
+            '-c:v', 'libx264',  // Use H.264 video codec for MP4
+            '-c:a', 'aac',      // Use AAC audio codec for MP4
+            '-preset', 'ultrafast',  // Fastest encoding preset for better playback
+            '-crf', '28',       // Lower quality for smoother playback
+            '-profile:v', 'baseline',  // Baseline profile for better compatibility
+            '-level', '3.0',    // Lower level for smoother playback
+            '-movflags', '+faststart',  // Optimize for streaming/playback
+            '-avoid_negative_ts', 'make_zero',  // Fix timestamp issues
+            '-fflags', '+genpts'  // Generate presentation timestamps
+          ])
+          .output(outputPath)
+          .on('start', (commandLine) => {
+            console.log('FFmpeg command:', commandLine);
+          })
+          .on('progress', (progress) => {
+            console.log('FFmpeg progress:', progress);
+          })
+          .on('end', () => {
+            console.log('FFmpeg processing completed');
+            resolve();
+          })
+          .on('error', (err) => {
+            console.error('FFmpeg processing error:', err);
+            reject(err);
+          })
+          .run();
+      });
+      
+      // Check output file
+      const outputStats = await fs.promises.stat(outputPath);
+      console.log('Output file size:', outputStats.size);
+      
+      if (outputStats.size === 0) {
+        throw new Error('Output file is empty after FFmpeg processing');
+      }
+      
+      // Cleanup temporary file
+      await fs.promises.unlink(inputPath).catch(() => {});
+      
+      console.log('Recording processed and saved:', {
+        path: outputPath,
+        size: req.file.size,
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname
+      });
+      
+      tlog('recording:save:ok', 'path=', outputPath, 'size=', req.file.size);
+      
+      // Return file path for CEP compatibility
+      res.json({ ok: true, path: outputPath });
+    } catch (ffmpegError) {
+      console.error('FFmpeg processing failed, saving original file:', ffmpegError);
+      
+      // Fallback: save original file if FFmpeg fails
+      await fs.promises.writeFile(outputPath, req.file.buffer);
+      await fs.promises.unlink(inputPath).catch(() => {});
+      
+      tlog('recording:save:fallback', 'path=', outputPath, 'size=', req.file.size);
+      
+      res.json({ ok: true, path: outputPath });
+    }
+  } catch(e) {
+    tlog('recording:save:error', e.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  }
+});
+
+// Serve recorded files via HTTP for better metadata support
+app.get('/recording/file', async (req, res) => {
+  try {
+    const { path: filePath } = req.query;
+    
+    console.log('Serving recording file:', filePath);
+    
+    if (!filePath) {
+      return res.status(400).json({ error: 'File path required' });
+    }
+    
+    if (!fs.existsSync(filePath)) {
+      console.error('Recording file not found:', filePath);
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    const stats = await fs.promises.stat(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    
+    console.log('File stats:', {
+      path: filePath,
+      size: stats.size,
+      ext: ext
+    });
+    
+    let contentType = 'application/octet-stream';
+    if (ext === '.webm') {
+      contentType = filePath.includes('audio') ? 'audio/webm' : 'video/webm';
+    } else if (ext === '.mp4') {
+      contentType = filePath.includes('audio') ? 'audio/mp4' : 'video/mp4';
+    }
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'no-cache');
+    
+    console.log('Serving file with headers:', {
+      'Content-Type': contentType,
+      'Content-Length': stats.size
+    });
+    
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+  } catch(e) {
+    console.error('Error serving recording file:', e);
+    if (!res.headersSent) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  }
+});
+
+// Duplicate endpoint removed - using unified video-audio-extractor.cjs approach
+
 // Upload endpoint (PUBLIC - needed for file picker)
 app.post('/upload', async (req, res) => {
   try {
-    const { path: filePath, apiKey } = req.body || {};
+    const { path: filePath, syncApiKey } = req.body || {};
     
     if (!filePath) {
       return res.status(400).json({ error: 'File path required' });
@@ -734,22 +1084,45 @@ app.post('/upload', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
     
+    // Track upload start
+    const fileStat = await safeStat(filePath);
+    track('upload_started', {
+      fileSize: fileStat?.size || 0,
+      fileName: path.basename(filePath),
+      hostApp: APP_ID
+    });
+    
     // Set a timeout for the entire upload process
     const uploadTimeout = setTimeout(() => {
       if (!res.headersSent) {
         res.status(408).json({ error: 'Upload timeout' });
       }
-    }, 240000); // 4 minute timeout for the entire upload
+    }, 300000); // 5 minute timeout for the entire upload
     
     try {
       // Upload to R2 and return the cloud URL
       const fileUrl = await r2Upload(filePath);
+      
+      // Track upload success
+      track('upload_completed', {
+        fileSize: fileStat?.size || 0,
+        fileName: path.basename(filePath),
+        hostApp: APP_ID
+      });
       
       clearTimeout(uploadTimeout);
       if (!res.headersSent) {
         res.json({ ok: true, url: fileUrl });
       }
     } catch (uploadError) {
+      // Track upload failure
+      track('upload_failed', {
+        fileSize: fileStat?.size || 0,
+        fileName: path.basename(filePath),
+        error: String(uploadError?.message || uploadError),
+        hostApp: APP_ID
+      });
+      
       clearTimeout(uploadTimeout);
       if (!res.headersSent) {
         res.status(500).json({ error: String(uploadError?.message || uploadError) });
@@ -763,7 +1136,7 @@ app.post('/upload', async (req, res) => {
 });
 
 // Apply auth to all routes below this line
-// Public routes: /logs, /health, /auth/token, /update/check, /update/version, /upload
+// Public routes: /logs, /health, /auth/token, /update/check, /update/version, /upload, /dubbing, /tts
 app.use((req,res,next)=>{
   const publicPaths = [
     '/logs',
@@ -773,7 +1146,16 @@ app.use((req,res,next)=>{
     '/update/version',
     '/upload',
     '/debug',
-    '/costs'
+    '/costs',
+    '/dubbing',
+    '/tts/generate',
+    '/tts/voices',
+    '/recording/save',
+    '/recording/file',
+    '/extract-audio',
+    '/mp3/file',
+    '/wav/file',
+    '/waveform/file'
   ];
   if (publicPaths.includes(req.path)) {
     return next();
@@ -781,32 +1163,6 @@ app.use((req,res,next)=>{
   // All other routes require authentication
   return requireAuth(req,res,next);
 });
-// ---------- R2 (S3 compatible) config ----------
-const R2_ENDPOINT_URL = process.env.R2_ENDPOINT_URL || 'https://a0282f2dad0cdecf5de20e2219e77809.r2.cloudflarestorage.com';
-const R2_ACCESS_KEY  = process.env.R2_ACCESS_KEY || '';
-const R2_SECRET_KEY  = process.env.R2_SECRET_KEY || '';
-const R2_BUCKET      = process.env.R2_BUCKET || 'service-based-business';
-const R2_PREFIX      = process.env.R2_PREFIX || 'sync-extension/';
-
-// Validate R2 credentials
-console.log('R2 configuration check:');
-console.log('R2_ENDPOINT_URL:', R2_ENDPOINT_URL ? 'SET' : 'NOT SET');
-console.log('R2_ACCESS_KEY:', R2_ACCESS_KEY ? 'SET' : 'NOT SET');
-console.log('R2_SECRET_KEY:', R2_SECRET_KEY ? 'SET' : 'NOT SET');
-console.log('R2_BUCKET:', R2_BUCKET);
-console.log('R2_PREFIX:', R2_PREFIX);
-
-if (!R2_ACCESS_KEY || !R2_SECRET_KEY) {
-  console.error('R2 credentials not configured. R2 uploads will be disabled.');
-  console.error('Set R2_ACCESS_KEY and R2_SECRET_KEY environment variables.');
-}
-
-const r2Client = (R2_ACCESS_KEY && R2_SECRET_KEY) ? new S3Client({
-  region: 'auto',
-  endpoint: R2_ENDPOINT_URL,
-  credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY },
-  forcePathStyle: true
-}) : null;
 const DOCS_DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'sync. outputs');
 const TEMP_DEFAULT_DIR = DIRS.uploads;
 
@@ -1043,19 +1399,6 @@ app.post('/update/apply', async (req,res)=>{
   }
 });
 
-function guessMime(p){
-  const ext = String(p||'').toLowerCase().split('.').pop();
-  if (ext === 'mp4') return 'video/mp4';
-  if (ext === 'mov') return 'video/quicktime';
-  if (ext === 'mxf') return 'application/octet-stream';
-  if (ext === 'mkv') return 'video/x-matroska';
-  if (ext === 'avi') return 'video/x-msvideo';
-  if (ext === 'wav') return 'audio/wav';
-  if (ext === 'mp3') return 'audio/mpeg';
-  if (ext === 'aac' || ext==='m4a') return 'audio/aac';
-  if (ext === 'aif' || ext === 'aiff') return 'audio/aiff';
-  return 'application/octet-stream';
-}
 
 async function convertIfAiff(p){
   try{
@@ -1070,86 +1413,15 @@ async function convertIfAiff(p){
   }catch(e){ tlog('convertIfAiff error', e && e.message ? e.message : String(e)); return p; }
 }
 
-async function r2Upload(localPath){
-  if (!r2Client) {
-    throw new Error('R2 client not configured. Missing R2_ACCESS_KEY or R2_SECRET_KEY environment variables.');
-  }
-  if (!(await safeExists(localPath))) throw new Error('file not found: ' + localPath);
-  
-  // Add timeout protection to prevent hanging on network issues
-  const timeoutMs = 180000; // 3 minute timeout for uploads (increased from 2 minutes)
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('R2 upload timeout')), timeoutMs)
-  );
-  
-  try {
-    return await Promise.race([
-      r2UploadInternal(localPath),
-      timeoutPromise
-    ]);
-  } catch(e) {
-    try { tlog('r2Upload:error', e && e.message ? e.message : String(e)); } catch(_){}
-    // Don't re-throw EPIPE errors - they're usually recoverable
-    if (e.message && e.message.includes('EPIPE')) {
-      throw new Error('Upload connection lost. Please try again.');
-    }
-    throw e;
-  }
-}
-
-async function r2UploadInternal(localPath){
-  const base = path.basename(localPath);
-  const key  = `${R2_PREFIX}uploads/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${base}`;
-  slog('[r2] put start', localPath, '→', `${R2_BUCKET}/${key}`);
-  
-  try {
-    const body = fs.createReadStream(localPath);
-    const contentType = guessMime(localPath);
-    
-    // Add error handling for the stream
-    body.on('error', (err) => {
-      slog('[r2] stream error', err.message);
-    });
-    
-    await r2Client.send(new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: key,
-      Body: body,
-      ContentType: contentType
-    }));
-    
-    // Generate signed URL for external access
-    const command = new GetObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: key
-    });
-    
-    const signedUrl = await getSignedUrl(r2Client, command, { 
-      expiresIn: 3600,
-      signableHeaders: new Set(['host']),
-      unsignableHeaders: new Set(['host'])
-    }); // 1 hour expiry
-    
-    slog('[r2] put ok', signedUrl);
-    return signedUrl;
-  } catch (error) {
-    slog('[r2] put error', error.message);
-    // Handle specific EPIPE errors gracefully
-    if (error.message && error.message.includes('EPIPE')) {
-      throw new Error('Upload connection lost. Please try again.');
-    }
-    throw error;
-  }
-}
 
 const SYNC_API_BASE = 'https://api.sync.so/v2';
 
 // Proxy models
 app.get('/models', async (req, res) => {
   try{
-    const { apiKey } = req.query;
-    if (!apiKey) return res.status(400).json({ error: 'API key required' });
-    const r = await fetch(`${SYNC_API_BASE}/models`, { headers: { 'x-api-key': String(apiKey) }, signal: AbortSignal.timeout(10000) });
+    const { syncApiKey } = req.query;
+    if (!syncApiKey) return res.status(400).json({ error: 'syncApiKey required' });
+    const r = await fetch(`${SYNC_API_BASE}/models`, { headers: { 'x-api-key': String(syncApiKey) }, signal: AbortSignal.timeout(10000) });
     const j = await r.json().catch(()=>({}));
     if (!r.ok) return res.status(r.status).json(j);
     res.json(j);
@@ -1159,11 +1431,11 @@ app.get('/models', async (req, res) => {
 // Proxy list generations
 app.get('/generations', async (req, res) => {
   try{
-    const { apiKey, status } = req.query;
-    if (!apiKey) return res.status(400).json({ error: 'API key required' });
+    const { syncApiKey, status } = req.query;
+    if (!syncApiKey) return res.status(400).json({ error: 'syncApiKey required' });
     const url = new URL(`${SYNC_API_BASE}/generations`);
     if (status) url.searchParams.set('status', String(status));
-    const r = await fetch(url.toString(), { headers: { 'x-api-key': String(apiKey) }, signal: AbortSignal.timeout(10000) });
+    const r = await fetch(url.toString(), { headers: { 'x-api-key': String(syncApiKey) }, signal: AbortSignal.timeout(10000) });
     const j = await r.json().catch(()=>({}));
     if (!r.ok) return res.status(r.status).json(j);
     res.json(j);
@@ -1177,43 +1449,57 @@ app.get('/jobs/:id', (req,res)=>{
   res.json(job);
 });
 
-async function normalizePaths(obj){
-  if (!obj) return obj;
-  if (obj.videoPath) obj.videoPath = await resolveSafeLocalPath(obj.videoPath);
-  if (obj.audioPath) obj.audioPath = await resolveSafeLocalPath(obj.audioPath);
-  return obj;
-}
 
-function normalizeOutputDir(p){
-  try{
-    if (!p || typeof p !== 'string') return '';
-    const abs = path.resolve(p);
-    return path.normalize(abs);
-  }catch(_){ return ''; }
-}
 
 app.post('/jobs', async (req, res) => {
   try{
-    let { videoPath, audioPath, videoUrl, audioUrl, isTempVideo, isTempAudio, model, temperature, activeSpeakerOnly, detectObstructions, options = {}, apiKey, outputDir } = req.body || {};
+    // Log every incoming request for debugging
+    console.log('[jobs:create] Request received:', JSON.stringify(req.body, null, 2));
+    
+    let { videoPath, audioPath, videoUrl, audioUrl, isTempVideo, isTempAudio, model, temperature, activeSpeakerOnly, detectObstructions, options = {}, syncApiKey, outputDir } = req.body || {};
     ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
     // Auto-convert AIFF from AE to WAV so the rest of the pipeline can read it
     try { if (audioPath) { audioPath = await convertIfAiff(audioPath); } } catch(_){}
     const vStat = await safeStat(videoPath); const aStat = await safeStat(audioPath);
-    const overLimit = ((vStat && vStat.size > 20*1024*1024) || (aStat && aStat.size > 20*1024*1024));
+    // Only check file size limits when using local files (not R2 URLs)
+    const overLimit = (!videoUrl || !audioUrl) && ((vStat && vStat.size > 20*1024*1024) || (aStat && aStat.size > 20*1024*1024));
     slog('[jobs:create]', 'model=', model||'lipsync-2-pro', 'overLimit=', overLimit, 'v=', vStat&&vStat.size, 'a=', aStat&&aStat.size, 'r2=', true, 'bucket=', R2_BUCKET);
     
-    if (!apiKey) {
-      return res.status(400).json({ error: 'API key required' });
+    // Track job creation
+    track('sync_job_started', {
+      model: model || 'lipsync-2-pro',
+      temperature: temperature || 0.7,
+      activeSpeakerOnly: !!activeSpeakerOnly,
+      detectObstructions: !!detectObstructions,
+      hasVideoUrl: !!videoUrl,
+      hasAudioUrl: !!audioUrl,
+      videoSize: vStat?.size || 0,
+      audioSize: aStat?.size || 0,
+      overLimit: overLimit,
+      hostApp: APP_ID
+    });
+    
+    if (!syncApiKey) {
+      console.log('[jobs:create] Missing syncApiKey, rejecting request');
+      return res.status(400).json({ error: 'syncApiKey required' });
     }
+    // If URLs aren't provided, use local paths and upload to R2 (like cost estimation)
     if (!videoUrl || !audioUrl){
       if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
       const videoExists = await safeExists(videoPath);
       const audioExists = await safeExists(audioPath);
       if (!videoExists || !audioExists) return res.status(400).json({ error: 'Video or audio file not found' });
+
+      console.log('[jobs:create] Uploading sources to R2 for lipsync job');
+      videoUrl = await r2Upload(await resolveSafeLocalPath(videoPath));
+      audioUrl = await r2Upload(await resolveSafeLocalPath(audioPath));
+    } else {
+      console.log('[jobs:create] Using provided R2 URLs for video and audio');
     }
 
     const limit1GB = 1024*1024*1024;
-    if ((vStat && vStat.size > limit1GB) || (aStat && aStat.size > limit1GB)){
+    // Only check file size limits when using local files (not R2 URLs)
+    if ((!videoUrl || !audioUrl) && ((vStat && vStat.size > limit1GB) || (aStat && aStat.size > limit1GB))){
       return res.status(400).json({ error: 'Files over 1GB are not allowed. Please use smaller files.' });
     }
 
@@ -1235,7 +1521,7 @@ app.post('/jobs', async (req, res) => {
       syncJobId: null,
       outputPath: null,
       outputDir: normalizeOutputDir(outputDir || '') || null,
-      apiKey,
+      syncApiKey,
     };
     jobs.push(job);
     if (jobs.length > 500) { jobs = jobs.slice(-500); }
@@ -1269,6 +1555,14 @@ app.post('/jobs', async (req, res) => {
         job.status = 'failed';
         job.error = String(e?.message||e);
         saveJobs();
+        
+        // Track job failure
+        track('sync_job_failed', {
+          jobId: job.id,
+          model: job.model,
+          error: String(e?.message||e),
+          hostApp: APP_ID
+        });
       }
     });
   }catch(e){ slog('[jobs:create] error', e && e.message ? e.message : String(e)); if (!res.headersSent) res.status(500).json({ error: String(e?.message||e) }); }
@@ -1292,12 +1586,12 @@ app.get('/jobs/:id/download', async (req,res)=>{
 
 app.post('/jobs/:id/save', async (req,res)=>{
   try{
-    const { location = 'project', targetDir = '', apiKey: keyOverride } = req.body || {};
+    const { location = 'project', targetDir = '', syncApiKey: keyOverride } = req.body || {};
     let job = jobs.find(j => String(j.id) === String(req.params.id));
-    // If not local, construct a cloud-only placeholder with sync id and apiKey
+    // If not local, construct a cloud-only placeholder with sync id and syncApiKey
     if (!job) {
-      if (!keyOverride) return res.status(404).json({ error:'Job not found and apiKey missing' });
-      job = { id: String(req.params.id), syncJobId: String(req.params.id), status: 'completed', outputDir: '', apiKey: keyOverride };
+      if (!keyOverride) return res.status(404).json({ error:'Job not found and syncApiKey missing' });
+      job = { id: String(req.params.id), syncJobId: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
     }
 
     // Enforce per-project when selected: if 'project', require targetDir; otherwise fallback to temp, not Documents
@@ -1345,9 +1639,9 @@ app.get('/costs', (_req, res)=>{
 app.post('/costs', async (req, res) => {
   try{
     slog('[costs] received POST');
-    let { videoPath, audioPath, videoUrl, audioUrl, model = 'lipsync-2-pro', apiKey, options = {} } = req.body || {};
+    let { videoPath, audioPath, videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey, options = {} } = req.body || {};
     ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
-    if (!apiKey) return res.status(400).json({ error: 'API key required' });
+    if (!syncApiKey) return res.status(400).json({ error: 'syncApiKey required' });
     // If URLs aren't provided, use local paths and upload to R2
     if (!videoUrl || !audioUrl){
       if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
@@ -1370,7 +1664,7 @@ app.post('/costs', async (req, res) => {
       options: opts
     };
     try { slog('[costs] request', 'model=', body.model, 'video=', videoUrl, 'audio=', audioUrl, 'options=', JSON.stringify(opts)); } catch(_){ }
-    const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, { method:'POST', headers: { 'x-api-key': apiKey, 'content-type': 'application/json', 'accept': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+    const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, { method:'POST', headers: { 'x-api-key': syncApiKey, 'content-type': 'application/json', 'accept': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
     const text = await safeText(resp);
     try { slog('[costs] response', resp.status, (text||'').slice(0,200)); } catch(_){ }
     if (!resp.ok) { slog('[costs] sync api error', resp.status, text); return res.status(resp.status).json({ error: text || 'cost failed' }); }
@@ -1387,15 +1681,6 @@ app.post('/costs', async (req, res) => {
 // Waveform helper: securely read local file bytes for the panel (same auth)
 // Duplicate route removed; the public unauthenticated version above is the source of truth
 
-function pipeToFile(stream, dest){
-  return new Promise((resolve, reject)=>{
-    const ws = fs.createWriteStream(dest);
-    stream.pipe(ws);
-    stream.on('error', reject);
-    ws.on('finish', resolve);
-    ws.on('error', reject);
-  });
-}
 
 async function createGeneration(job){
   const vStat = await safeStat(job.videoPath);
@@ -1429,7 +1714,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
         options: (job.options && typeof job.options === 'object') ? job.options : {}
       };
       const resp = await fetch(`${SYNC_API_BASE}/generate`, {
-        method: 'POST', headers: { 'x-api-key': job.apiKey, 'accept':'application/json', 'content-type':'application/json' }, body: JSON.stringify(body),
+        method: 'POST', headers: { 'x-api-key': job.syncApiKey, 'accept':'application/json', 'content-type':'application/json' }, body: JSON.stringify(body),
         signal: AbortSignal.timeout(120000) // 2 minute timeout
       });
       if (!resp.ok){ const t = await safeText(resp); slog('[create:url:direct] error', resp.status, t); throw new Error(`create(url) failed ${resp.status} ${t}`); }
@@ -1452,7 +1737,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
       };
       const resp = await fetch(`${SYNC_API_BASE}/generate`, {
         method: 'POST',
-        headers: { 'x-api-key': job.apiKey, 'accept':'application/json', 'content-type':'application/json' },
+        headers: { 'x-api-key': job.syncApiKey, 'accept':'application/json', 'content-type':'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(120000) // 2 minute timeout
       });
@@ -1477,7 +1762,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
   };
   const resp = await fetch(`${SYNC_API_BASE}/generate`, {
     method: 'POST',
-    headers: { 'x-api-key': job.apiKey, 'accept':'application/json', 'content-type':'application/json' },
+    headers: { 'x-api-key': job.syncApiKey, 'accept':'application/json', 'content-type':'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(120000) // 2 minute timeout
   });
@@ -1487,9 +1772,9 @@ async function createGenerationInternal(job, vStat, aStat, overLimit){
 }
 
 async function fetchGeneration(job){
-  let resp = await fetch(`${SYNC_API_BASE}/generate/${job.syncJobId}`, { headers: { 'x-api-key': job.apiKey }, signal: AbortSignal.timeout(10000) });
+  let resp = await fetch(`${SYNC_API_BASE}/generate/${job.syncJobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   if (!resp.ok && resp.status === 404){
-    resp = await fetch(`${SYNC_API_BASE}/generations/${job.syncJobId}`, { headers: { 'x-api-key': job.apiKey }, signal: AbortSignal.timeout(10000) });
+    resp = await fetch(`${SYNC_API_BASE}/generations/${job.syncJobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   }
   if (!resp.ok) return null;
   return await resp.json();
@@ -1524,6 +1809,17 @@ async function pollSyncJob(job){
       if (await downloadIfReady(job)){
         job.status = 'completed';
         saveJobs();
+        
+        // Track job success
+        const duration = Date.now() - new Date(job.createdAt).getTime();
+        track('sync_job_succeeded', {
+          jobId: job.id,
+          model: job.model,
+          duration: duration,
+          attempts: attempts,
+          hostApp: APP_ID
+        });
+        
         if (pollTimeout) clearTimeout(pollTimeout);
         return;
       }
@@ -1533,12 +1829,32 @@ async function pollSyncJob(job){
         job.status='failed'; 
         job.error='Timeout'; 
         saveJobs(); 
+        
+        // Track job timeout
+        track('sync_job_failed', {
+          jobId: job.id,
+          model: job.model,
+          error: 'Timeout',
+          attempts: attempts,
+          hostApp: APP_ID
+        });
+        
         if (pollTimeout) clearTimeout(pollTimeout);
       }
     }catch(e){ 
       job.status='failed'; 
       job.error=String(e?.message||e); 
       saveJobs(); 
+      
+      // Track job error
+      track('sync_job_failed', {
+        jobId: job.id,
+        model: job.model,
+        error: String(e?.message||e),
+        attempts: attempts,
+        hostApp: APP_ID
+      });
+      
       if (pollTimeout) clearTimeout(pollTimeout);
     }
   };
@@ -1560,41 +1876,6 @@ async function pollSyncJob(job){
   }, maxAttempts * pollInterval + 30000); // Extra 30 seconds buffer
 }
 
-async function safeText(resp){ try{ return await resp.text(); }catch(_){ return ''; } }
-
-// Async version to prevent blocking with timeout protection
-async function safeStat(p){ 
-  try{ 
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('File stat timeout')), 5000)
-    );
-    return await Promise.race([
-      fs.promises.stat(p),
-      timeoutPromise
-    ]);
-  }catch(_){ 
-    return null; 
-  } 
-}
-
-// Synchronous version for critical operations only
-function safeStatSync(p){ try{ return fs.statSync(p); }catch(_){ return null; } }
-
-// Async file existence check with timeout
-async function safeExists(p){
-  try{
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('File exists timeout')), 5000)
-    );
-    await Promise.race([
-      fs.promises.access(p),
-      timeoutPromise
-    ]);
-    return true;
-  }catch{
-    return false;
-  }
-}
 
 function log(){ 
   // Console output disabled when spawned by CEP to prevent EPIPE crashes
@@ -1650,30 +1931,13 @@ async function startServer() {
       });
       if (r && r.ok) {
         console.log(`Existing Sync Extension server detected on http://${HOST}:${PORT}`);
-        // Try to determine version drift; if drift, request exit of old server
-        try {
-          const currentManifestVersion = await getCurrentVersion();
-          const vResp = await fetch(`http://${HOST}:${PORT}/update/version`, { 
-            method: 'GET',
-            timeout: 5000
-          }).catch(()=>null);
-          const vJson = vResp ? await vResp.json().catch(()=>null) : null;
-          const otherVersion = vJson && vJson.version ? String(vJson.version) : '';
-          if (currentManifestVersion && otherVersion && compareSemver(currentManifestVersion, otherVersion) > 0){
-            console.log(`Existing server version ${otherVersion} older than manifest ${currentManifestVersion}, requesting shutdown...`);
-            await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
-              method:'POST',
-              timeout: 5000
-            }).catch(()=>{});
-            await new Promise(r2=>setTimeout(r2, 600));
-          } else {
-            console.log(`Port ${PORT} in use by healthy server; exiting child`);
-            process.exit(0);
-          }
-        } catch(_){
-          console.log(`Port ${PORT} in use by healthy server; exiting child`);
-          process.exit(0);
-        }
+        // Always replace the existing server to ensure fresh code is running
+        console.log(`Requesting shutdown of existing server to replace with fresh code...`);
+        await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+          method:'POST',
+          timeout: 5000
+        }).catch(()=>{});
+        await new Promise(r2=>setTimeout(r2, 1000)); // Wait longer for graceful shutdown
       }
     } catch(_) { /* ignore */ }
     const srv = app.listen(PORT, HOST, () => {
@@ -1691,8 +1955,13 @@ async function startServer() {
             timeout: 5000
           });
           if (r && r.ok) {
-            console.log(`Port ${PORT} in use by healthy server; exiting child`);
-            // Another healthy instance is already serving requests on this port.
+            console.log(`Port ${PORT} in use by healthy server; requesting shutdown to replace...`);
+            // Request shutdown of existing server to replace with fresh code
+            await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+              method:'POST',
+              timeout: 5000
+            }).catch(()=>{});
+            await new Promise(r2=>setTimeout(r2, 1000));
             // Exit cleanly so any spawner (e.g., the CEP panel) doesn't leave a zombie process.
             process.exit(0);
           }
@@ -1711,42 +1980,6 @@ async function startServer() {
 }
 
 startServer();
-
-
-async function resolveSafeLocalPath(p){
-  try{
-    if (!p || typeof p !== 'string') {
-      tlog('resolveSafeLocalPath: invalid input', typeof p);
-      return p;
-    }
-    // SECURITY: Reject non-absolute paths to prevent traversal attacks
-    if (!path.isAbsolute(p)) {
-      tlog('resolveSafeLocalPath: rejected non-absolute path', p);
-      throw new Error('Only absolute paths allowed');
-    }
-    const isTempItems = p.indexOf('/TemporaryItems/') !== -1;
-    if (!isTempItems) return p;
-    // macOS workaround: copy from TemporaryItems to readable location
-    const docs = path.join(os.homedir(), 'Documents', 'sync_extension_temp');
-    try {
-      await fs.promises.access(docs);
-    } catch {
-      await fs.promises.mkdir(docs, { recursive: true });
-    }
-    const target = path.join(docs, path.basename(p));
-    try { 
-      await fs.promises.copyFile(p, target); 
-      await tlog('resolveSafeLocalPath: copied from TemporaryItems', p, '→', target);
-      return target; 
-    } catch(e){ 
-      await tlog('resolveSafeLocalPath: copy failed', e.message);
-      return p; 
-    }
-  }catch(e){ 
-    tlog('resolveSafeLocalPath: exception', e.message);
-    throw e;
-  }
-}
 
 // Crash safety
 process.on('uncaughtException', (err)=>{ try { console.error('uncaughtException', err && err.stack || err); tlog('uncaughtException', err && err.stack || err); } catch(_) {} });

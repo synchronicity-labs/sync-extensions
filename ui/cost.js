@@ -7,8 +7,8 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               type: 'scheduleEstimate_called',
-              selectedVideo: selectedVideo || '',
-              selectedAudio: selectedAudio || '',
+              selectedVideo: window.selectedVideo || '',
+              selectedAudio: window.selectedAudio || '',
               uploadedVideoUrl: window.uploadedVideoUrl || '',
               uploadedAudioUrl: window.uploadedAudioUrl || '',
               hostConfig: window.HOST_CONFIG
@@ -47,8 +47,8 @@
               type: 'estimateCost_called',
               auto: auto,
               retry: retry,
-              selectedVideo: selectedVideo || '',
-              selectedAudio: selectedAudio || '',
+              selectedVideo: window.selectedVideo || '',
+              selectedAudio: window.selectedAudio || '',
               uploadedVideoUrl: window.uploadedVideoUrl || '',
               uploadedAudioUrl: window.uploadedAudioUrl || '',
               hostConfig: window.HOST_CONFIG
@@ -57,8 +57,8 @@
         } catch(_){ }
         
         try{
-          // Before selection: show $0.00
-          if (!selectedVideo || !selectedAudio) {
+          // Before selection: show $0.00 only when BOTH video and audio are missing
+          if ((!window.selectedVideo && !window.selectedVideoUrl) && (!window.selectedAudio && !window.selectedAudioUrl)) {
             // Debug logging
             try {
               fetch('http://127.0.0.1:3000/debug', {
@@ -66,22 +66,75 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   type: 'cost_estimation_no_files',
-                  selectedVideo: selectedVideo || '',
-                  selectedAudio: selectedAudio || '',
+                  selectedVideo: window.selectedVideo || '',
+                  selectedAudio: window.selectedAudio || '',
                   hostConfig: window.HOST_CONFIG
                 })
               }).catch(() => {});
             } catch(_){ }
             
-            if (!auto && statusEl) statusEl.textContent = 'select both video and audio first';
-            const txt = 'cost: $0.00';
-            if (display){ display.textContent = txt; }
-            try{ const below=document.getElementById('costBelow'); if (below) below.textContent=txt; }catch(_){ }
+            // Remove unnecessary status message
+            const txt = '$0.00';
+            if (display){ display.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; }
+            try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> ' + txt; }catch(_){ }
             return;
           }
           const settings = JSON.parse(localStorage.getItem('syncSettings')||'{}');
-          const apiKey = settings.apiKey||'';
-          const hasUrls = !!(window.uploadedVideoUrl && window.uploadedAudioUrl);
+          const apiKey = settings.syncApiKey || '';
+          // Check if we have uploaded URLs, direct URLs, OR local file paths for cost estimation
+          const hasUploadedUrls = !!(window.uploadedVideoUrl && window.uploadedAudioUrl);
+          const hasDirectUrls = !!(window.selectedVideoUrl && window.selectedAudioUrl);
+          const hasLocalFiles = !!(window.selectedVideo && window.selectedAudio);
+          const hasMixedInputs = (window.selectedVideoUrl && window.selectedAudio) || (window.selectedVideo && window.selectedAudioUrl);
+          const canEstimate = hasUploadedUrls || hasDirectUrls || hasLocalFiles || hasMixedInputs;
+          
+          // Debug logging for URL state
+          if (window.uploadedVideoUrl || window.uploadedAudioUrl) {
+            console.log('[Cost Estimation] URL state:', {
+              uploadedVideoUrl: window.uploadedVideoUrl,
+              uploadedAudioUrl: window.uploadedAudioUrl,
+              hasUploadedUrls: hasUploadedUrls
+            });
+          }
+          
+          // Show "estimating..." immediately when files are selected, even if uploads are in progress
+          const hasFilesSelected = !!(window.selectedVideo || window.selectedVideoUrl) && !!(window.selectedAudio || window.selectedAudioUrl);
+          if (hasFilesSelected && !canEstimate) {
+            if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
+            try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
+            
+            // Debug logging
+            try {
+              fetch('http://127.0.0.1:3000/debug', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'cost_estimation_files_selected_waiting_upload',
+                  selectedVideo: window.selectedVideo || '',
+                  selectedAudio: window.selectedAudio || '',
+                  uploadedVideoUrl: window.uploadedVideoUrl || '',
+                  uploadedAudioUrl: window.uploadedAudioUrl || '',
+                  hasUploadedUrls: hasUploadedUrls,
+                  hasLocalFiles: hasLocalFiles,
+                  canEstimate: canEstimate,
+                  hostConfig: window.HOST_CONFIG
+                })
+              }).catch(() => {});
+            } catch(_){ }
+            
+            // Retry after a delay if files still not ready, but limit retries
+            if (retry !== false && (retry === undefined || retry < 30)) {
+              setTimeout(() => estimateCost(auto, (retry || 0) + 1), 2000);
+            } else if (retry >= 30) {
+              // After 30 retries (60 seconds), show error
+              if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> $0.00'; }
+              if (typeof window.showToast === 'function') {
+                window.showToast('upload timeout - please try again', 'error');
+              }
+              try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> $0.00'; }catch(_){ }
+            }
+            return;
+          }
           
           // Debug logging for URL state
           try {
@@ -92,9 +145,13 @@
                 type: 'cost_estimation_url_check',
                 uploadedVideoUrl: window.uploadedVideoUrl || '',
                 uploadedAudioUrl: window.uploadedAudioUrl || '',
-                hasUrls: hasUrls,
-                videoUrlLength: (window.uploadedVideoUrl || '').length,
-                audioUrlLength: (window.uploadedAudioUrl || '').length,
+                selectedVideoUrl: window.selectedVideoUrl || '',
+                selectedAudioUrl: window.selectedAudioUrl || '',
+                hasUploadedUrls: hasUploadedUrls,
+                hasDirectUrls: hasDirectUrls,
+                hasLocalFiles: hasLocalFiles,
+                hasMixedInputs: hasMixedInputs,
+                canEstimate: canEstimate,
                 hostConfig: window.HOST_CONFIG
               })
             }).catch(() => {});
@@ -102,10 +159,10 @@
           
           // If lacking API key, show $--
           if (!apiKey) {
-            const txt = 'cost: $0.00';
-            if (display){ display.textContent = txt; }
-            if (!auto && statusEl) statusEl.textContent = 'add API key in settings';
-            try{ const below=document.getElementById('costBelow'); if (below) below.textContent=txt; }catch(_){ }
+            const txt = '$0.00';
+            if (display){ display.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; }
+            // Remove unnecessary status message
+            try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> ' + txt; }catch(_){ }
             // Debug logging for missing API key
             try {
               fetch('http://127.0.0.1:3000/debug', {
@@ -122,22 +179,13 @@
             return;
           }
           
-          // If URLs not ready, show estimating and wait
-          if (!hasUrls) {
-            if (display){ display.textContent='cost: estimating…'; }
+          // If no files selected at all, show estimating and wait
+          if (!canEstimate) {
+            if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
             
-            // Show more specific status messages
-            if (!auto && statusEl) {
-              if (!window.uploadedVideoUrl && !window.uploadedAudioUrl) {
-                statusEl.textContent = 'uploading files...';
-              } else if (!window.uploadedVideoUrl) {
-                statusEl.textContent = 'uploading video...';
-              } else if (!window.uploadedAudioUrl) {
-                statusEl.textContent = 'uploading audio...';
-              }
-            }
+            // Remove unnecessary upload status messages
             
-            try{ const below=document.getElementById('costBelow'); if (below) below.textContent='cost: estimating…'; }catch(_){ }
+            try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
             
             // Debug logging
             try {
@@ -148,36 +196,54 @@
                   type: 'cost_estimation_waiting',
                   uploadedVideoUrl: window.uploadedVideoUrl || '',
                   uploadedAudioUrl: window.uploadedAudioUrl || '',
-                  hasUrls: hasUrls,
+                  hasUploadedUrls: hasUploadedUrls,
+                  hasLocalFiles: hasLocalFiles,
+                  canEstimate: canEstimate,
                   retry: retry,
                   hostConfig: window.HOST_CONFIG
                 })
               }).catch(() => {});
             } catch(_){ }
             
-            // Retry after a delay if URLs still not ready, but limit retries
+            // Retry after a delay if files still not ready, but limit retries
             if (retry !== false && (retry === undefined || retry < 30)) {
               setTimeout(() => estimateCost(auto, (retry || 0) + 1), 2000);
             } else if (retry >= 30) {
               // After 30 retries (60 seconds), show error
-              if (display){ display.textContent='cost: $0.00'; }
-              if (statusEl) statusEl.textContent = 'upload timeout - please try again';
-              try{ const below=document.getElementById('costBelow'); if (below) below.textContent='cost: $0.00'; }catch(_){ }
+              if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> $0.00'; }
+              if (typeof window.showToast === 'function') {
+                window.showToast('upload timeout - please try again', 'error');
+              }
+              try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> $0.00'; }catch(_){ }
             }
             return;
           }
-          if (display){ display.textContent='cost: estimating…'; }
-          try{ const below=document.getElementById('costBelow'); if (below) below.textContent='cost: estimating…'; }catch(_){ }
+          
+          // Log what type of inputs we're using for cost estimation
+          if (hasDirectUrls) {
+            console.log('[Cost] Using direct URLs for estimation:', { selectedVideoUrl: window.selectedVideoUrl, selectedAudioUrl: window.selectedAudioUrl });
+          } else if (hasUploadedUrls) {
+            console.log('[Cost] Using uploaded URLs for estimation:', { uploadedVideoUrl: window.uploadedVideoUrl, uploadedAudioUrl: window.uploadedAudioUrl });
+          } else if (hasLocalFiles) {
+            console.log('[Cost] Using local file paths for estimation:', { selectedVideo: window.selectedVideo, selectedAudio: window.selectedAudio });
+          } else if (hasMixedInputs) {
+            console.log('[Cost] Using mixed inputs for estimation:', { 
+              video: window.selectedVideoUrl || window.selectedVideo, 
+              audio: window.selectedAudioUrl || window.selectedAudio 
+            });
+          }
+          if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
+          try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
           const body = {
-            videoPath: selectedVideo,
-            audioPath: selectedAudio,
-            videoUrl: window.uploadedVideoUrl || '',
-            audioUrl: window.uploadedAudioUrl || '',
+            videoPath: window.selectedVideo || '',
+            audioPath: window.selectedAudio || '',
+            videoUrl: window.uploadedVideoUrl || window.selectedVideoUrl || '',
+            audioUrl: window.uploadedAudioUrl || window.selectedAudioUrl || '',
             model: (document.querySelector('input[name="model"]:checked')||{}).value || 'lipsync-2-pro',
             temperature: parseFloat(document.getElementById('temperature').value),
             activeSpeakerOnly: document.getElementById('activeSpeakerOnly').checked,
             detectObstructions: document.getElementById('detectObstructions').checked,
-            apiKey,
+            syncApiKey: apiKey,
             options: {
               sync_mode: (document.getElementById('syncMode')||{}).value || 'loop',
               temperature: parseFloat(document.getElementById('temperature').value),
@@ -270,27 +336,36 @@
               }).catch(() => {});
             } catch(_){ }
             if (isFinite(val)) {
-              const txt = `cost: $${val.toFixed(2)}`;
-              if (badge){ badge.style.display='block'; badge.textContent = txt; }
-              if (display){ display.textContent = txt; }
-              try { const below = document.getElementById('costBelow'); if (below){ below.textContent = txt; } } catch(_){ }
+              const txt = `$${val.toFixed(2)}`;
+              if (badge){ badge.style.display='block'; badge.textContent = 'cost: ' + txt; }
+              if (display){ display.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; }
+              try { const below = document.getElementById('costBelow'); if (below){ below.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; } } catch(_){ }
             } else {
-              try { if (statusEl && data && data.error) statusEl.textContent = String(data.error).slice(0,200); } catch(_){ }
+              try { 
+                if (typeof window.showToast === 'function' && data && data.error) {
+                  window.showToast(String(data.error).toLowerCase().slice(0,200), 'error');
+                }
+              } catch(_){ }
             }
           } else {
             if (myToken !== costToken) return; // stale
-            if (badge){ badge.style.display='block'; badge.textContent = 'cost: $0.00'; }
-            if (display){ display.textContent = 'cost: $0.00'; }
-            try { if (statusEl && data && data.error) statusEl.textContent = String(data.error).slice(0,200); } catch(_){ }
-            try { const below = document.getElementById('costBelow'); if (below){ below.textContent = 'cost: $0.00'; } } catch(_){ }
+            const txt = '$0.00';
+            if (badge){ badge.style.display='block'; badge.textContent = 'cost: ' + txt; }
+            if (display){ display.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; }
+            try { 
+              if (typeof window.showToast === 'function' && data && data.error) {
+                window.showToast(String(data.error).slice(0,200), 'error');
+              }
+            } catch(_){ }
+            try { const below = document.getElementById('costBelow'); if (below){ below.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; } } catch(_){ }
           }
-        }catch(e){ if (myToken !== costToken) return; if (badge){ badge.style.display='block'; badge.textContent = 'cost: $0.00'; } if (display){ display.textContent = 'cost: $0.00'; } try { const below=document.getElementById('costBelow'); if (below){ below.textContent = 'cost: $0.00'; } } catch(_){ } }
+        }catch(e){ if (myToken !== costToken) return; const txt = '$0.00'; if (badge){ badge.style.display='block'; badge.textContent = 'cost: ' + txt; } if (display){ display.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; } try { const below=document.getElementById('costBelow'); if (below){ below.innerHTML = '<span class="cost-label">est. cost:</span> ' + txt; } } catch(_){ } }
       }
       
       // When backend is ready, if both inputs were already selected, re-estimate cost
       try {
         window.addEventListener('sync-backend-ready', function(){
-          try { if (selectedVideo && selectedAudio) scheduleEstimate(); } catch(_){ }
+          try { if (window.selectedVideo && window.selectedAudio) scheduleEstimate(); } catch(_){ }
         });
       } catch(_){ }
 

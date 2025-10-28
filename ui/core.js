@@ -1,23 +1,66 @@
+      console.log('Core.js loaded and executing');
+      
+      // Debug logging helper - cleaner format
+      function debugLog(type, payload) {
+        try {
+          const timestamp = new Date().toISOString();
+          const host = window.HOST_CONFIG?.hostId || 'unknown';
+          
+          // Only log important events to reduce noise
+          const importantEvents = [
+            'core_loaded', 'ui_loaded', 'lipsync_button_clicked', 
+            'video_record_clicked', 'audio_record_clicked',
+            'renderInputPreview_called', 'upload_complete',
+            'cost_estimation_no_files', 'cost_api_request_start',
+            'lipsync_start', 'lipsync_abort_missing_files', 'lipsync_abort_no_api_key',
+            'lipsync_button_setup', 'lipsync_function_missing', 'lipsync_button_update'
+          ];
+          
+          if (importantEvents.includes(type)) {
+            // Clean, readable log format
+            const logData = {
+              type,
+              timestamp,
+              host,
+              ...payload
+            };
+            
+            fetch('http://127.0.0.1:3000/debug', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(logData)
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+      window.debugLog = window.debugLog || debugLog;
+      
+      debugLog('core_loaded');
+      
       let cs = null;
-      let selectedVideo = null;
-      let selectedAudio = null;
+      // Media selection variables are managed globally via window.selectedVideo, window.selectedAudio, etc.
       let jobs = [];
+      window.jobs = jobs; // Expose jobs globally for history.js
       let insertingGuard = false;
       let runToken = 0;
       let currentFetchController = null;
       
-      let selectedVideoIsTemp = false;
-      let selectedAudioIsTemp = false;
+      // Media selection flags are managed globally via window.selectedVideoIsTemp, window.selectedAudioIsTemp, etc.
       let estimateTimer = null;
       let hasStartedBackendForCost = false;
 
-      let uploadedVideoUrl = '';
-      let uploadedAudioUrl = '';
       let costToken = 0;
       
-      // Expose variables globally for cost estimation
-      window.uploadedVideoUrl = uploadedVideoUrl;
-      window.uploadedAudioUrl = uploadedAudioUrl;
+      // Offline state management
+      let isOffline = false;
+      let serverStartupTime = Date.now();
+      let offlineCheckInterval = null;
+      let consecutiveFailures = 0;
+      const MAX_FAILURES = 3; // Show offline after 3 consecutive failures
+      
+      // URL input support - variables are managed globally via window.selectedVideoUrl, window.selectedAudioUrl, etc.
+      // uploadedVideoUrl and uploadedAudioUrl are set by media.js after R2 uploads complete
+      // Media selection variables are initialized in media.js
       
       // Timeout wrapper for fetch requests to prevent hanging
       async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
@@ -37,6 +80,116 @@
             throw new Error('Request timeout');
           }
           throw error;
+        }
+      }
+      
+      // Check server status
+      async function checkServerStatus() {
+        try {
+          const response = await fetchWithTimeout('http://127.0.0.1:3000/health', {}, 3000);
+          if (response.ok) {
+            consecutiveFailures = 0; // Reset failure count
+            if (isOffline) {
+              setOfflineState(false);
+            }
+            return true;
+          }
+        } catch (error) {
+          // Server is down
+        }
+        
+        consecutiveFailures++;
+        
+        // Only show offline state after 5 seconds of startup AND 3 consecutive failures
+        if (Date.now() - serverStartupTime > 5000 && consecutiveFailures >= MAX_FAILURES) {
+          setOfflineState(true);
+        }
+        return false;
+      }
+      
+      // Set offline state and update UI
+      function setOfflineState(offline) {
+        if (isOffline === offline) return;
+        
+        isOffline = offline;
+        window.isOffline = offline;
+        
+        if (offline) {
+          showOfflineState();
+        } else {
+          hideOfflineState();
+        }
+      }
+      
+      // Show offline state
+      function showOfflineState() {
+        // Show in sources tab
+        const sourcesTab = document.getElementById('sources');
+        if (sourcesTab) {
+          sourcesTab.innerHTML = `
+            <div class="offline-state">
+              <div class="offline-icon">
+                <i data-lucide="wifi-off"></i>
+              </div>
+              <div class="offline-message">
+                hmm... you might be offline, or<br>
+                the local server is down. <a onclick="if(window.nle && typeof window.nle.startBackend === 'function') { window.nle.startBackend(); }">fix this</a>
+              </div>
+            </div>
+          `;
+          // Initialize lucide icons
+          if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            requestAnimationFrame(() => {
+              lucide.createIcons();
+            });
+          }
+        }
+        
+        // Show in history tab
+        const historyList = document.getElementById('historyList');
+        if (historyList) {
+          historyList.innerHTML = `
+            <div class="history-empty-state">
+              <div class="history-empty-icon">
+                <i data-lucide="wifi-off"></i>
+              </div>
+              <div class="history-empty-message">
+                hmm... you might be offline, or<br>
+                the local server is down. <a onclick="if(window.nle && typeof window.nle.startBackend === 'function') { window.nle.startBackend(); }">fix this</a>
+              </div>
+            </div>
+          `;
+          // Initialize lucide icons
+          if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            requestAnimationFrame(() => {
+              lucide.createIcons();
+            });
+          }
+        }
+      }
+      
+      // Hide offline state and restore normal UI
+      function hideOfflineState() {
+        // Reload the page to restore normal UI
+        window.location.reload();
+      }
+      
+      // Start offline checking
+      function startOfflineChecking() {
+        if (offlineCheckInterval) return;
+        
+        // Check immediately
+        checkServerStatus();
+        
+        // Then check every 5 seconds
+        offlineCheckInterval = setInterval(checkServerStatus, 5000);
+      }
+      
+      // Stop offline checking
+      function stopOfflineChecking() {
+        if (offlineCheckInterval) {
+          clearInterval(offlineCheckInterval);
+          offlineCheckInterval = null;
         }
       }
       
@@ -60,12 +213,11 @@
         return h;
       }
       
-      // UI logger (disabled - use debug.md file-based logging instead)
-      const DEBUG_LOGS = false;
-      function uiLog(msg){
-        // Dead code - logging moved to file-based system per debug.md
-        return;
-      }
+      // Expose auth functions globally for media.js and other modules
+      window.ensureAuthToken = ensureAuthToken;
+      window.authHeaders = authHeaders;
+      
+      // UI logger removed - logging handled by file-based system per debug.md
       
       // Helper to call JSX with JSON payload and parse JSON response (with auto-load + retry)
       function evalExtendScript(fn, payload) {
@@ -251,7 +403,7 @@
           }, 3000).catch(() => {});
         } catch(_) {}
       }
-      async function openFileDialog(kind) {
+      window.openFileDialog = async function openFileDialog(kind) {
         if (__pickerBusy) { return ''; }
         __pickerBusy = true;
         try {
@@ -343,12 +495,12 @@
         }
       }
       
-      function showTab(tabName) {
+      window.showTab = function showTab(tabName) {
         // Hide all tabs
-        document.querySelectorAll('.tab-content').forEach(tab => {
+        document.querySelectorAll('.tab-pane').forEach(tab => {
           tab.classList.remove('active');
         });
-        document.querySelectorAll('.tab').forEach(tab => {
+        document.querySelectorAll('.tab-switch').forEach(tab => {
           tab.classList.remove('active');
         });
         
@@ -359,12 +511,13 @@
 
         // Show selected tab
         document.getElementById(tabName).classList.add('active');
-        document.querySelector(`[onclick="showTab('${tabName}')"]`).classList.add('active');
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
         
         // Ensure history is always populated when shown
         if (tabName === 'history') {
+          // Only show loading animation if we need to load from server
+          // updateHistory() will handle showing loading state when needed
           try { updateHistory(); } catch(_) {}
-          try { loadJobsFromServer(); } catch(_) {}
           // Start auto-refresh for history tab
           try { 
             if (typeof startHistoryAutoRefresh === 'function') startHistoryAutoRefresh(); 
@@ -385,23 +538,39 @@
           try { 
             if (typeof stopHistoryAutoRefresh === 'function') stopHistoryAutoRefresh(); 
           } catch(_) {}
+          
+          // Update lipsync button state when switching back to sources tab
+          if (tabName === 'sources') {
+            try {
+              if (typeof window.updateLipsyncButton === 'function') {
+                window.updateLipsyncButton();
+              }
+            } catch(_) {}
+          }
         }
       }
 
       async function waitForHealth(maxAttempts = 20, delayMs = 250, expectedToken) {
+        const port = getServerPort();
+        console.log('[waitForHealth] Starting health check, port:', port, 'maxAttempts:', maxAttempts);
         for (let i = 0; i < maxAttempts; i++) {
           try {
-            const resp = await fetchWithTimeout(`http://127.0.0.1:${getServerPort()}/health`, { 
+            const url = `http://127.0.0.1:${port}/health`;
+            console.log('[waitForHealth] Attempt', i + 1, 'checking:', url);
+            const resp = await fetchWithTimeout(url, { 
               headers: { 'X-CEP-Panel': 'sync' }, 
               cache: 'no-store' 
             }, 5000); // 5 second timeout per attempt
+            console.log('[waitForHealth] Response:', resp.status, resp.ok);
             if (resp.ok) return true;
           } catch (e) {
+            console.log('[waitForHealth] Attempt', i + 1, 'failed:', e.message);
             // ignore until attempts exhausted
           }
           if (expectedToken != null && expectedToken !== runToken) return false;
           await new Promise(r => setTimeout(r, delayMs));
         }
+        console.log('[waitForHealth] All attempts failed');
         return false;
       }
 
@@ -419,7 +588,7 @@
       function formatTime(seconds) {
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
       }
 
       // Block Premiere keyboard shortcuts from this panel.
@@ -469,6 +638,76 @@
           return true;
         } catch(_) { return false; }
       }
+      // URL validation functions
+      function isValidUrl(string) {
+        try {
+          const url = new URL(string);
+          return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function isValidVideoUrl(url) {
+        if (!isValidUrl(url)) return false;
+        const videoExtensions = ['.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm'];
+        const urlLower = url.toLowerCase();
+        return videoExtensions.some(ext => urlLower.includes(ext));
+      }
+
+      function isValidAudioUrl(url) {
+        if (!isValidUrl(url)) return false;
+        const audioExtensions = ['.mp3', '.wav', '.aac', '.m4a', '.ogg', '.flac'];
+        const urlLower = url.toLowerCase();
+        return audioExtensions.some(ext => urlLower.includes(ext));
+      }
+
+      async function checkUrlSize(url) {
+        try {
+          const response = await fetch(url, { method: 'HEAD' });
+          const contentLength = response.headers.get('content-length');
+          if (contentLength) {
+            const sizeInBytes = parseInt(contentLength);
+            const sizeInGB = sizeInBytes / (1024 * 1024 * 1024);
+            return { size: sizeInGB, valid: sizeInGB <= 1 };
+          }
+          return { size: 0, valid: true }; // If no content-length header, assume valid
+        } catch (error) {
+          return { size: 0, valid: false };
+        }
+      }
+
+      // External link handler for CEP extensions
+      window.openExternalURL = function(url) {
+        if (!url) return;
+        try {
+          if (!cs) cs = new CSInterface();
+          cs.openURLInDefaultBrowser(url);
+        } catch(e) {
+          console.error('Failed to open URL:', e);
+        }
+      }
+      
+      // Intercept all external link clicks and open them in browser
+      document.addEventListener('click', function(e) {
+        let target = e.target;
+        // Traverse up to find an anchor tag
+        while (target && target.tagName !== 'A') {
+          target = target.parentElement;
+        }
+        
+        if (target && target.tagName === 'A') {
+          const href = target.getAttribute('href');
+          // Check if it's an external link (http/https/mailto)
+          if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:'))) {
+            e.preventDefault();
+            e.stopPropagation();
+            openExternalURL(href);
+            return false;
+          }
+        }
+      }, true);
+      
       document.addEventListener('keydown', function(e){
         const targetEditable = isEditable(e.target);
         // Allow standard edit combos in editable fields
@@ -494,6 +733,253 @@
       }, true);
       document.addEventListener('keyup', function(e){ e.stopImmediatePropagation(); }, true);
       document.addEventListener('keypress', function(e){ e.stopImmediatePropagation(); }, true);
+
+      (function wireSourcesButtons(){
+        try{
+          function on(selector, handler){ 
+            try { 
+              const el = document.querySelector(selector); 
+              if (el) {
+                el.addEventListener('click', handler);
+                if (selector.includes('audio-from-video')) {
+                  console.log('From video button found and handler attached:', el);
+                }
+                if (selector.includes('lipsyncBtn')) {
+                  console.log('Lipsync button found and handler attached:', el);
+                }
+              } else {
+                if (selector.includes('audio-from-video')) {
+                  console.error('From video button NOT FOUND with selector:', selector);
+                }
+                if (selector.includes('lipsyncBtn')) {
+                  console.error('Lipsync button NOT FOUND with selector:', selector);
+                }
+              }
+            } catch(e){
+              if (selector.includes('audio-from-video')) {
+                console.error('Error attaching handler to from video button:', e);
+              }
+              if (selector.includes('lipsyncBtn')) {
+                console.error('Error attaching handler to lipsync button:', e);
+              }
+            } 
+          }
+          // Video buttons
+          console.log('Setting up video button listeners');
+          const videoRecordBtn = document.querySelector('.video-upload .action-btn[data-action="video-record"]');
+          console.log('Video record button found:', !!videoRecordBtn);
+          debugLog('wire_buttons_start', { 
+            videoRecordBtn: !!videoRecordBtn,
+            audioRecordBtn: false, // will be set below
+            audioTtsBtn: false // will be set below
+          });
+          
+          on('.video-upload .action-btn[data-action="video-upload"]', function(){ try{ selectVideo(); }catch(_){ } });
+          on('.video-upload .action-btn[data-action="video-inout"]', function(){ try{ selectVideoInOut(); }catch(_){ } });
+          on('.video-upload .action-btn[data-action="video-record"]', function(){ 
+            console.log('Video record button clicked');
+            debugLog('video_record_clicked');
+            try{ 
+              if (typeof window.startVideoRecording === 'function') {
+                console.log('Calling startVideoRecording');
+                debugLog('start_video_recording', {
+                  functionAvailable: true,
+                  selectedVideo: window.selectedVideo,
+                  selectedAudio: window.selectedAudio,
+                  selectedVideoUrl: window.selectedVideoUrl,
+                  selectedAudioUrl: window.selectedAudioUrl
+                });
+                window.startVideoRecording();
+              } else {
+                console.error('startVideoRecording function not available');
+                debugLog('start_video_recording', {
+                  functionAvailable: false,
+                  selectedVideo: window.selectedVideo,
+                  selectedAudio: window.selectedAudio,
+                  selectedVideoUrl: window.selectedVideoUrl,
+                  selectedAudioUrl: window.selectedAudioUrl
+                });
+              }
+            }catch(e){ 
+              console.error('Video recording error:', e);
+              debugLog('video_recording_error', { error: String(e) });
+            } 
+          });
+          on('.video-upload .action-btn[data-action="video-link"]', function(){ try{ selectVideoUrl(); }catch(_){ } });
+
+          // Audio buttons
+          console.log('Setting up audio button listeners');
+          const audioRecordBtn = document.querySelector('.audio-upload .action-btn[data-action="audio-record"]');
+          const audioTtsBtn = document.querySelector('.audio-upload .action-btn[data-action="audio-tts"]');
+          console.log('Audio record button found:', !!audioRecordBtn);
+          console.log('Audio TTS button found:', !!audioTtsBtn);
+          debugLog('wire_audio_buttons', { 
+            audioRecordBtn: !!audioRecordBtn,
+            audioTtsBtn: !!audioTtsBtn
+          });
+          
+          on('.audio-upload .action-btn[data-action="audio-upload"]', function(){ try{ selectAudio(); }catch(_){ } });
+          on('.audio-upload .action-btn[data-action="audio-inout"]', function(){ try{ selectAudioInOut(); }catch(_){ } });
+          on('.audio-upload .action-btn[data-action="audio-record"]', function(){ 
+            console.log('Audio record button clicked');
+            debugLog('audio_record_clicked');
+            try{ 
+              if (typeof window.startAudioRecording === 'function') {
+                console.log('Calling startAudioRecording');
+                debugLog('start_audio_recording', {
+                  functionAvailable: true,
+                  selectedVideo: window.selectedVideo,
+                  selectedAudio: window.selectedAudio,
+                  selectedVideoUrl: window.selectedVideoUrl,
+                  selectedAudioUrl: window.selectedAudioUrl
+                });
+                window.startAudioRecording();
+              } else {
+                console.error('startAudioRecording function not available');
+                debugLog('start_audio_recording', {
+                  functionAvailable: false,
+                  selectedVideo: window.selectedVideo,
+                  selectedAudio: window.selectedAudio,
+                  selectedVideoUrl: window.selectedVideoUrl,
+                  selectedAudioUrl: window.selectedAudioUrl
+                });
+              }
+            }catch(e){ 
+              console.error('Audio recording error:', e);
+              debugLog('audio_recording_error', { error: String(e) });
+            } 
+          });
+          on('.audio-upload .action-btn[data-action="audio-from-video"]', async function(){ 
+            // Log to debug file for CEP debugging
+            try {
+              const debugMsg = `[${new Date().toISOString()}] FROM VIDEO BUTTON CLICKED - selectedVideo: ${window.selectedVideo || 'null'}, selectedVideoUrl: ${window.selectedVideoUrl || 'null'}, selectAudioFromVideo exists: ${typeof window.selectAudioFromVideo}, ensureAuthToken exists: ${typeof window.ensureAuthToken}\n`;
+              const fs = require('fs');
+              const path = require('path');
+              const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
+              fs.appendFileSync(debugFile, debugMsg);
+            } catch(e) {}
+            
+            try {
+              if (typeof window.selectAudioFromVideo === 'function') {
+                await window.selectAudioFromVideo();
+              } else {
+                // Log error to debug file
+                try {
+                  const errorMsg = `[${new Date().toISOString()}] ERROR: window.selectAudioFromVideo is not a function!\n`;
+                  const fs = require('fs');
+                  const path = require('path');
+                  const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
+                  fs.appendFileSync(debugFile, errorMsg);
+                } catch(e) {}
+              }
+            } catch (e) {
+              // Log error to debug file
+              try {
+                const errorMsg = `[${new Date().toISOString()}] ERROR in selectAudioFromVideo: ${e.message}\n`;
+                const fs = require('fs');
+                const path = require('path');
+                const debugFile = path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/logs/sync_ppro_debug.log');
+                fs.appendFileSync(debugFile, errorMsg);
+              } catch(e) {}
+            }
+          });
+          // TTS/Dubbing stub dropdowns (toggle only)
+          on('.audio-upload .action-btn[data-action="audio-tts"]', function(){ 
+            console.log('TTS button clicked');
+            debugLog('tts_button_clicked');
+            try{ 
+              if (typeof window.TTSInterface !== 'undefined' && window.TTSInterface.show) {
+                console.log('Calling TTSInterface.show');
+                debugLog('tts_interface_show', { interfaceAvailable: true });
+                window.TTSInterface.show();
+              } else {
+                console.error('TTSInterface not available');
+                debugLog('tts_interface_show', { interfaceAvailable: false });
+              }
+            }catch(e){ 
+              console.error('TTS button error:', e);
+              debugLog('tts_button_error', { error: String(e) });
+            } 
+          });
+          on('.audio-upload .action-btn-icon[data-action="audio-dubbing"]', function(){ try{ const m=document.getElementById('dubbingMenu'); if(m){ m.style.display = (m.style.display==='none'||!m.style.display)?'block':'none'; } }catch(_){ } });
+          // Audio link button
+          on('.audio-upload .action-btn[data-action="audio-link"]', function(){ try{ selectAudioUrl(); }catch(_){ } });
+          
+          // URL input handlers
+          on('.url-submit-btn[data-action="video-url-submit"]', function(){ try{ submitVideoUrl(); }catch(_){ } });
+          on('.url-clear-btn[data-action="video-url-clear"]', function(){ try{ clearVideoUrl(); }catch(_){ } });
+          on('.url-submit-btn[data-action="audio-url-submit"]', function(){ try{ submitAudioUrl(); }catch(_){ } });
+          on('.url-clear-btn[data-action="audio-url-clear"]', function(){ try{ clearAudioUrl(); }catch(_){ } });
+          
+          // Lipsync button
+          const lipsyncBtn = document.querySelector('#lipsyncBtn');
+          console.log('Lipsync button found:', !!lipsyncBtn, 'disabled:', lipsyncBtn?.disabled);
+          debugLog('lipsync_button_setup', { 
+            buttonFound: !!lipsyncBtn, 
+            disabled: lipsyncBtn?.disabled,
+            textContent: lipsyncBtn?.textContent 
+          });
+          
+          on('#lipsyncBtn', function(){ 
+            try{ 
+              console.log('Lipsync button clicked!');
+              debugLog('lipsync_button_clicked', { timestamp: new Date().toISOString() });
+              
+              // Disable button immediately
+              const btn = document.getElementById('lipsyncBtn');
+              if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'submitting...';
+                console.log('Button disabled and text changed to submitting...');
+              } else {
+                console.error('Lipsync button not found when trying to disable it');
+              }
+              if (window.showToast) {
+                window.showToast('submitting...', 'info');
+              }
+              console.log('About to call startLipsync()');
+              if (window.startLipsync) {
+                window.startLipsync();
+              } else {
+                console.error('startLipsync function not found on window');
+                debugLog('lipsync_function_missing', { startLipsyncAvailable: false });
+              } 
+            }catch(e){ 
+              console.error('Error in lipsync button handler:', e);
+            } 
+          });
+
+          // Close stub menus on outside click
+          document.addEventListener('click', function(e){
+            try{
+              const t = e.target;
+              const inTTS = t && (t.closest && t.closest('#ttsMenu'));
+              const inDub = t && (t.closest && t.closest('#dubbingMenu'));
+              const ttsBtn = t && (t.closest && t.closest('[data-action="audio-tts"]'));
+              const dubBtn = t && (t.closest && t.closest('[data-action="audio-dubbing"]'));
+              if (!inTTS && !ttsBtn) { const m=document.getElementById('ttsMenu'); if(m) m.style.display='none'; }
+              if (!inDub && !dubBtn) { const m=document.getElementById('dubbingMenu'); if(m) m.style.display='none'; }
+            }catch(_){ }
+          });
+        }catch(_){ }
+      })();
+
+      (function ensureDnDZones(){
+        try{
+          if (typeof initDragAndDrop === 'function') initDragAndDrop();
+        }catch(_){ }
+      })();
+
+      // Start offline checking when DOM is ready
+      (function startOfflineCheck(){
+        try{
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startOfflineChecking);
+          } else {
+            startOfflineChecking();
+          }
+        }catch(_){ }
+      })();
 
 
 

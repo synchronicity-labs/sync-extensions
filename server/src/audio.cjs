@@ -227,115 +227,131 @@ async function convertAiffToMp3(srcPath, destPath){
   tlog('convertAiffToMp3 start', srcPath, '->', destPath||'(auto)');
   const finalPath = destPath || srcPath.replace(/\.[^.]+$/, '.mp3');
   
-  // Load lamejs for MP3 encoding (using fixed version with dynamic import)
-  let lamejs;
   try {
-    lamejs = await import('@breezystack/lamejs');
-    tlog('@breezystack/lamejs loaded successfully');
-  } catch(e) {
-    tlog('Failed to load @breezystack/lamejs:', e.message);
-    throw new Error('MP3 encoding requires @breezystack/lamejs dependency: ' + e.message);
-  }
-  
-  // Parse AIFF header to get audio metadata
-  const fd = fs.openSync(srcPath, 'r');
-  let meta;
-  try {
-    meta = parseAiffHeader(fd);
-    tlog('AIFF meta for MP3:', meta);
+    const { spawn } = require('child_process');
+    const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
     
-    if (!(meta.compressionType === 'NONE' || meta.compressionType === 'sowt')) {
-      throw new Error('Unsupported AIFF compression: ' + meta.compressionType);
-    }
-    if (!(meta.bytesPerSample === 1 || meta.bytesPerSample === 2)) {
-      throw new Error('MP3 encoder supports 8/16-bit PCM only');
-    }
-  } finally {
-    fs.closeSync(fd);
-  }
-  
-  // Create MP3 encoder with error handling
-  let mp3enc;
-  try {
-    mp3enc = new lamejs.Mp3Encoder(meta.numChannels, Math.round(meta.sampleRate), 128);
-    tlog('MP3 encoder created successfully');
-  } catch(e) {
-    tlog('Failed to create MP3 encoder:', e.message);
-    throw new Error('Failed to create MP3 encoder: ' + e.message);
-  }
-  const mp3Data = [];
-  
-  // Convert AIFF to MP3
-  const fd2 = fs.openSync(srcPath, 'r');
-  try {
-    const chunkSize = 32 * 1024;
-    let remaining = meta.dataBytes;
-    let pos = meta.ssndDataStart;
-    let leftover = Buffer.alloc(0);
+    // Use FFmpeg to convert AIFF to MP3
+    const ffmpegArgs = [
+      '-i', srcPath,
+      '-acodec', 'libmp3lame',
+      '-ab', '192k',
+      '-ar', '44100',
+      '-y', // Overwrite output
+      finalPath
+    ];
     
-    while (remaining > 0) {
-      const toRead = Math.min(remaining, chunkSize);
-      const buf = Buffer.alloc(toRead);
-      const n = fs.readSync(fd2, buf, 0, toRead, pos);
-      if (!n) break;
-      pos += n; remaining -= n;
-      let work = buf.slice(0, n);
-      if (leftover.length) {
-        work = Buffer.concat([leftover, work]);
-        leftover = Buffer.alloc(0);
-      }
-      const aligned = Math.floor(work.length / meta.bytesPerSample) * meta.bytesPerSample;
-      const body = work.slice(0, aligned);
-      leftover = work.slice(aligned);
-      const payload = (meta.compressionType === 'NONE') ? swapEndianInPlace(body, meta.bytesPerSample) : body;
-      if (payload.length) {
-        try {
-          const samples = pcmToInt16Array(payload, meta.bytesPerSample);
-          if (meta.numChannels === 1) {
-            const mp3buf = mp3enc.encodeBuffer(samples, samples);
-            if (mp3buf.length > 0) mp3Data.push(Buffer.from(mp3buf));
-          } else {
-            const left = new Int16Array(samples.length / 2);
-            const right = new Int16Array(samples.length / 2);
-            for (let i = 0; i < samples.length; i += 2) {
-              left[i/2] = samples[i];
-              right[i/2] = samples[i+1];
-            }
-            const mp3buf = mp3enc.encodeBuffer(left, right);
-            if (mp3buf.length > 0) mp3Data.push(Buffer.from(mp3buf));
-          }
-        } catch(e) {
-          tlog('MP3 encoding error:', e.message);
-          throw new Error('MP3 encoding failed: ' + e.message);
+    tlog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
+    
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
+      
+      let stderr = '';
+      
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          tlog('FFmpeg AIFF to MP3 conversion successful');
+          resolve(finalPath);
+        } else {
+          tlog('FFmpeg error:', stderr);
+          reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
         }
-      }
-    }
+      });
+      
+      ffmpeg.on('error', (error) => {
+        tlog('FFmpeg spawn error:', error.message);
+        reject(error);
+      });
+    });
     
-    try {
-      const mp3buf = mp3enc.flush();
-      if (mp3buf.length > 0) mp3Data.push(Buffer.from(mp3buf));
-    } catch(e) {
-      tlog('MP3 flush error:', e.message);
-      throw new Error('MP3 flush failed: ' + e.message);
-    }
-    
-    const mp3Buffer = Buffer.concat(mp3Data);
-    fs.writeFileSync(finalPath, mp3Buffer);
-    tlog('convertAiffToMp3 done bytesWritten=', mp3Buffer.length, 'fileSize=', fs.statSync(finalPath).size);
-  } finally {
-    fs.closeSync(fd2);
+  } catch (error) {
+    tlog('convertAiffToMp3 error:', error.message);
+    throw error;
   }
+}
 
-  return finalPath;
+async function convertWavToMp3(srcPath, destPath){
+  tlog('convertWavToMp3 start', srcPath, '->', destPath||'(auto)');
+  const finalPath = destPath || srcPath.replace(/\.[^.]+$/, '.mp3');
+  
+  try {
+    const { spawn } = require('child_process');
+    const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+    
+    // Use FFmpeg to convert WAV to MP3
+    const ffmpegArgs = [
+      '-i', srcPath,
+      '-acodec', 'libmp3lame',
+      '-ab', '192k',
+      '-ar', '44100',
+      '-y', // Overwrite output
+      finalPath
+    ];
+    
+    tlog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
+    
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
+      
+      let stderr = '';
+      
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          tlog('FFmpeg WAV to MP3 conversion successful');
+          resolve(finalPath);
+        } else {
+          tlog('FFmpeg error:', stderr);
+          reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
+        }
+      });
+      
+      ffmpeg.on('error', (error) => {
+        tlog('FFmpeg spawn error:', error.message);
+        reject(error);
+      });
+    });
+    
+  } catch (error) {
+    tlog('convertWavToMp3 error:', error.message);
+    throw error;
+  }
 }
 
 async function convertAudio(srcPath, format){
   const ext = String(format||'').toLowerCase();
-  if (ext === 'wav') return await convertAiffToWav(srcPath);
-  if (ext === 'mp3') return await convertAiffToMp3(srcPath, null);
+  const srcExt = path.extname(srcPath).toLowerCase();
+  
+  if (ext === 'wav') {
+    if (srcExt === '.aiff' || srcExt === '.aif') {
+      return await convertAiffToWav(srcPath);
+    } else if (srcExt === '.wav') {
+      return srcPath; // Already WAV
+    } else {
+      throw new Error('Cannot convert ' + srcExt + ' to WAV');
+    }
+  }
+  
+  if (ext === 'mp3') {
+    if (srcExt === '.aiff' || srcExt === '.aif') {
+      return await convertAiffToMp3(srcPath, null);
+    } else if (srcExt === '.wav') {
+      return await convertWavToMp3(srcPath, null);
+    } else {
+      throw new Error('Cannot convert ' + srcExt + ' to MP3');
+    }
+  }
+  
   throw new Error('Unsupported target format: ' + format);
 }
 
-module.exports = { convertAudio, convertAiffToWav, convertAiffToMp3 };
+module.exports = { convertAudio, convertAiffToWav, convertAiffToMp3, convertWavToMp3 };
 
 
