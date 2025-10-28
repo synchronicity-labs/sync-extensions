@@ -465,7 +465,9 @@
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
             window.selectedVideoUrl = uploadData.url;
-            localStorage.setItem('selectedVideoUrl', uploadData.url); // Persist for lipsync
+            window.uploadedVideoUrl = uploadData.url; // Set uploaded URL for cost estimation and lipsync
+            localStorage.setItem('selectedVideoUrl', uploadData.url); // Persist selected URL
+            localStorage.setItem('uploadedVideoUrl', uploadData.url); // Persist uploaded URL for lipsync
             // Keep using local file for playback, just store URL for later use
             // window.selectedVideoIsUrl = true; // Don't switch to URL
           }
@@ -970,7 +972,9 @@
           const uploadData = await uploadResp.json();
           if (uploadData.ok && uploadData.url) {
             window.selectedAudioUrl = uploadData.url;
-            localStorage.setItem('selectedAudioUrl', uploadData.url); // Persist for lipsync
+            window.uploadedAudioUrl = uploadData.url; // Set uploaded URL for cost estimation and lipsync
+            localStorage.setItem('selectedAudioUrl', uploadData.url); // Persist selected URL
+            localStorage.setItem('uploadedAudioUrl', uploadData.url); // Persist uploaded URL for lipsync
             // Keep using local file for playback, just store URL for later use
             // window.selectedAudioIsUrl = true; // Don't switch to URL
           }

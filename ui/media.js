@@ -2111,6 +2111,8 @@
         window.selectedVideoIsTemp = false;
         window.selectedVideoUrl = '';
         window.selectedVideoIsUrl = false;
+        window.uploadedVideoUrl = ''; // Clear uploaded URL when selection is cleared
+        localStorage.removeItem('uploadedVideoUrl'); // Clear persisted uploaded URL
         renderInputPreview();
         updateInputStatus();
         updateFromVideoButton();
@@ -2140,6 +2142,8 @@
         window.selectedAudioIsTemp = false;
         window.selectedAudioUrl = '';
         window.selectedAudioIsUrl = false;
+        window.uploadedAudioUrl = ''; // Clear uploaded URL when selection is cleared
+        localStorage.removeItem('uploadedAudioUrl'); // Clear persisted uploaded URL
         renderInputPreview();
         updateInputStatus();
         
