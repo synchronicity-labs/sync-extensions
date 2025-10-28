@@ -6,9 +6,6 @@ import os from 'os';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
-import { exec as _exec, spawn } from 'child_process';
-import { promisify } from 'util';
-import { fileURLToPath } from 'url';
 import { createServer } from 'net';
 import { createRequire } from 'module';
 import FormData from 'form-data';
@@ -16,12 +13,19 @@ import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { track, identify, setUserProperties, distinctId } from './telemetry.js';
+
+// Modular imports
+import { APP_ID, EXT_ROOT, MANIFEST_PATH, EXTENSION_LOCATION, UPDATES_REPO, UPDATES_CHANNEL, GH_TOKEN, GH_UA, BASE_DIR, DIRS, HOST, DEFAULT_PORT, PORT_RANGE, isSpawnedByUI } from './config.js';
+import { tlog, tlogSync, DEBUG_LOG } from './utils/log.js';
+import { safeStat, safeStatSync, safeExists, safeText, pipeToFile } from './utils/files.js';
+import { toReadableLocalPath, resolveSafeLocalPath, normalizePaths, normalizeOutputDir, guessMime } from './utils/paths.js';
+import { parseBundleVersion, normalizeVersion, compareSemver, getCurrentVersion } from './utils/version.js';
+import { exec, execPowerShell, runRobocopy } from './utils/exec.js';
+import { scheduleCleanup } from './services/cleanup.js';
+import { r2Upload, r2Client } from './services/r2.js';
+
 const require = createRequire(import.meta.url);
 const { convertAudio } = require('./audio.cjs');
-
-// R2 client
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // ROOT CAUSE FIX: Don't write to stdout/stderr when spawned as detached process
 // The CEP panel spawns us with detached:true and pipes stdout/stderr, but stops reading them
@@ -45,145 +49,9 @@ dotenv.config({ path: envPath });
 
 const app = express();
 app.disable('x-powered-by');
-const HOST = process.env.HOST || '127.0.0.1';
-const DEFAULT_PORT = 3000;
-const PORT_RANGE = [3000]; // Hardcode to 3000 for panel
-
-const exec = promisify(_exec);
 
 // Set FFmpeg path
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
-
-// Better Windows PowerShell execution with spawn
-function execPowerShell(command, options = {}) {
-  return new Promise((resolve, reject) => {
-    const isWindows = process.platform === 'win32';
-    
-    if (isWindows) {
-      // Use spawn for better control on Windows
-      const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command];
-      console.log('Spawning PowerShell with args:', args);
-      console.log('Working directory:', options.cwd || process.cwd());
-      
-      const child = spawn('powershell.exe', args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        ...options
-      });
-      
-      let stdout = '';
-      let stderr = '';
-      
-      child.stdout.on('data', (data) => {
-        const output = data.toString();
-        stdout += output;
-        console.log('PowerShell stdout:', output.trim());
-      });
-      
-      child.stderr.on('data', (data) => {
-        const output = data.toString();
-        stderr += output;
-        console.log('PowerShell stderr:', output.trim());
-      });
-      
-      child.on('close', (code) => {
-        console.log(`PowerShell process exited with code: ${code}`);
-        if (code === 0) {
-          resolve({ stdout, stderr });
-        } else {
-          reject(new Error(`PowerShell exited with code ${code}: ${stderr}`));
-        }
-      });
-      
-      child.on('error', (error) => {
-        console.error('PowerShell spawn error:', error);
-        reject(error);
-      });
-    } else {
-      // Use regular exec for non-Windows
-      exec(command, options).then(resolve).catch(reject);
-    }
-  });
-}
-
-// Windows-only helper to run robocopy with correct success codes (<8)
-async function runRobocopy(src, dest, filePattern){
-  if (process.platform !== 'win32') { throw new Error('runRobocopy is Windows-only'); }
-  try { if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-  const args = [`"${src}"`, `"${dest}"`];
-  if (filePattern) args.push(`"${filePattern}"`);
-  const baseCmd = `robocopy ${args.join(' ')} /E /NFL /NDL /NJH /NJS`;
-  const psCmd = `$ErrorActionPreference='Stop'; ${baseCmd}; if ($LASTEXITCODE -lt 8) { exit 0 } else { exit $LASTEXITCODE }`;
-  try { tlog('robocopy start', baseCmd); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-  await execPowerShell(psCmd);
-  try { tlog('robocopy ok', baseCmd); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-}
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const EXT_ROOT = path.resolve(__dirname, '..', '..');
-const EXT_FOLDER = path.basename(EXT_ROOT);
-const APP_ID = EXT_FOLDER.indexOf('.ae.') !== -1 ? 'ae' : (EXT_FOLDER.indexOf('.ppro.') !== -1 ? 'premiere' : 'unknown');
-const MANIFEST_PATH = path.join(EXT_ROOT, 'CSXS', 'manifest.xml');
-
-// Detect extension installation location (user vs system-wide)
-function detectExtensionLocation() {
-  try {
-    // Method 1: Check if we're in a system-wide location
-    if (process.platform === 'darwin') {
-      if (EXT_ROOT.startsWith('/Library/Application Support/Adobe/CEP/extensions/')) {
-        return 'system';
-      }
-    } else if (process.platform === 'win32') {
-      if (EXT_ROOT.includes('Program Files') && EXT_ROOT.includes('Adobe\\CEP\\extensions')) {
-        return 'system';
-      }
-    }
-    
-    // Method 2: Check if we're in a user location
-    const home = os.homedir();
-    if (process.platform === 'darwin') {
-      if (EXT_ROOT.startsWith(path.join(home, 'Library', 'Application Support', 'Adobe', 'CEP', 'extensions'))) {
-        return 'user';
-      }
-    } else if (process.platform === 'win32') {
-      if (EXT_ROOT.includes(path.join(home, 'AppData', 'Roaming', 'Adobe', 'CEP', 'extensions'))) {
-        return 'user';
-      }
-    }
-    
-    // Method 3: Check if extension exists in both locations to determine which one is active
-    let userPath, systemPath;
-    
-    if (process.platform === 'darwin') {
-      userPath = path.join(home, 'Library', 'Application Support', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-      systemPath = path.join('/Library', 'Application Support', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-    } else if (process.platform === 'win32') {
-      userPath = path.join(home, 'AppData', 'Roaming', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-      systemPath = path.join('C:', 'Program Files', 'Adobe', 'CEP', 'extensions', EXT_FOLDER);
-    }
-    
-    const userExists = fs.existsSync(userPath);
-    const systemExists = fs.existsSync(systemPath);
-    
-    if (userExists && !systemExists) return 'user';
-    if (systemExists && !userExists) return 'system';
-    if (userExists && systemExists) {
-      // Both exist, prefer user installation
-      return 'user';
-    }
-    
-    // Default to user location
-    return 'user';
-  } catch (e) {
-    // Default to user location on error
-    return 'user';
-  }
-}
-
-const EXTENSION_LOCATION = detectExtensionLocation();
-const UPDATES_REPO = process.env.UPDATES_REPO || process.env.GITHUB_REPO || 'mhadifilms/sync-extensions';
-const UPDATES_CHANNEL = process.env.UPDATES_CHANNEL || 'releases'; // 'releases' or 'tags'
-const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
-const GH_UA = process.env.GITHUB_USER_AGENT || 'sync-extension-updater/1.0';
 
 // Initialize PostHog user identification
 (async () => {
@@ -205,119 +73,6 @@ const GH_UA = process.env.GITHUB_USER_AGENT || 'sync-extension-updater/1.0';
   }
 })();
 
-// Central app-data directory resolver and subfolders
-function platformAppData(appName){
-  const home = os.homedir();
-  if (process.platform === 'win32') return path.join(home, 'AppData', 'Roaming', appName);
-  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', appName);
-  return path.join(home, '.config', appName);
-}
-const BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || platformAppData('sync. extensions');
-const DIRS = {
-  logs: path.join(BASE_DIR, 'logs'),
-  cache: path.join(BASE_DIR, 'cache'),
-  state: path.join(BASE_DIR, 'state'),
-  uploads: path.join(BASE_DIR, 'uploads'),
-  updates: path.join(BASE_DIR, 'updates')
-};
-try { fs.mkdirSync(DIRS.logs, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-try { fs.mkdirSync(DIRS.cache, { recursive: true }); } catch(_){ }
-try { fs.mkdirSync(DIRS.state, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-try { fs.mkdirSync(DIRS.uploads, { recursive: true }); } catch(_){ }
-try { fs.mkdirSync(DIRS.updates, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-
-// Debug flag and log helper to logs directory (flag file only)
-const DEBUG_FLAG_FILE = path.join(DIRS.logs, 'debug.enabled');
-let DEBUG = false;
-try { DEBUG = fs.existsSync(DEBUG_FLAG_FILE); } catch(_){ DEBUG = false; }
-const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === 'premiere') ? 'sync_ppro_debug.log' : (APP_ID === 'ae') ? 'sync_ae_debug.log' : 'sync_server_debug.log');
-// Async logging to prevent blocking the event loop
-async function tlog(){
-  if (!DEBUG) return;
-  try { 
-    const logLine = `[${new Date().toISOString()}] [server] ` + Array.from(arguments).map(a=>String(a)).join(' ') + "\n";
-    await fs.promises.appendFile(DEBUG_LOG, logLine).catch(() => {}); // Silent fail to prevent recursion
-  } catch(e){ 
-    // Silent catch to prevent infinite recursion on logging errors
-  }
-}
-
-// Synchronous version for critical startup operations only
-function tlogSync(){
-  if (!DEBUG) return;
-  try { fs.appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] [server] ` + Array.from(arguments).map(a=>String(a)).join(' ') + "\n"); } catch(e){}
-}
-
-// Detect if we're being spawned by UI auto-start (stdout/stderr captured)
-const isSpawnedByUI = process.stdout.isTTY === false && process.stderr.isTTY === false;
-
-// Async cleanup functions to prevent blocking the event loop
-async function cleanupOldFiles(dirPath, maxAgeMs = 24 * 60 * 60 * 1000) {
-  try {
-    // Check if directory exists asynchronously
-    try {
-      await fs.promises.access(dirPath);
-    } catch {
-      return; // Directory doesn't exist
-    }
-    
-    const files = await fs.promises.readdir(dirPath);
-    const now = Date.now();
-    let cleanedCount = 0;
-    
-    // Process files in batches to avoid blocking
-    const batchSize = 10;
-    for (let i = 0; i < files.length; i += batchSize) {
-      const batch = files.slice(i, i + batchSize);
-      
-      await Promise.all(batch.map(async (file) => {
-        const filePath = path.join(dirPath, file);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          if (stats.isFile() && (now - stats.mtime.getTime()) > maxAgeMs) {
-            await fs.promises.unlink(filePath);
-            cleanedCount++;
-            await tlog('cleanup:removed', filePath, 'age=', Math.round((now - stats.mtime.getTime()) / 1000 / 60), 'min');
-          }
-        } catch(e) {
-          await tlog('cleanup:error', filePath, e && e.message ? e.message : String(e));
-        }
-      }));
-      
-      // Yield control between batches
-      if (i + batchSize < files.length) {
-        await new Promise(resolve => setImmediate(resolve));
-      }
-    }
-    
-    if (cleanedCount > 0) {
-      await tlog('cleanup:completed', dirPath, 'removed=', cleanedCount, 'files');
-    }
-  } catch(e) {
-    await tlog('cleanup:failed', dirPath, e && e.message ? e.message : String(e));
-  }
-}
-
-// Schedule cleanup tasks
-function scheduleCleanup() {
-  // Cleanup uploads directory every 24 hours (remove files older than 24 hours)
-  setInterval(async () => {
-    await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000); // 24 hours
-  }, 24 * 60 * 60 * 1000); // Run every 24 hours
-  
-  // Cleanup cache directory every 6 hours (remove files older than 6 hours)
-  setInterval(async () => {
-    await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000); // 6 hours
-  }, 6 * 60 * 60 * 1000); // Run every 6 hours
-  
-  // Run initial cleanup after 1 minute
-  setTimeout(async () => {
-    await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000);
-    await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000);
-  }, 60 * 1000);
-  
-  tlogSync('cleanup:scheduled', 'uploads=24h', 'cache=6h');
-}
 
 function ghHeaders(extra){
   const h = Object.assign({ 'Accept': 'application/vnd.github+json', 'User-Agent': GH_UA }, extra||{});
@@ -329,54 +84,6 @@ async function ghFetch(url, opts){
   return await fetch(url, Object.assign({ headers: ghHeaders() }, opts||{}));
 }
 
-function parseBundleVersion(xmlText){
-  try{
-    const m = /ExtensionBundleVersion\s*=\s*"([^"]+)"/i.exec(String(xmlText||''));
-    if (m && m[1]) return m[1].trim();
-  }catch(_){ }
-  return '';
-}
-
-function normalizeVersion(v){
-  try{ return String(v||'').trim().replace(/^v/i, ''); }catch(_){ return ''; }
-}
-
-function compareSemver(a, b){
-  const pa = normalizeVersion(a).split('.').map(x=>parseInt(x,10)||0);
-  const pb = normalizeVersion(b).split('.').map(x=>parseInt(x,10)||0);
-  for (let i=0; i<Math.max(pa.length, pb.length); i++){
-    const ai = pa[i]||0; const bi = pb[i]||0;
-    if (ai > bi) return 1; if (ai < bi) return -1;
-  }
-  return 0;
-}
-
-async function getCurrentVersion(){
-  try{
-    // Try the original path first (for installed extensions)
-    try {
-      const xml = fs.readFileSync(MANIFEST_PATH, 'utf8');
-      const version = parseBundleVersion(xml);
-      if (version) return version;
-    } catch(_) {}
-    
-    // Fallback: try to find manifest in extensions subdirectories (for local development)
-    const extensionsDir = path.join(EXT_ROOT, 'extensions');
-    if (fs.existsSync(extensionsDir)) {
-      const subdirs = fs.readdirSync(extensionsDir);
-      for (const subdir of subdirs) {
-        const manifestPath = path.join(extensionsDir, subdir, 'CSXS', 'manifest.xml');
-        try {
-          const xml = fs.readFileSync(manifestPath, 'utf8');
-          const version = parseBundleVersion(xml);
-          if (version) return version;
-        } catch(_) {}
-      }
-    }
-    
-    return '';
-  }catch(_){ return ''; }
-}
 
 async function getLatestReleaseInfo(){
   const repo = UPDATES_REPO;
@@ -528,18 +235,6 @@ function saveJobs(){
   return;
 }
 loadJobs();
-// Helper to make a temp-readable copy when macOS places file in TemporaryItems (EPERM)
-const COPY_DIR = DIRS.cache;
-function toReadableLocalPath(p){
-  try{
-    if (!p || typeof p !== 'string') return '';
-    const abs = path.resolve(p);
-    if (abs.indexOf('/TemporaryItems/') === -1) return path.normalize(abs);
-    try { if (!fs.existsSync(COPY_DIR)) fs.mkdirSync(COPY_DIR, { recursive: true }); } catch(e){ try { tlog("silent catch:", e.message); } catch(_){} }
-    const dest = path.join(COPY_DIR, path.basename(abs));
-    try { fs.copyFileSync(abs, dest); return dest; } catch(_){ return abs; }
-  }catch(_){ return String(p||''); }
-}
 
 // Rate limiting for /auth/token (1 req/sec per IP)
 const tokenRateLimit = new Map();
@@ -1468,32 +1163,6 @@ app.use((req,res,next)=>{
   // All other routes require authentication
   return requireAuth(req,res,next);
 });
-// ---------- R2 (S3 compatible) config ----------
-const R2_ENDPOINT_URL = process.env.R2_ENDPOINT_URL || 'https://a0282f2dad0cdecf5de20e2219e77809.r2.cloudflarestorage.com';
-const R2_ACCESS_KEY  = process.env.R2_ACCESS_KEY || '';
-const R2_SECRET_KEY  = process.env.R2_SECRET_KEY || '';
-const R2_BUCKET      = process.env.R2_BUCKET || 'service-based-business';
-const R2_PREFIX      = process.env.R2_PREFIX || 'sync-extension/';
-
-// Validate R2 credentials
-console.log('R2 configuration check:');
-console.log('R2_ENDPOINT_URL:', R2_ENDPOINT_URL ? 'SET' : 'NOT SET');
-console.log('R2_ACCESS_KEY:', R2_ACCESS_KEY ? 'SET' : 'NOT SET');
-console.log('R2_SECRET_KEY:', R2_SECRET_KEY ? 'SET' : 'NOT SET');
-console.log('R2_BUCKET:', R2_BUCKET);
-console.log('R2_PREFIX:', R2_PREFIX);
-
-if (!R2_ACCESS_KEY || !R2_SECRET_KEY) {
-  console.error('R2 credentials not configured. R2 uploads will be disabled.');
-  console.error('Set R2_ACCESS_KEY and R2_SECRET_KEY environment variables.');
-}
-
-const r2Client = (R2_ACCESS_KEY && R2_SECRET_KEY) ? new S3Client({
-  region: 'auto',
-  endpoint: R2_ENDPOINT_URL,
-  credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY },
-  forcePathStyle: true
-}) : null;
 const DOCS_DEFAULT_DIR = path.join(os.homedir(), 'Documents', 'sync. outputs');
 const TEMP_DEFAULT_DIR = DIRS.uploads;
 
@@ -1730,19 +1399,6 @@ app.post('/update/apply', async (req,res)=>{
   }
 });
 
-function guessMime(p){
-  const ext = String(p||'').toLowerCase().split('.').pop();
-  if (ext === 'mp4') return 'video/mp4';
-  if (ext === 'mov') return 'video/quicktime';
-  if (ext === 'mxf') return 'application/octet-stream';
-  if (ext === 'mkv') return 'video/x-matroska';
-  if (ext === 'avi') return 'video/x-msvideo';
-  if (ext === 'wav') return 'audio/wav';
-  if (ext === 'mp3') return 'audio/mpeg';
-  if (ext === 'aac' || ext==='m4a') return 'audio/aac';
-  if (ext === 'aif' || ext === 'aiff') return 'audio/aiff';
-  return 'application/octet-stream';
-}
 
 async function convertIfAiff(p){
   try{
@@ -1757,86 +1413,6 @@ async function convertIfAiff(p){
   }catch(e){ tlog('convertIfAiff error', e && e.message ? e.message : String(e)); return p; }
 }
 
-async function r2Upload(localPath){
-  if (!r2Client) {
-    throw new Error('R2 client not configured. Missing R2_ACCESS_KEY or R2_SECRET_KEY environment variables.');
-  }
-  if (!(await safeExists(localPath))) throw new Error('file not found: ' + localPath);
-  
-  // Add timeout protection to prevent hanging on network issues
-  const timeoutMs = 300000; // 5 minute timeout for uploads (aligned with dubbing timeout)
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('R2 upload timeout')), timeoutMs)
-  );
-  
-  try {
-    return await Promise.race([
-      r2UploadInternal(localPath),
-      timeoutPromise
-    ]);
-  } catch(e) {
-    try { tlog('r2Upload:error', e && e.message ? e.message : String(e)); } catch(_){}
-    // Don't re-throw EPIPE errors - they're usually recoverable
-    if (e.message && e.message.includes('EPIPE')) {
-      throw new Error('Upload connection lost. Please try again.');
-    }
-    throw e;
-  }
-}
-
-async function r2UploadInternal(localPath){
-  const base = path.basename(localPath);
-  const key  = `${R2_PREFIX}uploads/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${base}`;
-  slog('[r2] put start', localPath, '→', `${R2_BUCKET}/${key}`);
-  
-  try {
-    const body = fs.createReadStream(localPath);
-    const contentType = guessMime(localPath);
-    
-    // Add error handling for the stream
-    body.on('error', (err) => {
-      slog('[r2] stream error', err.message);
-    });
-    
-    await r2Client.send(new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: key,
-      Body: body,
-      ContentType: contentType
-    }));
-    
-    // Generate signed URL for external access
-    const command = new GetObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: key
-    });
-    
-    const signedUrl = await getSignedUrl(r2Client, command, { 
-      expiresIn: 3600,
-      signableHeaders: new Set(['host']),
-      unsignableHeaders: new Set(['host'])
-    }).catch((signError) => {
-      slog('[r2] sign error', signError.message);
-      // If signing fails, return a direct URL (less secure but functional)
-      return `${R2_ENDPOINT_URL}/${R2_BUCKET}/${key}`;
-    }); // 1 hour expiry
-    
-    slog('[r2] put ok', signedUrl);
-    return signedUrl;
-  } catch (error) {
-    slog('[r2] put error', error.message);
-    // Handle specific EPIPE errors gracefully
-    if (error.message && error.message.includes('EPIPE')) {
-      throw new Error('Upload connection lost. Please try again.');
-    }
-    // Handle HTML parsing errors from R2
-    if (error.message && error.message.includes('Expected closing tag')) {
-      slog('[r2] HTML parsing error - likely invalid response format:', error.message);
-      throw new Error('R2 service error. Please check your R2 configuration and try again.');
-    }
-    throw error;
-  }
-}
 
 const SYNC_API_BASE = 'https://api.sync.so/v2';
 
@@ -1873,20 +1449,7 @@ app.get('/jobs/:id', (req,res)=>{
   res.json(job);
 });
 
-async function normalizePaths(obj){
-  if (!obj) return obj;
-  if (obj.videoPath) obj.videoPath = await resolveSafeLocalPath(obj.videoPath);
-  if (obj.audioPath) obj.audioPath = await resolveSafeLocalPath(obj.audioPath);
-  return obj;
-}
 
-function normalizeOutputDir(p){
-  try{
-    if (!p || typeof p !== 'string') return '';
-    const abs = path.resolve(p);
-    return path.normalize(abs);
-  }catch(_){ return ''; }
-}
 
 app.post('/jobs', async (req, res) => {
   try{
@@ -2118,15 +1681,6 @@ app.post('/costs', async (req, res) => {
 // Waveform helper: securely read local file bytes for the panel (same auth)
 // Duplicate route removed; the public unauthenticated version above is the source of truth
 
-function pipeToFile(stream, dest){
-  return new Promise((resolve, reject)=>{
-    const ws = fs.createWriteStream(dest);
-    stream.pipe(ws);
-    stream.on('error', reject);
-    ws.on('finish', resolve);
-    ws.on('error', reject);
-  });
-}
 
 async function createGeneration(job){
   const vStat = await safeStat(job.videoPath);
@@ -2322,41 +1876,6 @@ async function pollSyncJob(job){
   }, maxAttempts * pollInterval + 30000); // Extra 30 seconds buffer
 }
 
-async function safeText(resp){ try{ return await resp.text(); }catch(_){ return ''; } }
-
-// Async version to prevent blocking with timeout protection
-async function safeStat(p){ 
-  try{ 
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('File stat timeout')), 5000)
-    );
-    return await Promise.race([
-      fs.promises.stat(p),
-      timeoutPromise
-    ]);
-  }catch(_){ 
-    return null; 
-  } 
-}
-
-// Synchronous version for critical operations only
-function safeStatSync(p){ try{ return fs.statSync(p); }catch(_){ return null; } }
-
-// Async file existence check with timeout
-async function safeExists(p){
-  try{
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('File exists timeout')), 5000)
-    );
-    await Promise.race([
-      fs.promises.access(p),
-      timeoutPromise
-    ]);
-    return true;
-  }catch{
-    return false;
-  }
-}
 
 function log(){ 
   // Console output disabled when spawned by CEP to prevent EPIPE crashes
@@ -2461,42 +1980,6 @@ async function startServer() {
 }
 
 startServer();
-
-
-async function resolveSafeLocalPath(p){
-  try{
-    if (!p || typeof p !== 'string') {
-      tlog('resolveSafeLocalPath: invalid input', typeof p);
-      return p;
-    }
-    // SECURITY: Reject non-absolute paths to prevent traversal attacks
-    if (!path.isAbsolute(p)) {
-      tlog('resolveSafeLocalPath: rejected non-absolute path', p);
-      throw new Error('Only absolute paths allowed');
-    }
-    const isTempItems = p.indexOf('/TemporaryItems/') !== -1;
-    if (!isTempItems) return p;
-    // macOS workaround: copy from TemporaryItems to readable location
-    const docs = DIRS.uploads; // Use uploads folder instead of Documents/sync_extension_temp
-    try {
-      await fs.promises.access(docs);
-    } catch {
-      await fs.promises.mkdir(docs, { recursive: true });
-    }
-    const target = path.join(docs, path.basename(p));
-    try { 
-      await fs.promises.copyFile(p, target); 
-      await tlog('resolveSafeLocalPath: copied from TemporaryItems', p, '→', target);
-      return target; 
-    } catch(e){ 
-      await tlog('resolveSafeLocalPath: copy failed', e.message);
-      return p; 
-    }
-  }catch(e){ 
-    tlog('resolveSafeLocalPath: exception', e.message);
-    throw e;
-  }
-}
 
 // Crash safety
 process.on('uncaughtException', (err)=>{ try { console.error('uncaughtException', err && err.stack || err); tlog('uncaughtException', err && err.stack || err); } catch(_) {} });

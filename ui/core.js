@@ -217,12 +217,7 @@
       window.ensureAuthToken = ensureAuthToken;
       window.authHeaders = authHeaders;
       
-      // UI logger (disabled - use debug.md file-based logging instead)
-      const DEBUG_LOGS = false;
-      function uiLog(msg){
-        // Dead code - logging moved to file-based system per debug.md
-        return;
-      }
+      // UI logger removed - logging handled by file-based system per debug.md
       
       // Helper to call JSX with JSON payload and parse JSON response (with auto-load + retry)
       function evalExtendScript(fn, payload) {

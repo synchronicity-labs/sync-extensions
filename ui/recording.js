@@ -1118,38 +1118,5 @@
     }
   }
 
-  // Get project save directory
-  function getProjectSaveDirectory() {
-    return new Promise((resolve) => {
-      if (typeof cs !== 'undefined') {
-        // Try to get project path (Premiere specific)
-        cs.evalScript(`
-          (function() {
-            try {
-              if (typeof app !== 'undefined' && app.project && app.project.path) {
-                var projectPath = String(app.project.path);
-                var folder = new Folder(projectPath);
-                if (folder.exists) {
-                  // Get parent directory of the project file
-                  var parentDir = folder.parent.fsName;
-                  var syncFolder = new Folder(parentDir + '/sync. outputs');
-                  if (!syncFolder.exists) {
-                    syncFolder.create();
-                  }
-                  return syncFolder.fsName;
-                }
-              }
-            } catch(e) {}
-            return '';
-          })()
-        `, (result) => {
-          resolve(result || null);
-        });
-      } else {
-        resolve(null);
-      }
-    });
-  }
-
 })();
 
