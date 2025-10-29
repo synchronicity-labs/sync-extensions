@@ -1,6 +1,8 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import fetch from 'node-fetch';
 import { tlog } from '../utils/log.js';
 import { convertAudio } from '../services/audio.js';
 import { extractAudioFromVideo } from '../services/video.js';
@@ -37,36 +39,6 @@ router.post('/audio/convert', async (req, res) => {
   } catch (e) { if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) }); }
 });
 
-router.get('/audio/convert', async (req, res) => {
-  try {
-    const srcPath = String(req.query.srcPath || '');
-    const format = String(req.query.format || 'wav');
-    tlog('GET /audio/convert', 'format=', format, 'srcPath=', srcPath);
-    if (!srcPath || !path.isAbsolute(srcPath)) {
-      tlog('convert invalid path (GET)');
-      return res.status(400).json({ error: 'invalid srcPath' });
-    }
-    if (!fs.existsSync(srcPath)) return res.status(404).json({ error: 'source not found' });
-    const fmt = String(format || 'wav').toLowerCase();
-    if (fmt === 'mp3') {
-      try {
-        const out = await convertAudio(srcPath, fmt);
-        if (!out || !fs.existsSync(out)) return res.status(500).json({ error: 'conversion failed' });
-        try { const sz = fs.statSync(out).size; tlog('convert mp3 ok', 'out=', out, 'bytes=', sz); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
-        res.json({ ok: true, path: out });
-        return;
-      } catch (e) {
-        tlog('convert mp3 error:', e.message);
-        return res.status(500).json({ error: String(e?.message || e) });
-      }
-    }
-    const out = await convertAudio(srcPath, fmt);
-    if (!out || !fs.existsSync(out)) return res.status(500).json({ error: 'conversion failed' });
-    try { const sz = fs.statSync(out).size; tlog('convert ok (GET)', 'out=', out, 'bytes=', sz); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
-    res.json({ ok: true, path: out });
-  } catch (e) { if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) }); }
-});
-
 router.post('/extract-audio', async (req, res) => {
   try {
     const { videoPath, videoUrl, format } = req.body || {};
@@ -80,13 +52,11 @@ router.post('/extract-audio', async (req, res) => {
     
     if (videoUrl && !videoPath) {
       try {
-        const fetch = require('node-fetch');
         const response = await fetch(videoUrl);
         if (!response.ok) {
           return res.status(400).json({ error: 'Failed to download video from URL' });
         }
         
-        const os = require('os');
         const tempDir = os.tmpdir();
         const tempFileName = `temp_video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp4`;
         localVideoPath = path.join(tempDir, tempFileName);

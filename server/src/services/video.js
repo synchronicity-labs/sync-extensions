@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { spawn } from 'child_process';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffmpeg from 'fluent-ffmpeg';
 import { tlog } from '../utils/log.js';
 import { convertAudio } from './audio.js';
 
@@ -66,90 +65,35 @@ export async function extractAudioFromVideo(videoPath, outputFormat = 'wav', dir
 async function extractAudioWithFFmpeg(videoPath, outputPath, format) {
   debugLog('extractAudioWithFFmpeg start', videoPath, 'format:', format);
   
-  try {
-    // Try fast copy first - instant extraction for compatible formats
-    const ffmpegArgsCopy = [
-      '-i', videoPath,
-      '-vn', // No video
-      '-acodec', 'copy', // Copy audio stream without re-encoding
-      '-y', // Overwrite output
-      outputPath
-    ];
-    
-    debugLog('FFmpeg copy command:', ffmpegInstaller.path, ffmpegArgsCopy.join(' '));
-    
-    // Try copy first
-    try {
-      await new Promise((resolve, reject) => {
-        const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgsCopy);
-        
-        let stderr = '';
-        
-        ffmpeg.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-        
-        ffmpeg.on('close', (code) => {
-          if (code === 0) {
-            debugLog('FFmpeg copy successful');
-            resolve(outputPath);
-          } else {
-            reject(new Error(`Copy failed: ${code}`));
-          }
-        });
-        
-        ffmpeg.on('error', (error) => {
-          reject(error);
-        });
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg(videoPath)
+      .noVideo()
+      .output(outputPath)
+      .on('start', (cmdline) => {
+        debugLog('FFmpeg command:', cmdline);
+      })
+      .on('end', () => {
+        debugLog('FFmpeg extraction successful');
+        resolve(outputPath);
+      })
+      .on('error', (err) => {
+        debugLog('FFmpeg error:', err.message);
+        reject(err);
       });
-      
-      return outputPath;
-    } catch (copyError) {
-      debugLog('Copy failed, trying re-encode:', copyError.message);
-      
-      // Fallback to re-encoding if copy fails
-      const ffmpegArgs = [
-        '-i', videoPath,
-        '-vn', // No video
-        '-acodec', 'pcm_s16le', // 16-bit PCM
-        '-ar', '44100', // Sample rate
-        '-ac', '2', // Stereo
-        '-f', 'wav', // WAV format
-        '-y', // Overwrite output
-        outputPath
-      ];
-      
-      debugLog('FFmpeg re-encode command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
-      
-      return new Promise((resolve, reject) => {
-        const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
-        
-        let stderr = '';
-        
-        ffmpeg.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-        
-        ffmpeg.on('close', (code) => {
-          if (code === 0) {
-            debugLog('FFmpeg re-encode successful');
-            resolve(outputPath);
-          } else {
-            debugLog('FFmpeg error:', stderr);
-            reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
-          }
-        });
-        
-        ffmpeg.on('error', (error) => {
-          debugLog('FFmpeg spawn error:', error.message);
-          reject(error);
-        });
-      });
+    
+    // Try copy first (instant for compatible formats)
+    if (format === 'wav' || format === 'mp3') {
+      command.audioCodec('copy');
+    } else {
+      // Re-encode for other formats
+      command.audioCodec('pcm_s16le')
+        .audioFrequency(44100)
+        .audioChannels(2)
+        .format('wav');
     }
-  } catch (error) {
-    debugLog('extractAudioWithFFmpeg error:', error.message);
-    throw error;
-  }
+    
+    command.run();
+  });
 }
 
 // Extract audio from MP4 using FFmpeg

@@ -91,7 +91,17 @@
       // Check server status
       async function checkServerStatus() {
         try {
-          const response = await fetchWithTimeout('http://127.0.0.1:3000/health', {}, 5000);
+          // Use normal fetch - no timeout. Health endpoint should respond instantly.
+          // Only abort if it takes more than 3 seconds
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          
+          const response = await fetch('http://127.0.0.1:3000/health', {
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
           if (response && response.ok) {
             consecutiveFailures = 0; // Reset failure count
             if (isOffline) {
@@ -100,13 +110,22 @@
             return true;
           }
         } catch (error) {
-          // Server is down or network error
+          // Only count actual connection errors as failures
+          // AbortError from timeout means server might be busy, not down
+          const isActualConnectionError = error.message && (
+            error.message.includes('ECONNREFUSED') ||
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('network error')
+          );
+          
+          if (isActualConnectionError) {
+            consecutiveFailures++;
+          }
+          // Ignore timeout errors - server is just busy
         }
         
-        consecutiveFailures++;
-        
-        // Only show offline state after 5 seconds of startup AND 3 consecutive failures
-        if (Date.now() - serverStartupTime > 5000 && consecutiveFailures >= MAX_FAILURES) {
+        // Only show offline state after 10 seconds of startup AND actual connection failures
+        if (Date.now() - serverStartupTime > 10000 && consecutiveFailures >= 3) {
           setOfflineState(true);
         }
         return false;
@@ -175,8 +194,8 @@
       
       // Hide offline state and restore normal UI
       function hideOfflineState() {
-        // Reload the page to restore normal UI
-        window.location.reload();
+        // Don't reload - just clear the offline state
+        // The UI will naturally restore when user interacts with it
       }
       
       // Start offline checking

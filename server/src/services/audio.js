@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { spawn } from 'child_process';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffmpeg from 'fluent-ffmpeg';
 import { tlog } from '../utils/log.js';
 
 // Platform-specific app data directory
@@ -214,92 +213,50 @@ export async function convertAiffToMp3(srcPath, destPath) {
   debugLog('convertAiffToMp3 start', srcPath, '->', destPath||'(auto)');
   const finalPath = destPath || srcPath.replace(/\.[^.]+$/, '.mp3');
   
-  try {
-    const ffmpegArgs = [
-      '-i', srcPath,
-      '-acodec', 'libmp3lame',
-      '-ab', '192k',
-      '-ar', '44100',
-      '-y',
-      finalPath
-    ];
-    
-    debugLog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
-    
-    return new Promise((resolve, reject) => {
-      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
-      
-      let stderr = '';
-      
-      ffmpeg.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-      
-      ffmpeg.on('close', (code) => {
-        if (code === 0) {
-          debugLog('FFmpeg AIFF to MP3 conversion successful');
-          resolve(finalPath);
-        } else {
-          debugLog('FFmpeg error:', stderr);
-          reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
-        }
-      });
-      
-      ffmpeg.on('error', (error) => {
-        debugLog('FFmpeg spawn error:', error.message);
-        reject(error);
-      });
-    });
-  } catch (error) {
-    debugLog('convertAiffToMp3 error:', error.message);
-    throw error;
-  }
+  return new Promise((resolve, reject) => {
+    ffmpeg(srcPath)
+      .audioCodec('libmp3lame')
+      .audioBitrate('192k')
+      .audioFrequency(44100)
+      .output(finalPath)
+      .on('start', (cmdline) => {
+        debugLog('FFmpeg command:', cmdline);
+      })
+      .on('end', () => {
+        debugLog('FFmpeg AIFF to MP3 conversion successful');
+        resolve(finalPath);
+      })
+      .on('error', (err) => {
+        debugLog('FFmpeg error:', err.message);
+        reject(err);
+      })
+      .run();
+  });
 }
 
 export async function convertWavToMp3(srcPath, destPath) {
   debugLog('convertWavToMp3 start', srcPath, '->', destPath||'(auto)');
   const finalPath = destPath || srcPath.replace(/\.[^.]+$/, '.mp3');
   
-  try {
-    const ffmpegArgs = [
-      '-i', srcPath,
-      '-acodec', 'libmp3lame',
-      '-ab', '192k',
-      '-ar', '44100',
-      '-y',
-      finalPath
-    ];
-    
-    debugLog('FFmpeg command:', ffmpegInstaller.path, ffmpegArgs.join(' '));
-    
-    return new Promise((resolve, reject) => {
-      const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
-      
-      let stderr = '';
-      
-      ffmpeg.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-      
-      ffmpeg.on('close', (code) => {
-        if (code === 0) {
-          debugLog('FFmpeg WAV to MP3 conversion successful');
-          resolve(finalPath);
-        } else {
-          debugLog('FFmpeg error:', stderr);
-          reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
-        }
-      });
-      
-      ffmpeg.on('error', (error) => {
-        debugLog('FFmpeg spawn error:', error.message);
-        reject(error);
-      });
-    });
-  } catch (error) {
-    debugLog('convertWavToMp3 error:', error.message);
-    throw error;
-  }
+  return new Promise((resolve, reject) => {
+    ffmpeg(srcPath)
+      .audioCodec('libmp3lame')
+      .audioBitrate('192k')
+      .audioFrequency(44100)
+      .output(finalPath)
+      .on('start', (cmdline) => {
+        debugLog('FFmpeg command:', cmdline);
+      })
+      .on('end', () => {
+        debugLog('FFmpeg WAV to MP3 conversion successful');
+        resolve(finalPath);
+      })
+      .on('error', (err) => {
+        debugLog('FFmpeg error:', err.message);
+        reject(err);
+      })
+      .run();
+  });
 }
 
 export async function convertAudio(srcPath, format) {

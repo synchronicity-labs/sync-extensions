@@ -684,6 +684,11 @@
       async function selectVideoInOut(){
         try{
           if (window.__videoInOutBusy) { return; }
+          
+          if (typeof stopOfflineChecking === 'function') {
+            stopOfflineChecking();
+          }
+          
           window.__videoInOutBusy = true;
           const statusEl = document.getElementById('statusMessage');
           // Show toast notification instead of status bar
@@ -917,12 +922,22 @@
             try { if (__videoInOutBtn) __videoInOutBtn.textContent = __videoInOutBtnOrig || 'in/out points'; } catch(_){ }
           }
         }catch(e){ try{ updateInputStatus(); }catch(_){} }
-        finally { try { window.__videoInOutBusy = false; } catch(_){ } }
+        finally { 
+          try { window.__videoInOutBusy = false; } catch(_){ }
+          if (typeof startOfflineChecking === 'function') {
+            startOfflineChecking();
+          }
+        }
       }
 
       async function selectAudioInOut(){
         try{
           if (window.__audioInOutBusy) { return; }
+          
+          if (typeof stopOfflineChecking === 'function') {
+            stopOfflineChecking();
+          }
+          
           window.__audioInOutBusy = true;
           const statusEl = document.getElementById('statusMessage');
           // Show toast notification instead of status bar
@@ -1145,7 +1160,12 @@
             try { if (__audioInOutBtn) __audioInOutBtn.textContent = __audioInOutBtnOrig || 'in/out points'; } catch(_){ }
           }
         }catch(e){ try{ updateInputStatus(); }catch(_){} }
-        finally { try { window.__audioInOutBusy = false; } catch(_){ } }
+        finally { 
+          try { window.__audioInOutBusy = false; } catch(_){ }
+          if (typeof startOfflineChecking === 'function') {
+            startOfflineChecking();
+          }
+        }
       }
 
       function updateInputStatus() {

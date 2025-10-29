@@ -10,7 +10,6 @@ import { createServer } from 'net';
 import FormData from 'form-data';
 import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { track, identify, setUserProperties, distinctId } from './telemetry.js';
 
 // Modular imports
@@ -53,9 +52,6 @@ dotenv.config({ path: envPath });
 
 const app = express();
 app.disable('x-powered-by');
-
-// Set FFmpeg path
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // Initialize PostHog user identification
 (async () => {
