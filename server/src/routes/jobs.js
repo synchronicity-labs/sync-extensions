@@ -74,6 +74,10 @@ router.post('/jobs', async (req, res) => {
       return res.status(400).json({ error: 'syncApiKey required' });
     }
     
+    // Normalize URLs - treat empty strings as missing
+    videoUrl = (videoUrl && typeof videoUrl === 'string' && videoUrl.trim() !== '') ? videoUrl.trim() : null;
+    audioUrl = (audioUrl && typeof audioUrl === 'string' && audioUrl.trim() !== '') ? audioUrl.trim() : null;
+    
     if (!videoUrl || !audioUrl) {
       if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
       const videoExists = await safeExists(videoPath);

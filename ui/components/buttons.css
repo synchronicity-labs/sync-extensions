@@ -163,6 +163,15 @@
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
+  outline: none !important;
+}
+
+.model-btn:focus,
+.model-btn:focus-visible,
+.lipsync-btn:focus,
+.lipsync-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .model-btn {
@@ -171,6 +180,8 @@
   background: var(--bg-button);
   color: var(--text-secondary);
   position: relative;
+  overflow: visible;
+  z-index: 1;
 }
 
 .model-btn:hover {

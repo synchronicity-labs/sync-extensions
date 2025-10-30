@@ -81,8 +81,13 @@ async function extractAudioWithFFmpeg(videoPath, outputPath, format) {
         reject(err);
       });
     
-    // Try copy first (instant for compatible formats)
-    if (format === 'wav' || format === 'mp3') {
+    // For mp3 output, always re-encode to ensure compatibility
+    if (format === 'mp3') {
+      command.audioCodec('libmp3lame')
+        .audioBitrate('192k')
+        .audioFrequency(44100);
+    } else if (format === 'wav') {
+      // Try copy first (instant for compatible formats)
       command.audioCodec('copy');
     } else {
       // Re-encode for other formats

@@ -4,7 +4,6 @@
         return port;
       }
       
-      // Expose getServerPort globally for use in other modules
       window.getServerPort = getServerPort;
       
       // Checkmark management functions
@@ -47,15 +46,6 @@
         });
       }
       
-      function updateModelDisplay() {
-        const modelEl = document.getElementById('currentModel');
-        if (modelEl) {
-          const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
-          const model = settings.model || 'lipsync-2-pro';
-          modelEl.textContent = model;
-        }
-      }
-
       // Custom Dropdown for Sync Mode
       (function initCustomDropdown() {
         const trigger = document.getElementById('syncModeBtn');
@@ -248,8 +238,9 @@
               // Update checkmark visibility
               updateModelCheckmarks();
               
-              // Update display in bottom bar
-              updateModelDisplay();
+              if (typeof window.updateBottomBarModelDisplay === 'function') {
+                window.updateBottomBarModelDisplay();
+              }
               
               // Call existing saveSettings if available
               if (typeof saveSettings === 'function') {
@@ -302,7 +293,9 @@
         }
 
         // Initialize display on load
-        updateModelDisplay();
+        if (typeof window.updateBottomBarModelDisplay === 'function') {
+          window.updateBottomBarModelDisplay();
+        }
       })();
 
       function loadSettings() {
@@ -382,7 +375,10 @@
           fetch(`http://127.0.0.1:${port}/settings`, { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ settings }) }).catch(()=>{});
         }catch(_){ }
           
-        updateModelDisplay();
+        // Update bottom bar
+        if (typeof window.updateBottomBarModelDisplay === 'function') {
+          window.updateBottomBarModelDisplay();
+        }
           
           if (typeof scheduleEstimate === 'function') {
         scheduleEstimate();
@@ -399,13 +395,21 @@
           if (!raw) {
             const port = getServerPort();
             fetch(`http://127.0.0.1:${port}/settings`, { method:'GET' }).then(function(r){ return r.json(); }).then(function(j){
-              if (j && j.settings) { try { localStorage.setItem('syncSettings', JSON.stringify(j.settings)); loadSettings(); updateModelDisplay(); } catch(_){ } }
+              if (j && j.settings) { 
+                try { 
+                  localStorage.setItem('syncSettings', JSON.stringify(j.settings)); 
+                  loadSettings(); 
+                  if (typeof window.updateBottomBarModelDisplay === 'function') {
+                    window.updateBottomBarModelDisplay();
+                  }
+                } catch(_){ } 
+              }
             }).catch(function(){ });
           }
         } catch(_){ }
       })();
 
-      // Update system functions (reuse shared auth token/headers from core.js)
+      // Update system functions
       async function api(pathname, opts){
         try { if (typeof ensureAuthToken === 'function') await ensureAuthToken(); } catch(_){ }
         const port = getServerPort();

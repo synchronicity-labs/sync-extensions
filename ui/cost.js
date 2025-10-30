@@ -57,6 +57,9 @@
         } catch(_){ }
         
         try{
+          // Check if both files are selected (used throughout function)
+          const hasBothFilesSelected = !!(window.selectedVideo || window.selectedVideoUrl) && !!(window.selectedAudio || window.selectedAudioUrl);
+          
           // Before selection: show $0.00 only when BOTH video and audio are missing
           if ((!window.selectedVideo && !window.selectedVideoUrl) && (!window.selectedAudio && !window.selectedAudioUrl)) {
             // Debug logging
@@ -98,8 +101,7 @@
           }
           
           // Show "estimating..." immediately when files are selected, even if uploads are in progress
-          const hasFilesSelected = !!(window.selectedVideo || window.selectedVideoUrl) && !!(window.selectedAudio || window.selectedAudioUrl);
-          if (hasFilesSelected && !canEstimate) {
+          if (hasBothFilesSelected && !canEstimate) {
             if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
             try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
             
@@ -179,13 +181,14 @@
             return;
           }
           
-          // If no files selected at all, show estimating and wait
+          // If no files selected at all, show $0.00 (not estimating)
           if (!canEstimate) {
-            if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
-            
-            // Remove unnecessary upload status messages
-            
-            try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
+            // Only show "estimating..." if both files are actually selected but estimation isn't ready yet
+            // (hasBothFilesSelected must be true here since we already returned early if it was false)
+            if (hasBothFilesSelected) {
+              if (display){ display.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }
+              try{ const below=document.getElementById('costBelow'); if (below) below.innerHTML='<span class="cost-label">est. cost:</span> estimating…'; }catch(_){ }
+            }
             
             // Debug logging
             try {

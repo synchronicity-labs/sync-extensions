@@ -72,20 +72,32 @@
           });
         }
         
-        // Restore uploaded URLs from localStorage if window variables are empty
-        if (!window.uploadedVideoUrl) {
-          window.uploadedVideoUrl = localStorage.getItem('uploadedVideoUrl') || '';
+        // Restore uploaded URLs from localStorage if window variables are empty or falsy
+        if (!window.uploadedVideoUrl || window.uploadedVideoUrl === '') {
+          const stored = localStorage.getItem('uploadedVideoUrl');
+          if (stored && stored !== '') {
+            window.uploadedVideoUrl = stored;
+          }
         }
-        if (!window.uploadedAudioUrl) {
-          window.uploadedAudioUrl = localStorage.getItem('uploadedAudioUrl') || '';
+        if (!window.uploadedAudioUrl || window.uploadedAudioUrl === '') {
+          const stored = localStorage.getItem('uploadedAudioUrl');
+          if (stored && stored !== '') {
+            window.uploadedAudioUrl = stored;
+          }
         }
         
-        // Restore selected URLs from localStorage if window variables are empty
-        if (!window.selectedVideoUrl) {
-          window.selectedVideoUrl = localStorage.getItem('selectedVideoUrl') || '';
+        // Restore selected URLs from localStorage if window variables are empty or falsy
+        if (!window.selectedVideoUrl || window.selectedVideoUrl === '') {
+          const stored = localStorage.getItem('selectedVideoUrl');
+          if (stored && stored !== '') {
+            window.selectedVideoUrl = stored;
+          }
         }
-        if (!window.selectedAudioUrl) {
-          window.selectedAudioUrl = localStorage.getItem('selectedAudioUrl') || '';
+        if (!window.selectedAudioUrl || window.selectedAudioUrl === '') {
+          const stored = localStorage.getItem('selectedAudioUrl');
+          if (stored && stored !== '') {
+            window.selectedAudioUrl = stored;
+          }
         }
         
         // Debug: Log the exact state before validation
@@ -218,12 +230,58 @@
             }
           } catch(_){ }
 
+          // Re-check and restore URLs from localStorage right before job submission
+          // This ensures we have the latest URLs even if window variables were cleared/changed
+          if (!window.uploadedVideoUrl || window.uploadedVideoUrl === '' || !window.uploadedVideoUrl.startsWith('http')) {
+            const stored = localStorage.getItem('uploadedVideoUrl');
+            if (stored && stored !== '' && stored.startsWith('http')) {
+              window.uploadedVideoUrl = stored;
+            }
+          }
+          if (!window.uploadedAudioUrl || window.uploadedAudioUrl === '' || !window.uploadedAudioUrl.startsWith('http')) {
+            const stored = localStorage.getItem('uploadedAudioUrl');
+            if (stored && stored !== '' && stored.startsWith('http')) {
+              window.uploadedAudioUrl = stored;
+            }
+          }
+          if (!window.selectedVideoUrl || window.selectedVideoUrl === '' || !window.selectedVideoUrl.startsWith('http')) {
+            const stored = localStorage.getItem('selectedVideoUrl');
+            if (stored && stored !== '' && stored.startsWith('http')) {
+              window.selectedVideoUrl = stored;
+            }
+          }
+          if (!window.selectedAudioUrl || window.selectedAudioUrl === '' || !window.selectedAudioUrl.startsWith('http')) {
+            const stored = localStorage.getItem('selectedAudioUrl');
+            if (stored && stored !== '' && stored.startsWith('http')) {
+              window.selectedAudioUrl = stored;
+            }
+          }
+
           // Create job via backend - send both paths and URLs like cost estimation
+          // Only include URLs if they're valid (non-empty strings that look like URLs)
+          const isValidUrl = (url) => url && typeof url === 'string' && url.trim() !== '' && (url.startsWith('http://') || url.startsWith('https://'));
+          const videoUrl = window.uploadedVideoUrl || window.selectedVideoUrl || '';
+          const audioUrl = window.uploadedAudioUrl || window.selectedAudioUrl || '';
+          
+          // Debug log final URLs before constructing jobData
+          if (window.debugLog) {
+            window.debugLog('job_submission_final_urls', {
+              uploadedVideoUrl: window.uploadedVideoUrl,
+              uploadedAudioUrl: window.uploadedAudioUrl,
+              selectedVideoUrl: window.selectedVideoUrl,
+              selectedAudioUrl: window.selectedAudioUrl,
+              finalVideoUrl: videoUrl,
+              finalAudioUrl: audioUrl,
+              hasValidVideoUrl: isValidUrl(videoUrl),
+              hasValidAudioUrl: isValidUrl(audioUrl)
+            });
+          }
+          
           const jobData = {
             videoPath: window.selectedVideo || '',
             audioPath: window.selectedAudio || '',
-            videoUrl: (window.uploadedVideoUrl || window.selectedVideoUrl || ''),
-            audioUrl: (window.uploadedAudioUrl || window.selectedAudioUrl || ''),
+            videoUrl: isValidUrl(videoUrl) ? videoUrl : '',
+            audioUrl: isValidUrl(audioUrl) ? audioUrl : '',
             isTempVideo: !!(window.selectedVideoIsTemp || (!window.selectedVideoUrl && window.selectedVideo && window.selectedVideo.indexOf('/Library/Application Support/sync. extensions/uploads/') === 0)),
             isTempAudio: !!(window.selectedAudioIsTemp || (!window.selectedAudioUrl && window.selectedAudio && window.selectedAudio.indexOf('/Library/Application Support/sync. extensions/uploads/') === 0)),
             isVideoUrl: !!(window.uploadedVideoUrl || window.selectedVideoUrl),
@@ -511,8 +569,17 @@
         const originalHTML = btn.innerHTML;
         const originalText = btn.textContent;
         
-        // Show working state
-        btn.textContent = label || 'working…';
+        // Show working state - preserve button structure but update text
+        // Find the span element if it exists, otherwise replace content
+        const span = btn.querySelector('span');
+        if (span) {
+          span.textContent = label || 'working…';
+          // Hide icon temporarily when showing loading state
+          const icon = btn.querySelector('i');
+          if (icon) icon.style.display = 'none';
+        } else {
+          btn.textContent = label || 'working…';
+        }
         btn.disabled = true;
         
         return function reset(){ 
@@ -522,7 +589,9 @@
           
           // Re-initialize Lucide icons
           if (typeof lucide !== 'undefined' && lucide.createIcons) {
-            lucide.createIcons();
+            setTimeout(() => {
+              lucide.createIcons();
+            }, 50);
           }
         };
       }
@@ -537,15 +606,27 @@
         
         // Restore button to original structure based on button type
         if (buttonId.startsWith('save-')) {
-          btn.innerHTML = '<i data-lucide="cloud-download"></i><span>save</span>';
+          // Check if it's a post-action-btn (in sources tab) or history-btn
+          if (btn.classList.contains('post-action-btn')) {
+            btn.innerHTML = '<i data-lucide="cloud-download"></i><span>save</span>';
+          } else {
+            btn.innerHTML = '<i data-lucide="cloud-download"></i><span>save</span>';
+          }
         } else if (buttonId.startsWith('insert-')) {
-          btn.innerHTML = '<i data-lucide="copy-plus"></i><span>insert</span>';
+          // Check if it's a post-action-btn (in sources tab) or history-btn
+          if (btn.classList.contains('post-action-btn')) {
+            btn.innerHTML = '<i data-lucide="copy-plus"></i><span>insert</span>';
+          } else {
+            btn.innerHTML = '<i data-lucide="copy-plus"></i><span>insert</span>';
+          }
         }
         btn.disabled = false;
         
         // Re-initialize Lucide icons
         if (typeof lucide !== 'undefined' && lucide.createIcons) {
-          lucide.createIcons();
+          setTimeout(() => {
+            lucide.createIcons();
+          }, 50);
         }
       }
 
@@ -582,8 +663,8 @@
           const resp = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}/save`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ location, targetDir, syncApiKey: apiKey }) });
           const data = await resp.json().catch(()=>null);
           if (resp.ok && data && data.outputPath) { savedPath = data.outputPath; }
-          else if (!resp.ok) { markError('save-'+jobId, 'error'); reset(); return; }
-        } catch(_){ markError('save-'+jobId, 'error'); reset(); return; }
+          else if (!resp.ok) { reset(); markError('save-'+jobId, 'error'); return; }
+        } catch(_){ reset(); markError('save-'+jobId, 'error'); return; }
         if (!savedPath) {
           try { const res = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}`, { headers: authHeaders() }); const j = await res.json(); if (j && j.outputPath) { savedPath = j.outputPath; } } catch(_){ }
         }
@@ -610,6 +691,10 @@
             if (!cs) cs = new CSInterface();
             const isAE = window.HOST_CONFIG ? window.HOST_CONFIG.isAE : false;
             
+            // Double-check host detection - if HOST_CONFIG says Premiere, ensure isAE is false
+            const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
+            const isAEConfirmed = isAE && hostId !== 'PPRO';
+            
             // File logging for debugging
             function logToFile(msg) {
               try {
@@ -635,18 +720,18 @@
               } catch(e) {}
             }
             
-            logToFile('[AE Save] Host detection result: ' + isAE);
+            logToFile('[AE Save] Host detection result: ' + isAE + ' (hostId: ' + hostId + ', confirmed: ' + isAEConfirmed + ')');
             
-            if (isAE) {
+            if (isAEConfirmed) {
               try {
                 const extPath = cs.getSystemPath(CSInterface.SystemPath.EXTENSION).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
                 logToFile('[AE Save] Extension path: ' + extPath);
                 logToFile('[AE Save] File path: ' + fp);
                 
                 // Use HOST_CONFIG for reliable host detection
-                const hostFile = isAE ? 'ae.jsx' : 'ppro.jsx';
+                const hostFile = isAEConfirmed ? 'ae.jsx' : 'ppro.jsx';
                 const payload = JSON.stringify({ path: savedPath, binName: 'sync. outputs' }).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
-                const importFunc = isAE ? 'AEFT_importFileToBin' : 'PPRO_importFileToBin';
+                const importFunc = isAEConfirmed ? 'AEFT_importFileToBin' : 'PPRO_importFileToBin';
                 cs.evalScript(`$.evalFile(\"${extPath}/host/${hostFile}\"); ${importFunc}(\"${payload}\")`, function(r){
                   logToFile('[AE Save] Raw response: ' + String(r));
                   let ok = false; let out = null;
@@ -690,9 +775,15 @@
                 markError('save-'+jobId, 'error');
               }
             } else {
-            // PPro fallback
-            const payload = JSON.stringify({ path: savedPath, binName: 'sync. outputs' }).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
-            cs.evalScript(`PPRO_importFileToBin(\"${payload}\")`, function(r){ try{ var j=(typeof r==='string')?JSON.parse(r):r; if(j&&j.ok){ markSaved('save-'+jobId); } else { markError('save-'+jobId,'error'); } }catch(_){ markError('save-'+jobId,'error'); } });
+            // PPro fallback - need to load ppro.jsx first
+            try {
+              const extPath = cs.getSystemPath(CSInterface.SystemPath.EXTENSION).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
+              const hostFile = 'ppro.jsx';
+              const payload = JSON.stringify({ path: savedPath, binName: 'sync. outputs' }).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
+              cs.evalScript(`$.evalFile(\"${extPath}/host/${hostFile}\"); PPRO_importFileToBin(\"${payload}\")`, function(r){ try{ var j=(typeof r==='string')?JSON.parse(r):r; if(j&&j.ok){ markSaved('save-'+jobId); } else { markError('save-'+jobId,'error'); } }catch(_){ markError('save-'+jobId,'error'); } });
+            } catch(e) {
+              markError('save-'+jobId, 'error');
+            }
             }
           } catch(_){ markError('save-'+jobId, 'error'); }
         } else {
@@ -737,8 +828,8 @@
           const resp = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}/save`, { method:'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ location, targetDir, syncApiKey: apiKey }) });
           const data = await resp.json().catch(()=>null);
           if (resp.ok && data && data.outputPath) { savedPath = data.outputPath; }
-          else if (!resp.ok) { markError('insert-'+jobId, 'error'); reset(); if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; } insertingGuard = false; return; }
-        } catch(_){ markError('insert-'+jobId, 'error'); reset(); if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; } insertingGuard = false; return; }
+          else if (!resp.ok) { reset(); markError('insert-'+jobId, 'error'); if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; } insertingGuard = false; return; }
+        } catch(_){ reset(); markError('insert-'+jobId, 'error'); if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; } insertingGuard = false; return; }
         if (!savedPath) {
           try { const res = await fetch(`http://127.0.0.1:${getServerPort()}/jobs/${jobId}`, { headers: authHeaders() }); const j = await res.json(); if (j && j.outputPath) { savedPath = j.outputPath; } } catch(_){ }
         }
@@ -748,6 +839,10 @@
         try {
           if (!cs) cs = new CSInterface();
           const isAE = window.HOST_CONFIG ? window.HOST_CONFIG.isAE : false;
+          
+          // Double-check host detection - if HOST_CONFIG says Premiere, ensure isAE is false
+          const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
+          const isAEConfirmed = isAE && hostId !== 'PPRO';
           
           // File logging for debugging
             function logToFile(msg) {
@@ -774,17 +869,17 @@
             } catch(e) {}
           }
           
-          logToFile('[AE Insert] Host detection result: ' + isAE);
+          logToFile('[AE Insert] Host detection result: ' + isAE + ' (hostId: ' + hostId + ', confirmed: ' + isAEConfirmed + ')');
           
-          if (isAE) {
+          if (isAEConfirmed) {
             try {
               const extPath = cs.getSystemPath(CSInterface.SystemPath.EXTENSION).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
               logToFile('[AE Insert] Extension path: ' + extPath);
               logToFile('[AE Insert] File path: ' + fp);
               
               // Use HOST_CONFIG for reliable host detection
-              const hostFile = isAE ? 'ae.jsx' : 'ppro.jsx';
-              const insertFunc = isAE ? 'AEFT_insertFileAtPlayhead' : 'PPRO_insertFileAtPlayhead';
+              const hostFile = isAEConfirmed ? 'ae.jsx' : 'ppro.jsx';
+              const insertFunc = isAEConfirmed ? 'AEFT_insertFileAtPlayhead' : 'PPRO_insertFileAtPlayhead';
               cs.evalScript(`$.evalFile(\"${extPath}/host/${hostFile}\"); ${insertFunc}(\"${fp.replace(/\\/g,'\\\\')}\")`, function(r){
                 logToFile('[AE Insert] Raw response: ' + String(r));
                 let out = null;
@@ -839,24 +934,32 @@
               insertingGuard = false;
             }
           } else {
-            // PPro fallback
-            const payload = JSON.stringify({ path: savedPath }).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
-            cs.evalScript(`PPRO_insertFileAtPlayhead(\"${payload}\")`, function(r){
-               try {
-                 const out = (typeof r === 'string') ? JSON.parse(r) : r;
-                 if (out && out.ok === true) { 
-                   if (typeof window.showToast === 'function') {
-                     window.showToast('inserted' + (out.diag? ' ['+out.diag+']':''), 'success');
-                   }
-                 } else { 
-                   if (typeof window.showToast === 'function') {
-                     window.showToast('insert failed' + (out && out.error ? ' ('+out.error+')' : ''), 'error');
-                   }
-                 }
-               } catch(_){ }
-               if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; }
-               insertingGuard = false;
-             });
+            // PPro fallback - need to load ppro.jsx first
+            try {
+              const extPath = cs.getSystemPath(CSInterface.SystemPath.EXTENSION).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
+              const hostFile = 'ppro.jsx';
+              const payload = JSON.stringify({ path: savedPath }).replace(/\\/g,'\\\\').replace(/\"/g,'\\\"');
+              cs.evalScript(`$.evalFile(\"${extPath}/host/${hostFile}\"); PPRO_insertFileAtPlayhead(\"${payload}\")`, function(r){
+                try {
+                  const out = (typeof r === 'string') ? JSON.parse(r) : r;
+                  if (out && out.ok === true) { 
+                    if (typeof window.showToast === 'function') {
+                      window.showToast('inserted' + (out.diag? ' ['+out.diag+']':''), 'success');
+                    }
+                  } else { 
+                    if (typeof window.showToast === 'function') {
+                      window.showToast('insert failed' + (out && out.error ? ' ('+out.error+')' : ''), 'error');
+                    }
+                  }
+                } catch(_){ }
+                if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; }
+                insertingGuard = false;
+              });
+            } catch(e) {
+              markError('insert-'+jobId, 'error');
+              if (mainInsertBtn){ mainInsertBtn.textContent='insert'; mainInsertBtn.disabled = mainInsertWasDisabled; }
+              insertingGuard = false;
+            }
           }
         } catch(_){
           markError('insert-'+jobId, 'error');

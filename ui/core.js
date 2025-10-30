@@ -37,6 +37,25 @@
       
       debugLog('core_loaded');
       
+      function updateBottomBarModelDisplay() {
+        const modelEl = document.getElementById('currentModel');
+        if (modelEl) {
+          const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
+          const model = settings.model || 'lipsync 2 pro';
+          const displayName = model.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          modelEl.textContent = displayName;
+          
+          setTimeout(() => {
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+              lucide.createIcons();
+            }
+          }, 10);
+        }
+      }
+      
+      window.updateBottomBarModelDisplay = updateBottomBarModelDisplay;
+      window.updateModelDisplay = updateBottomBarModelDisplay;
+      
       let cs = null;
       // Media selection variables are managed globally via window.selectedVideo, window.selectedAudio, etc.
       let jobs = [];
@@ -161,7 +180,6 @@
         }
       }
       
-      // Show offline state
       function showOfflineState() {
         // Show in sources tab
         const sourcesTab = document.getElementById('sources');
@@ -792,14 +810,95 @@
       document.addEventListener('keydown', function(e){
         const targetEditable = isEditable(e.target);
         
-        // Handle ESC key to clear loaded generation
-        if (e.key === 'Escape' && !targetEditable) {
-          const postLipsyncActions = document.getElementById('postLipsyncActions');
-          if (postLipsyncActions && typeof window.clearCompletedJob === 'function') {
-            window.clearCompletedJob();
+        // Handle ESC key - check for open dropdowns first
+        if (e.key === 'Escape' || e.keyCode === 27) {
+          // Check for model selector overlay
+          const modelSelectorOverlay = document.getElementById('modelSelectorOverlay');
+          if (modelSelectorOverlay && modelSelectorOverlay.classList.contains('show')) {
+            modelSelectorOverlay.classList.remove('show');
+            if (document.activeElement) document.activeElement.blur();
             e.preventDefault();
             e.stopImmediatePropagation();
             return;
+          }
+          
+          // Check for profile dropdown
+          const profileDropdown = document.querySelector('.profile-dropdown');
+          if (profileDropdown && profileDropdown.classList.contains('show')) {
+            profileDropdown.classList.remove('show');
+            if (document.activeElement) document.activeElement.blur();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
+          
+          // Check for TTS model dropdown
+          const ttsModelMenu = document.getElementById('ttsModelMenu');
+          if (ttsModelMenu && ttsModelMenu.classList.contains('show')) {
+            ttsModelMenu.classList.remove('show');
+            if (document.activeElement) document.activeElement.blur();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
+          
+          // Check for TTS voice selector overlay
+          const ttsVoiceSelectorOverlay = document.getElementById('ttsVoiceSelectorOverlay');
+          if (ttsVoiceSelectorOverlay && ttsVoiceSelectorOverlay.classList.contains('show')) {
+            ttsVoiceSelectorOverlay.classList.remove('show');
+            if (document.activeElement) document.activeElement.blur();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
+          
+            // Check for TTS clone modal
+            const ttsVoiceCloneOverlay = document.getElementById('ttsVoiceCloneOverlay');
+            if (ttsVoiceCloneOverlay && ttsVoiceCloneOverlay.classList.contains('show')) {
+              ttsVoiceCloneOverlay.classList.remove('show');
+              if (document.activeElement) document.activeElement.blur();
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return;
+            }
+          
+          // Check for TTS settings popup
+          const ttsSettingsPopup = document.getElementById('ttsSettingsPopup');
+          if (ttsSettingsPopup) {
+            const hasShowClass = ttsSettingsPopup.classList.contains('show');
+            const currentDisplay = ttsSettingsPopup.style.display;
+            const computedDisplay = window.getComputedStyle(ttsSettingsPopup).display;
+            const isVisible = hasShowClass || currentDisplay === 'block' || (currentDisplay === '' && computedDisplay !== 'none');
+            if (isVisible) {
+              ttsSettingsPopup.classList.remove('show');
+              ttsSettingsPopup.style.display = 'none';
+              ttsSettingsPopup.style.visibility = 'hidden';
+              if (document.activeElement) document.activeElement.blur();
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return;
+            }
+          }
+          
+          // Check for sync mode dropdown
+          const syncModeMenu = document.getElementById('syncModeMenu');
+          if (syncModeMenu && syncModeMenu.classList.contains('show')) {
+            syncModeMenu.classList.remove('show');
+            if (document.activeElement) document.activeElement.blur();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
+          
+          // Handle ESC key to clear loaded generation (original behavior)
+          if (!targetEditable) {
+            const postLipsyncActions = document.getElementById('postLipsyncActions');
+            if (postLipsyncActions && typeof window.clearCompletedJob === 'function') {
+              window.clearCompletedJob();
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return;
+            }
           }
         }
         

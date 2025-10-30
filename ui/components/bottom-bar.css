@@ -8,7 +8,7 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .bottom-content {
@@ -16,7 +16,7 @@
   gap: 24px;
   align-items: center;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Button styles are in components/buttons.css */
@@ -29,6 +29,7 @@
   height: 8px;
   background: var(--color-primary);
   border-radius: 50%;
+  z-index: 10;
 }
 
 /* Button styles moved to components/buttons.css */

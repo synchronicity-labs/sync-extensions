@@ -52,26 +52,31 @@ copy_common_files() {
   local dest="$1"
   mkdir -p "$dest"
   # Root files
-  rsync -a --delete \
+  # Using --update to skip files that are already up to date, makes subsequent runs faster
+  # --delete removes files in destination that don't exist in source (cleanup)
+  rsync -au --delete \
     "$REPO_DIR/index.html" \
     "$dest/"
   # Folders needed by both panels
-  rsync -a --delete \
+  rsync -au --delete \
     "$REPO_DIR/ui/" "$dest/ui/"
-  rsync -a --delete \
+  rsync -au --delete \
     "$REPO_DIR/lib/" "$dest/lib/" || true
-  rsync -a --delete \
+  rsync -au --delete \
     "$REPO_DIR/icons/" "$dest/icons/" || true
-  rsync -a --delete \
+  rsync -au --delete \
     "$REPO_DIR/host/" "$dest/host/" || true
   # Bundled Node binaries for local spawn
-  rsync -a --delete \
+  rsync -au --delete \
     "$REPO_DIR/bin/" "$dest/bin/" || true
   # Copy .env if it exists (check both repo root and server directory)
-  if [ -f "$REPO_DIR/.env" ]; then
-    rsync -a "$REPO_DIR/.env" "$dest/.env"
-  elif [ -f "$REPO_DIR/server/.env" ]; then
-    rsync -a "$REPO_DIR/server/.env" "$dest/.env"
+  # Server runs with cwd=server/, so .env needs to be in server/ subdirectory
+  if [ -f "$REPO_DIR/server/.env" ]; then
+    mkdir -p "$dest/server"
+    rsync -au "$REPO_DIR/server/.env" "$dest/server/.env"
+  elif [ -f "$REPO_DIR/.env" ]; then
+    mkdir -p "$dest/server"
+    rsync -au "$REPO_DIR/.env" "$dest/server/.env"
   fi
 }
 
@@ -85,15 +90,15 @@ install_ae() {
   fi
   mkdir -p "$AE_DEST/CSXS"
   copy_common_files "$AE_DEST"
-  rsync -a "$src_dir/CSXS/manifest.xml" "$AE_DEST/CSXS/manifest.xml"
+  rsync -au "$src_dir/CSXS/manifest.xml" "$AE_DEST/CSXS/manifest.xml"
   # Copy local backend (server) with preinstalled deps
   if [ -d "$REPO_DIR/server" ]; then
-    rsync -a --delete "$REPO_DIR/server/" "$AE_DEST/server/"
+    rsync -au --delete "$REPO_DIR/server/" "$AE_DEST/server/"
   fi
   # Override host detection with AE-specific file
   if [ -f "$src_dir/ui/host-detection.js" ]; then
     mkdir -p "$AE_DEST/ui"
-    rsync -a "$src_dir/ui/host-detection.js" "$AE_DEST/ui/host-detection.js"
+    rsync -au "$src_dir/ui/host-detection.js" "$AE_DEST/ui/host-detection.js"
   fi
   # Ensure bundled node is executable if present
   { chmod +x "$AE_DEST/bin/darwin-arm64/node" 2>/dev/null || true; }
@@ -111,19 +116,19 @@ install_ppro() {
   fi
   mkdir -p "$PPRO_DEST/CSXS"
   copy_common_files "$PPRO_DEST"
-  rsync -a "$src_dir/CSXS/manifest.xml" "$PPRO_DEST/CSXS/manifest.xml"
+  rsync -au "$src_dir/CSXS/manifest.xml" "$PPRO_DEST/CSXS/manifest.xml"
   # Copy local backend (server) with preinstalled deps
   if [ -d "$REPO_DIR/server" ]; then
-    rsync -a --delete "$REPO_DIR/server/" "$PPRO_DEST/server/"
+    rsync -au --delete "$REPO_DIR/server/" "$PPRO_DEST/server/"
   fi
   # Override host detection with Premiere-specific file
   if [ -f "$src_dir/ui/host-detection.js" ]; then
     mkdir -p "$PPRO_DEST/ui"
-    rsync -a "$src_dir/ui/host-detection.js" "$PPRO_DEST/ui/host-detection.js"
+    rsync -au "$src_dir/ui/host-detection.js" "$PPRO_DEST/ui/host-detection.js"
   fi
   # Copy export presets (EPR)
   if [ -d "$src_dir/epr" ]; then
-    rsync -a --delete "$src_dir/epr/" "$PPRO_DEST/epr/"
+    rsync -au --delete "$src_dir/epr/" "$PPRO_DEST/epr/"
   fi
   # Ensure bundled node is executable if present
   { chmod +x "$PPRO_DEST/bin/darwin-arm64/node" 2>/dev/null || true; }

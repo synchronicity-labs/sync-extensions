@@ -483,15 +483,14 @@
   background: var(--bg-black);
   border: 1px solid var(--bg-button);
   border-radius: 6px;
-  padding: 0 14px 0 40px;
+  padding: 10px 14px 10px 40px;
   color: var(--text-primary);
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 500;
   transition: border-color 0.2s ease;
-  display: flex;
-  align-items: center;
   line-height: 15px;
+  box-sizing: border-box;
 }
 
 .tts-voice-search-input:focus {
@@ -506,9 +505,9 @@
 
 .tts-voice-search-icon {
   position: absolute;
-  left: 28px;
-  top: 0;
-  bottom: 0;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -867,6 +866,12 @@
   justify-content: center;
   gap: 4px;
   text-align: center;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.tts-clone-upload-area.drag-over {
+  border-color: var(--color-primary);
+  background: rgba(34, 34, 37, 0.6);
 }
 
 .tts-clone-upload-text {
@@ -916,6 +921,22 @@
   background: var(--bg-button-hover);
 }
 
+.tts-clone-content {
+  padding: 24px 16px 32px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+/* Reduce gap between upload area and divider text */
+.tts-clone-content > .tts-clone-upload-area {
+  margin-bottom: 0;
+}
+
 .tts-clone-divider-text {
   font-family: var(--font-family);
   font-size: 14px;
@@ -924,6 +945,10 @@
   margin: 0;
   text-transform: lowercase;
   line-height: 15px;
+}
+
+.tts-clone-divider-text + .tts-clone-video-btn {
+  margin-top: -16px;
 }
 
 .tts-clone-video-btn {
@@ -965,6 +990,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 8px 12px;
 }
 
 .tts-clone-sample-btn {
@@ -976,7 +1002,7 @@
   background: var(--bg-black);
   border: 1px solid var(--bg-button);
   border-radius: 5px;
-  padding: 0 8px;
+  padding: 8px 12px;
   color: var(--text-primary);
   font-family: var(--font-family);
   font-size: 12px;
@@ -984,6 +1010,14 @@
   cursor: pointer;
   transition: all 0.2s ease;
   text-transform: lowercase;
+  outline: none !important;
+}
+
+.tts-clone-sample-btn:focus,
+.tts-clone-sample-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--bg-button);
 }
 
 .tts-clone-sample-btn:hover {
@@ -1002,6 +1036,7 @@
   color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s ease;
+  padding: 8px;
 }
 
 .tts-clone-sample-delete:hover {
@@ -1009,11 +1044,110 @@
   color: var(--color-error);
 }
 
-.tts-clone-actions {
+/* Delete Voice Modal */
+.tts-delete-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
-  gap: 16px;
-  justify-content: flex-end;
   align-items: center;
+  justify-content: center;
+  z-index: 10005;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.tts-delete-modal-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.tts-delete-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-button);
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tts-delete-modal-title {
+  font-family: var(--font-family);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 20px;
+  text-transform: lowercase;
+  margin: 0;
+}
+
+.tts-delete-modal-text {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 18px;
+  margin: 0;
+}
+
+.tts-delete-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.tts-delete-modal-cancel,
+.tts-delete-modal-confirm {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 15px;
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--bg-button);
+  outline: none;
+}
+
+.tts-delete-modal-cancel {
+  background: var(--bg-black);
+  color: var(--text-secondary);
+}
+
+.tts-delete-modal-cancel:hover {
+  border-color: var(--text-tertiary);
+  color: var(--text-primary);
+}
+
+.tts-delete-modal-confirm {
+  background: var(--color-error);
+  color: #ffffff;
+  border-color: var(--color-error);
+}
+
+.tts-delete-modal-confirm:hover {
+  opacity: 0.9;
+}
+
+.tts-delete-modal-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tts-delete-modal-cancel:focus,
+.tts-delete-modal-confirm:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 .tts-clone-cancel-btn,
@@ -1027,6 +1161,10 @@
   cursor: pointer;
   transition: all 0.2s ease;
   text-transform: lowercase;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .tts-clone-cancel-btn {
@@ -1040,13 +1178,21 @@
 }
 
 .tts-clone-save-btn {
-  background: var(--color-blue);
+  background: #0000ff;
   border: none;
-  color: var(--text-primary);
+  color: #ffffff;
 }
 
 .tts-clone-save-btn:hover {
-  background: var(--color-blue-hover);
+  background: #0000ee;
+}
+
+.tts-clone-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 0;
 }
 
 /* Progress Spinner */

@@ -90,7 +90,8 @@ jobs:
             cp -a bin "$dest/bin"
             cp -a index.html "$dest/"
             cp -a host "$dest/host"
-            cp -a .env "$dest/.env" || { echo "ERROR: .env file copy failed for $dest"; exit 1; }
+            # Note: .env is copied as part of server/ directory copy above
+            # Server runs with cwd=server/, so .env must be in server/.env
             mkdir -p "$dest/ui"
             # Copy shared UI but do NOT overwrite per-extension host-detection.js
             if command -v rsync >/dev/null 2>&1; then
@@ -111,19 +112,19 @@ jobs:
           # Strip Windows bins from mac packages
           rm -rf "$ae_mac/bin/win32-x64" "$pp_mac/bin/win32-x64" || true
           
-          # Verify .env files were copied correctly
+          # Verify .env files were copied correctly (server runs with cwd=server/, so .env must be in server/.env)
           echo "Verifying .env files in built packages..."
           for pkg in "$ae_mac" "$pp_mac"; do
-            echo "Checking $pkg/.env..."
-            if [ ! -f "$pkg/.env" ]; then
-              echo "ERROR: .env file missing in $pkg"
+            echo "Checking $pkg/server/.env..."
+            if [ ! -f "$pkg/server/.env" ]; then
+              echo "ERROR: .env file missing in $pkg/server/"
               exit 1
             fi
-            if ! grep -q "R2_ACCESS_KEY=" "$pkg/.env" || ! grep -q "R2_SECRET_KEY=" "$pkg/.env"; then
-              echo "ERROR: .env file missing R2 credentials in $pkg"
+            if ! grep -q "R2_ACCESS_KEY=" "$pkg/server/.env" || ! grep -q "R2_SECRET_KEY=" "$pkg/server/.env"; then
+              echo "ERROR: .env file missing R2 credentials in $pkg/server/"
               exit 1
             fi
-            echo "✅ $pkg/.env verified"
+            echo "✅ $pkg/server/.env verified"
           done
 
       - name: Upload mac build
@@ -218,7 +219,9 @@ jobs:
             Copy-Item "bin" "$dest/bin" -Recurse
             Copy-Item "index.html" "$dest/"
             Copy-Item "host" "$dest/host" -Recurse
-            Copy-Item ".env" "$dest/.env" -ErrorAction Stop; if (-not (Test-Path "$dest/.env")) { throw ".env file not found or copy failed for $dest" }
+            # Note: .env is copied as part of server/ directory copy above
+            # Server runs with cwd=server/, so .env must be in server/.env
+            if (-not (Test-Path "$dest/server/.env")) { throw ".env file not found in server/ directory for $dest" }
             # Copy main UI files to the existing ui directory (merge, don't replace)
             Copy-Item "ui/*" "$dest/ui/" -Recurse -Force
             # Restore per-extension host-detection.js after shared UI copy
@@ -237,18 +240,18 @@ jobs:
 
           echo "Created CEP folders (Windows): $ae_win, $pp_win"
           
-          # Verify .env files were copied correctly
+          # Verify .env files were copied correctly (server runs with cwd=server/, so .env must be in server/.env)
           echo "Verifying .env files in Windows packages..."
           foreach ($pkg in @($ae_win, $pp_win)) {
-            echo "Checking $pkg\.env..."
-            if (-not (Test-Path "$pkg\.env")) {
-              throw ".env file missing in $pkg"
+            echo "Checking $pkg\server\.env..."
+            if (-not (Test-Path "$pkg\server\.env")) {
+              throw ".env file missing in $pkg\server\"
             }
-            $envContent = Get-Content "$pkg\.env" -Raw
+            $envContent = Get-Content "$pkg\server\.env" -Raw
             if (-not ($envContent -match "R2_ACCESS_KEY=") -or -not ($envContent -match "R2_SECRET_KEY=")) {
-              throw ".env file missing R2 credentials in $pkg"
+              throw ".env file missing R2 credentials in $pkg\server\"
             }
-            echo "✅ $pkg\.env verified"
+            echo "✅ $pkg\server\.env verified"
           }
 
       - name: Download mac build
@@ -400,8 +403,8 @@ jobs:
           echo "Checking macOS source directories..."
           echo "AE macOS source exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel")"
           echo "Premiere macOS source exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel")"
-          echo "AE macOS .env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\.env")"
-          echo "Premiere macOS .env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\.env")"
+          echo "AE macOS server/.env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\server\.env")"
+          echo "Premiere macOS server/.env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\server\.env")"
           
           # List contents of macOS directories
           echo "Contents of AE macOS directory:"
@@ -409,24 +412,9 @@ jobs:
           echo "Contents of Premiere macOS directory:"
           Get-ChildItem "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" | Select-Object Name, Length
           
-          # Copy macOS packages with explicit .env handling
+          # Copy macOS packages (server/.env will be copied as part of server/ directory)
           Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\*" "build\zxp-ae-mac\" -Recurse -Force
           Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\*" "build\zxp-ppro-mac\" -Recurse -Force
-          
-          # Ensure .env files are copied (explicit copy as backup)
-          if (Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\.env") {
-            Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\.env" "build\zxp-ae-mac\.env" -Force
-            echo "Explicitly copied .env to AE macOS ZXP"
-          } else {
-            echo "WARNING: .env not found in AE macOS source"
-          }
-          
-          if (Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\.env") {
-            Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\.env" "build\zxp-ppro-mac\.env" -Force
-            echo "Explicitly copied .env to Premiere macOS ZXP"
-          } else {
-            echo "WARNING: .env not found in Premiere macOS source"
-          }
           
           # Create mimetype file (must be first file in ZXP)
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
@@ -453,7 +441,7 @@ jobs:
             # Check manifest.xml and index.html exist at ZXP root
             $manifestPath = Join-Path $zxpDir "CSXS\manifest.xml"
             $indexPath = Join-Path $zxpDir "index.html"
-            $envPath = Join-Path $zxpDir ".env"
+            $envPath = Join-Path $zxpDir "server\.env"
             if (-not (Test-Path $manifestPath)) {
               throw "Required manifest.xml missing: $manifestPath"
             }
@@ -461,7 +449,7 @@ jobs:
               throw "Required index.html missing: $indexPath"
             }
             if (-not (Test-Path $envPath)) {
-              throw "Required .env file missing: $envPath"
+              throw "Required .env file missing: $envPath (server runs with cwd=server/, so .env must be in server/.env)"
             }
             echo "Found manifest.xml at: $manifestPath"
             echo "Found index.html at: $indexPath"

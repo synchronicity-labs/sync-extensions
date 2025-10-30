@@ -42,6 +42,8 @@
   border-radius: 8px;
   max-height: none;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .video-upload::before {
@@ -81,6 +83,8 @@
   overflow: visible;
   box-sizing: border-box;
   padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .audio-upload::before {
@@ -129,6 +133,13 @@
   justify-content: center;
   position: relative;
   z-index: 1;
+}
+
+/* Override upload-content constraints for dropzone to fill container */
+#videoDropzone.upload-content,
+#audioDropzone.upload-content {
+  max-width: 100%;
+  margin: 0;
 }
 
 /* Ensure audio dropzone doesn't clip content */
@@ -476,7 +487,7 @@
 /* ===== POST-LIPSYNC ACTIONS ===== */
 .post-lipsync-actions {
   display: flex;
-  gap: 69px;
+  gap: 24px;
   align-items: center;
   justify-content: center;
   padding: 0 0 20px 0;
@@ -535,6 +546,21 @@
   flex-shrink: 0;
 }
 
+.post-action-btn i svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.post-action-btn i svg path,
+.post-action-btn i svg circle,
+.post-action-btn i svg rect,
+.post-action-btn i svg line,
+.post-action-btn i svg polyline,
+.post-action-btn i svg polygon {
+  stroke-width: 2;
+}
+
 .post-action-btn span {
   flex-shrink: 0;
 }
@@ -567,6 +593,27 @@
   width: 18px;
   height: 18px;
   color: var(--text-primary);
+}
+
+.post-action-btn-icon i svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+.post-action-btn-icon i svg path,
+.post-action-btn-icon i svg circle,
+.post-action-btn-icon i svg rect,
+.post-action-btn-icon i svg line,
+.post-action-btn-icon i svg polyline,
+.post-action-btn-icon i svg polygon {
+  stroke-width: 2;
+}
+
+.post-action-btn-icon svg {
+  color: var(--text-primary);
+  stroke: var(--text-primary);
+  fill: none;
 }
 
 .post-action-btn-id-text {

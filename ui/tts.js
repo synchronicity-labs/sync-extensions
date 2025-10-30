@@ -63,13 +63,13 @@
         }
 
     // Close X button
-        if (ttsCloseX) {
-          ttsCloseX.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            hideTTSInterface();
-          });
-        }
+    if (ttsCloseX) {
+      ttsCloseX.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideTTSInterface();
+      });
+    }
 
         // Voice select button
         if (ttsVoiceSelectBtn) {
@@ -100,10 +100,16 @@
 
         // Preview button
         if (ttsPreviewBtn) {
+          let isGenerating = false;
           ttsPreviewBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            generateTTS();
+            if (!isGenerating) {
+              isGenerating = true;
+              generateTTS().finally(() => {
+                isGenerating = false;
+              });
+            }
           });
         }
 
@@ -153,9 +159,9 @@
             
             // Only close if clicking outside both button and popup
             if (!isClickInPopup && !isClickOnButton) {
-              closeSettingsPopup();
-            }
-          }
+          closeSettingsPopup();
+        }
+      }
         }
       }, 50);
     });
@@ -188,6 +194,100 @@
         e.stopPropagation();
         closeVoiceCloneModal();
       });
+    }
+
+    // Clone Modal Browse Button - use global flag to prevent duplicate file pickers
+    if (!window.ttsCloneBrowseBtnInitialized) {
+      window.ttsCloneBrowseBtnInitialized = true;
+      window.ttsCloneFilePickerOpen = false;
+      
+      const ttsCloneBrowseBtn = document.getElementById('ttsCloneBrowseBtn');
+      if (ttsCloneBrowseBtn) {
+        ttsCloneBrowseBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Prevent multiple file picker windows
+          if (window.ttsCloneFilePickerOpen) {
+            return;
+          }
+          
+          window.ttsCloneFilePickerOpen = true;
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'audio/*';
+          input.multiple = true;
+          input.style.display = 'none';
+          document.body.appendChild(input);
+          
+          const cleanup = () => {
+            window.ttsCloneFilePickerOpen = false;
+            setTimeout(() => {
+              if (input.parentNode) {
+                input.parentNode.removeChild(input);
+              }
+            }, 100);
+          };
+          
+          input.onchange = async (event) => {
+            cleanup();
+            const files = Array.from(event.target.files);
+            for (const file of files) {
+              await handleCloneVoiceFileUpload(file);
+            }
+          };
+          
+          input.oncancel = () => {
+            cleanup();
+          };
+          
+          input.click();
+        });
+      }
+    }
+
+    // Clone Modal Record Button
+    const ttsCloneRecordBtn = document.getElementById('ttsCloneRecordBtn');
+    if (ttsCloneRecordBtn) {
+      ttsCloneRecordBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await startCloneVoiceRecording();
+      });
+    }
+
+    // Clone voice recording state
+    window.ttsCloneRecordingState = {
+      mediaRecorder: null,
+      audioRecorder: null,
+      audioStream: null,
+      audioChunks: [],
+      isRecording: false
+    };
+
+    // Clone Modal From Video Button
+    const ttsCloneFromVideoBtn = document.getElementById('ttsCloneFromVideoBtn');
+    if (ttsCloneFromVideoBtn) {
+      ttsCloneFromVideoBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await handleCloneVoiceFromVideo();
+      });
+    }
+
+    // Clone Modal Save Button
+    const ttsCloneSaveBtn = document.getElementById('ttsCloneSaveBtn');
+    if (ttsCloneSaveBtn) {
+      ttsCloneSaveBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await handleCloneVoiceSave();
+      });
+    }
+
+    // Initialize clone voice samples array
+    if (!window.ttsCloneVoiceSamples) {
+      window.ttsCloneVoiceSamples = [];
     }
 
     // Upload button (go back to audio upload)
@@ -296,7 +396,7 @@
     }
 
     // Initialize model display
-    updateModelDisplay();
+    updateTTSModelDisplay();
   }
 
   function closeAllDropdowns() {
@@ -308,10 +408,10 @@
 
   function selectModel(modelId) {
     selectedModel = modelId;
-    updateModelDisplay();
+    updateTTSModelDisplay();
   }
 
-  function updateModelDisplay() {
+  function updateTTSModelDisplay() {
     const ttsModelValue = document.getElementById('ttsModelValue');
     const ttsModelMenu = document.getElementById('ttsModelMenu');
     
@@ -494,7 +594,7 @@
       if (window.lucide) {
         window.lucide.createIcons();
       }
-      updateModelDisplay();
+      updateTTSModelDisplay();
     }
     
     // Close any open dropdowns
@@ -645,17 +745,17 @@
     
     // Clone Voice Button at top (only show if not searching or search matches)
     if (!searchTerm || 'clone voice'.includes(searchTerm.toLowerCase())) {
-      html += `
-        <div class="tts-voice-item clone-btn" data-action="clone-voice">
-          <div class="tts-voice-play">
-            <i data-lucide="plus"></i>
-          </div>
-          <div class="tts-voice-info">
-            <div class="tts-voice-item-name" style="color: #ffffff;">clone voice</div>
-          </div>
-          <i data-lucide="arrow-up-right" class="tts-voice-clone-icon"></i>
+    html += `
+      <div class="tts-voice-item clone-btn" data-action="clone-voice">
+        <div class="tts-voice-play">
+          <i data-lucide="plus"></i>
         </div>
-      `;
+        <div class="tts-voice-info">
+          <div class="tts-voice-item-name" style="color: #ffffff;">clone voice</div>
+        </div>
+        <i data-lucide="arrow-up-right" class="tts-voice-clone-icon"></i>
+      </div>
+    `;
     }
     
     // Cloned voices section
@@ -732,10 +832,14 @@
 
   function renderVoiceItem(voice, isCloned) {
     const isSelected = voice.voice_id === selectedVoiceId;
+    const previewUrl = voice.preview_url || null;
+    
+    // Escape previewUrl for use in HTML attributes
+    const escapedPreviewUrl = previewUrl ? previewUrl.replace(/'/g, "\\'").replace(/"/g, '&quot;') : '';
     
     return `
-      <div class="tts-voice-item ${isSelected ? 'selected' : ''}" data-voice-id="${voice.voice_id}" data-voice-name="${voice.name}">
-        <div class="tts-voice-play">
+      <div class="tts-voice-item ${isSelected ? 'selected' : ''}" data-voice-id="${voice.voice_id}" data-voice-name="${voice.name}" data-preview-url="${escapedPreviewUrl}">
+        <div class="tts-voice-play" data-action="play-preview" onclick="event.stopPropagation(); playVoicePreview('${voice.voice_id}', ${previewUrl ? "'" + previewUrl.replace(/'/g, "\\'") + "'" : 'null'})">
           <i data-lucide="play"></i>
         </div>
         <div class="tts-voice-info">
@@ -751,6 +855,84 @@
       </div>
     `;
   }
+
+  // Global play voice preview function
+  window.playVoicePreview = function(voiceId, previewUrl) {
+    if (!previewUrl) {
+      if (window.showToast) {
+        window.showToast('no preview available for this voice', 'info');
+      }
+      return;
+    }
+    
+    // Check if already playing
+    if (window.ttsVoicePreviewAudio) {
+      // If same voice, pause it
+      if (window.ttsVoicePreviewAudio.dataset.voiceId === voiceId) {
+        window.ttsVoicePreviewAudio.pause();
+        window.ttsVoicePreviewAudio = null;
+        // Update icon back to play
+        const playBtn = document.querySelector(`.tts-voice-item[data-voice-id="${voiceId}"] .tts-voice-play`);
+        if (playBtn) {
+          playBtn.innerHTML = '<i data-lucide="play"></i>';
+          if (window.lucide) window.lucide.createIcons(playBtn);
+        }
+        return;
+      } else {
+        // Stop other voice
+        const oldVoiceId = window.ttsVoicePreviewAudio.dataset.voiceId;
+        window.ttsVoicePreviewAudio.pause();
+        window.ttsVoicePreviewAudio = null;
+        // Update old icon
+        const oldPlayBtn = document.querySelector(`.tts-voice-item[data-voice-id="${oldVoiceId}"] .tts-voice-play`);
+        if (oldPlayBtn) {
+          oldPlayBtn.innerHTML = '<i data-lucide="play"></i>';
+          if (window.lucide) window.lucide.createIcons(oldPlayBtn);
+        }
+      }
+    }
+    
+    // Create audio element
+    const audio = new Audio(previewUrl);
+    audio.dataset.voiceId = voiceId;
+    
+    // Update icon to pause
+    const playBtn = document.querySelector(`.tts-voice-item[data-voice-id="${voiceId}"] .tts-voice-play`);
+    if (playBtn) {
+      playBtn.innerHTML = '<i data-lucide="pause"></i>';
+      if (window.lucide) window.lucide.createIcons(playBtn);
+    }
+    
+    // Play audio
+    audio.play().catch(err => {
+      if (window.showToast) {
+        window.showToast('failed to play preview: ' + err.message, 'error');
+      }
+      // Reset icon
+      if (playBtn) {
+        playBtn.innerHTML = '<i data-lucide="play"></i>';
+        if (window.lucide) window.lucide.createIcons(playBtn);
+      }
+    });
+    
+    // Update icon back to play when done
+    audio.addEventListener('ended', () => {
+      if (playBtn) {
+        playBtn.innerHTML = '<i data-lucide="play"></i>';
+        if (window.lucide) window.lucide.createIcons(playBtn);
+      }
+      window.ttsVoicePreviewAudio = null;
+    });
+    
+    audio.addEventListener('pause', () => {
+      if (playBtn) {
+        playBtn.innerHTML = '<i data-lucide="play"></i>';
+        if (window.lucide) window.lucide.createIcons(playBtn);
+      }
+    });
+    
+    window.ttsVoicePreviewAudio = audio;
+  };
 
   function selectVoice(voiceId, voiceName) {
     selectedVoiceId = voiceId;
@@ -780,34 +962,831 @@
     const ttsVoiceCloneOverlay = document.getElementById('ttsVoiceCloneOverlay');
     if (ttsVoiceCloneOverlay) {
       closeVoiceSelector(); // Close voice selector first
-      ttsVoiceCloneOverlay.style.display = 'flex';
+      
+      // Use requestAnimationFrame to ensure the close animation completes before opening
+      requestAnimationFrame(() => {
+        ttsVoiceCloneOverlay.classList.add('show');
+        
+        // Reset form
+        const voiceNameInput = document.getElementById('ttsCloneVoiceName');
+        if (voiceNameInput) {
+          voiceNameInput.value = '';
+        }
+        
+        // Clear samples list
+        const samplesList = document.getElementById('ttsCloneSamplesList');
+        if (samplesList) {
+          samplesList.innerHTML = '';
+        }
+        
+        // Reset clone voice state
+        window.ttsCloneVoiceSamples = [];
+        
+        // Setup drag and drop for upload area
+        const uploadArea = document.querySelector('.tts-clone-upload-area');
+        if (uploadArea && !uploadArea.dataset.dndSetup) {
+          uploadArea.dataset.dndSetup = 'true';
+          
+          uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.add('drag-over');
+          });
+          
+          uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove('drag-over');
+          });
+          
+          uploadArea.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove('drag-over');
+            
+            const files = Array.from(e.dataTransfer.files).filter(file => 
+              file.type.startsWith('audio/')
+            );
+            
+            if (files.length === 0) {
+      if (window.showToast) {
+                window.showToast('please drop audio files only', 'error');
+              }
+              return;
+            }
+            
+            for (const file of files) {
+              await handleCloneVoiceFileUpload(file);
+            }
+          });
+        }
       
       // Initialize Lucide icons
       if (window.lucide) {
         window.lucide.createIcons();
       }
-      
-      // Show info toast
-      if (window.showToast) {
-        window.showToast('voice cloning requires elevenlabs professional plan', 'info');
-      }
+      });
     }
   }
 
   function closeVoiceCloneModal() {
     const ttsVoiceCloneOverlay = document.getElementById('ttsVoiceCloneOverlay');
     if (ttsVoiceCloneOverlay) {
-      ttsVoiceCloneOverlay.style.display = 'none';
+      ttsVoiceCloneOverlay.classList.remove('show');
+    }
+    
+    // Stop any ongoing recording
+    const state = window.ttsCloneRecordingState;
+    if (state && state.isRecording) {
+      stopCloneVoiceRecording();
     }
   }
 
-  function deleteVoice(voiceId) {
-    if (confirm('Are you sure you want to delete this custom voice?')) {
-      // Note: Voice deletion requires ElevenLabs API integration
+  // Clone voice recording functions (adapted from recording.js)
+  async function startCloneVoiceRecording() {
+    const state = window.ttsCloneRecordingState;
+    
+    // If already recording, stop it
+    if (state.isRecording) {
+      stopCloneVoiceRecording();
+      return;
+    }
+
+    try {
+      // Get MediaRecorder options (same as recording.js)
+      const getMediaRecorderOptions = (type) => {
+        const options = {};
+        if (type === 'audio') {
+          if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+            options.mimeType = 'audio/webm;codecs=opus';
+          } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+            options.mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            options.mimeType = 'audio/mp4';
+          }
+        }
+        return options;
+      };
+
+      // Request microphone access
+      const audioConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: { ideal: 44100 },
+        channelCount: { ideal: 1 }
+      };
+
+      state.audioStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: audioConstraints
+      });
+
+      // Setup media recorder
+      state.audioChunks = [];
+      const audioOptions = getMediaRecorderOptions('audio');
+      state.audioRecorder = new MediaRecorder(state.audioStream, audioOptions);
+      state.isRecording = true;
+
+      // Update button UI - don't change layout, just icon and text
+      const recordBtn = document.getElementById('ttsCloneRecordBtn');
+      if (recordBtn) {
+        const icon = recordBtn.querySelector('i');
+        const text = recordBtn.querySelector('span');
+        if (icon) {
+          icon.setAttribute('data-lucide', 'square');
+        }
+        if (text) {
+          text.textContent = 'stop';
+        }
+        if (window.lucide) {
+          window.lucide.createIcons(recordBtn);
+        }
+      }
+
+      state.audioRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          state.audioChunks.push(event.data);
+        }
+      };
+
+      state.audioRecorder.onstop = async () => {
+        await handleCloneVoiceRecordingComplete();
+      };
+
+      state.audioRecorder.onerror = (event) => {
+        console.error('Clone voice recording error:', event.error);
+        if (window.showToast) {
+          window.showToast('recording error: ' + event.error.message, 'error');
+        }
+        stopCloneVoiceRecording();
+      };
+
+      // Start recording
+      state.audioRecorder.start();
+
       if (window.showToast) {
-        window.showToast('voice deletion requires backend implementation', 'info');
+        window.showToast('recording started', 'info');
+      }
+
+    } catch (error) {
+      console.error('Failed to start clone voice recording:', error);
+      if (window.showToast) {
+        window.showToast('failed to start recording: ' + error.message, 'error');
+      }
+      state.isRecording = false;
+      if (state.audioStream) {
+        state.audioStream.getTracks().forEach(track => track.stop());
+        state.audioStream = null;
       }
     }
+  }
+
+  function stopCloneVoiceRecording() {
+    const state = window.ttsCloneRecordingState;
+    if (!state.isRecording) return;
+
+    // Stop media recorder
+    if (state.audioRecorder && state.audioRecorder.state !== 'inactive') {
+      state.audioRecorder.requestData();
+      setTimeout(() => {
+        state.audioRecorder.stop();
+      }, 100);
+    }
+
+    // Stop all tracks
+    if (state.audioStream) {
+      state.audioStream.getTracks().forEach(track => track.stop());
+      state.audioStream = null;
+    }
+
+    // Update button UI back to record state
+    const recordBtn = document.getElementById('ttsCloneRecordBtn');
+    if (recordBtn) {
+      const icon = recordBtn.querySelector('i');
+      const text = recordBtn.querySelector('span');
+      if (icon) {
+        icon.setAttribute('data-lucide', 'mic');
+      }
+      if (text) {
+        text.textContent = 'record';
+      }
+      if (window.lucide) {
+        window.lucide.createIcons(recordBtn);
+      }
+    }
+
+    state.isRecording = false;
+  }
+
+  async function handleCloneVoiceRecordingComplete() {
+    const state = window.ttsCloneRecordingState;
+
+    try {
+      if (state.audioChunks.length === 0) {
+        throw new Error('No audio data captured');
+      }
+
+      // Determine file extension based on MIME type
+      const mimeType = state.audioRecorder?.mimeType || 'audio/webm';
+      const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+
+      const blob = new Blob(state.audioChunks, { type: mimeType });
+
+      if (blob.size === 0) {
+        throw new Error('Audio blob is empty');
+      }
+
+      // Save webm file first
+      const fileName = `tts_clone_recording_${Date.now()}.${extension}`;
+      const formData = new FormData();
+      formData.append('file', blob, fileName);
+      formData.append('targetDir', 'uploads');
+      formData.append('type', 'audio');
+
+      const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+      const response = await fetch(`http://127.0.0.1:${port}/recording/save`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to save recording: ${errorText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.ok && result.path) {
+        let finalPath = result.path;
+        
+        // Convert webm to mp3 if needed
+        if (extension === 'webm') {
+          try {
+            await window.ensureAuthToken();
+            const convertResponse = await fetch(`http://127.0.0.1:${port}/extract-audio`, {
+              method: 'POST',
+              headers: window.authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({
+                videoPath: result.path,
+                format: 'mp3'
+              })
+            });
+            
+            if (convertResponse.ok) {
+              const convertData = await convertResponse.json();
+              if (convertData.ok && convertData.audioPath) {
+                finalPath = convertData.audioPath;
+              }
+            }
+          } catch (convertError) {
+            console.warn('Failed to convert webm to mp3, using webm:', convertError);
+            // Continue with webm file if conversion fails
+          }
+        }
+
+        // Add to samples array
+        if (!window.ttsCloneVoiceSamples) {
+          window.ttsCloneVoiceSamples = [];
+        }
+
+        const sample = {
+          fileName: finalPath.split('/').pop() || fileName.replace(/\.webm$/, '.mp3'),
+          filePath: finalPath,
+          fileSize: blob.size
+        };
+
+        window.ttsCloneVoiceSamples.push(sample);
+
+        // Update UI
+        renderCloneVoiceSamples();
+
+        // Re-initialize Lucide icons
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+
+        if (window.showToast) {
+          window.showToast('recording saved', 'success');
+        }
+      } else {
+        throw new Error(result.error || 'Failed to save recording');
+      }
+
+    } catch (error) {
+      console.error('Clone voice recording completion error:', error);
+      if (window.showToast) {
+        window.showToast('failed to save recording: ' + error.message, 'error');
+      }
+    } finally {
+      // Reset state
+      state.audioChunks = [];
+      state.audioRecorder = null;
+      state.isRecording = false;
+      state.audioContext = null;
+      state.audioAnalyser = null;
+      state.audioAnimationFrame = null;
+      
+      // Reset button UI back to record state
+      const recordBtn = document.getElementById('ttsCloneRecordBtn');
+      if (recordBtn) {
+        const icon = recordBtn.querySelector('i');
+        const text = recordBtn.querySelector('span');
+        if (icon) {
+          icon.setAttribute('data-lucide', 'mic');
+        }
+        if (text) {
+          text.textContent = 'record';
+        }
+        if (window.lucide) {
+          window.lucide.createIcons(recordBtn);
+        }
+      }
+      
+      // Hide waveform
+      const waveformWrapper = document.getElementById('ttsCloneWaveformWrapper');
+      if (waveformWrapper) {
+        waveformWrapper.style.display = 'none';
+      }
+    }
+  }
+
+  async function handleCloneVoiceFileUpload(file) {
+    if (!file) return;
+    
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      if (window.showToast) {
+        window.showToast('file size must be less than 10MB', 'error');
+      }
+      return;
+    }
+    
+    // Validate file type
+    if (!file.type.startsWith('audio/')) {
+      if (window.showToast) {
+        window.showToast('please select an audio file', 'error');
+      }
+      return;
+    }
+    
+    try {
+      // Save file to server first
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('targetDir', 'uploads');
+      
+      const response = await fetch('http://127.0.0.1:3000/recording/save', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to save file');
+      }
+      
+      const data = await response.json();
+      
+      // Add to samples array
+      if (!window.ttsCloneVoiceSamples) {
+        window.ttsCloneVoiceSamples = [];
+      }
+      
+      const sample = {
+        fileName: file.name,
+        filePath: data.path,
+        fileSize: file.size
+      };
+      
+      window.ttsCloneVoiceSamples.push(sample);
+      
+      // Update UI
+      renderCloneVoiceSamples();
+      
+      // Re-initialize Lucide icons
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+      
+    } catch (error) {
+      if (window.showToast) {
+        window.showToast('failed to upload file: ' + error.message, 'error');
+      }
+    }
+  }
+
+  async function handleCloneVoiceFromVideo() {
+    // Check if video is already selected, otherwise open file picker
+    if (!window.selectedVideo && !window.selectedVideoUrl) {
+      // Open video file picker
+      try {
+        if (typeof window.openFileDialog === 'function') {
+          const videoPath = await window.openFileDialog('video');
+          if (videoPath) {
+            window.selectedVideo = videoPath;
+          } else {
+            if (window.showToast) {
+              window.showToast('no video selected', 'info');
+            }
+            return;
+          }
+        } else if (typeof window.selectVideo === 'function') {
+          await window.selectVideo();
+          if (!window.selectedVideo && !window.selectedVideoUrl) {
+            return;
+          }
+        } else {
+          if (window.showToast) {
+            window.showToast('video picker not available', 'error');
+          }
+          return;
+        }
+      } catch (error) {
+        if (window.showToast) {
+          window.showToast('failed to open video picker: ' + error.message, 'error');
+        }
+        return;
+      }
+    }
+    
+    // Now extract audio from selected video
+    try {
+      if (window.showToast) {
+        window.showToast('extracting audio from video...', 'info');
+      }
+      
+      // Get video path
+      const videoPath = window.selectedVideo;
+      const videoUrl = window.selectedVideoUrl;
+      
+      // Call backend to extract audio
+      const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+      const response = await fetch(`http://127.0.0.1:${port}/extract-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          videoPath: videoPath,
+          videoUrl: videoUrl,
+          format: 'mp3'
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to extract audio');
+      }
+      
+      const data = await response.json();
+      
+      if (!data.audioPath) {
+        throw new Error('No audio path returned');
+      }
+      
+      // Extract filename from path
+      const fileName = data.audioPath.split(/[/\\]/).pop() || 'extracted-audio.mp3';
+      
+      // Add to samples array
+      if (!window.ttsCloneVoiceSamples) {
+        window.ttsCloneVoiceSamples = [];
+      }
+      
+      const sample = {
+        fileName: fileName,
+        filePath: data.audioPath,
+        fileSize: 0 // Size unknown without server call
+      };
+      
+      window.ttsCloneVoiceSamples.push(sample);
+      
+      // Update UI
+      renderCloneVoiceSamples();
+      
+      // Re-initialize Lucide icons
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+      
+      if (window.showToast) {
+        window.showToast('audio extracted successfully', 'success');
+      }
+      
+    } catch (error) {
+      if (window.showToast) {
+        window.showToast('failed to extract audio: ' + error.message, 'error');
+      }
+    }
+  }
+
+  function renderCloneVoiceSamples() {
+    const samplesList = document.getElementById('ttsCloneSamplesList');
+    if (!samplesList) return;
+    
+    if (!window.ttsCloneVoiceSamples || window.ttsCloneVoiceSamples.length === 0) {
+      samplesList.innerHTML = '';
+      return;
+    }
+    
+    samplesList.innerHTML = window.ttsCloneVoiceSamples.map((sample, index) => {
+      // Check if this sample is currently playing (check both paused state and dataset)
+      const isPlaying = window.ttsCloneSampleAudio && 
+                       window.ttsCloneSampleAudio.dataset.sampleIndex === String(index) &&
+                       !window.ttsCloneSampleAudio.paused;
+      return `
+        <div class="tts-clone-sample-item">
+          <button class="tts-clone-sample-btn" onclick="event.stopPropagation(); playCloneSample('${sample.filePath}', ${index})">
+            <i data-lucide="${isPlaying ? 'pause' : 'play'}"></i>
+            <span>${sample.fileName}</span>
+          </button>
+          <button class="tts-clone-sample-delete" onclick="event.stopPropagation(); removeCloneSample(${index})">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+      `;
+    }).join('');
+    
+    // Re-initialize Lucide icons
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+  }
+
+  function removeCloneSample(index) {
+    if (window.ttsCloneVoiceSamples && window.ttsCloneVoiceSamples[index]) {
+      window.ttsCloneVoiceSamples.splice(index, 1);
+      renderCloneVoiceSamples();
+      
+      // Re-initialize Lucide icons
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+    }
+  }
+
+  function playCloneSample(filePath, sampleIndex) {
+    // Check if there's already an audio element playing
+    if (window.ttsCloneSampleAudio) {
+      // If same sample, pause it
+      if (window.ttsCloneSampleAudio.dataset.sampleIndex === String(sampleIndex)) {
+        window.ttsCloneSampleAudio.pause();
+        window.ttsCloneSampleAudio = null;
+        renderCloneVoiceSamples(); // Update UI
+        return;
+      } else {
+        // Stop current playback
+        window.ttsCloneSampleAudio.pause();
+        window.ttsCloneSampleAudio = null;
+      }
+    }
+    
+    // Get server port
+    const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+    
+    // Create audio element - use server endpoint for file access
+    const audio = new Audio();
+    audio.dataset.sampleIndex = String(sampleIndex);
+    
+    // Try to load via server endpoint
+    audio.src = `http://127.0.0.1:${port}/recording/file?path=${encodeURIComponent(filePath)}`;
+    
+    // Update UI to show pause icon immediately
+    renderCloneVoiceSamples();
+    
+    // Play audio
+    audio.play().then(() => {
+      // Audio started playing, update UI
+      renderCloneVoiceSamples();
+    }).catch(err => {
+      if (window.showToast) {
+        window.showToast('failed to play sample: ' + err.message, 'error');
+      }
+      renderCloneVoiceSamples(); // Reset UI
+    });
+    
+    window.ttsCloneSampleAudio = audio;
+    
+    // Update UI back to play icon when done
+    audio.addEventListener('ended', () => {
+      window.ttsCloneSampleAudio = null;
+      renderCloneVoiceSamples();
+    });
+    
+    audio.addEventListener('pause', () => {
+      renderCloneVoiceSamples();
+    });
+    
+    // Also update on play event
+    audio.addEventListener('play', () => {
+      renderCloneVoiceSamples();
+    });
+  }
+
+  async function handleCloneVoiceSave() {
+    const voiceNameInput = document.getElementById('ttsCloneVoiceName');
+    if (!voiceNameInput) return;
+    
+    const voiceName = voiceNameInput.value.trim();
+    if (!voiceName) {
+      if (window.showToast) {
+        window.showToast('please enter a voice name', 'error');
+      }
+      return;
+    }
+    
+    if (!window.ttsCloneVoiceSamples || window.ttsCloneVoiceSamples.length === 0) {
+      if (window.showToast) {
+        window.showToast('please add at least one audio sample', 'error');
+      }
+      return;
+    }
+    
+    // Get ElevenLabs API key
+    const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
+    const apiKey = settings.elevenlabsApiKey;
+    
+    if (!apiKey) {
+      if (window.showToast) {
+        window.showToast('elevenlabs api key not configured', 'error');
+      }
+      return;
+    }
+    
+    try {
+      // Disable save button
+      const saveBtn = document.getElementById('ttsCloneSaveBtn');
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'saving...';
+      }
+      
+      // Call backend to create voice clone
+      const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+      const response = await fetch(`http://127.0.0.1:${port}/tts/voices/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: voiceName,
+          files: window.ttsCloneVoiceSamples.map(s => s.filePath),
+          elevenApiKey: apiKey
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create voice clone');
+      }
+      
+      const data = await response.json();
+      
+      // Reload voices list
+      await loadVoices();
+      
+      // Select the newly created voice
+      if (data.voice_id) {
+        selectVoice(data.voice_id, voiceName);
+      }
+      
+      // Close modal
+      closeVoiceCloneModal();
+      
+      if (window.showToast) {
+        window.showToast('voice clone created successfully!', 'success');
+      }
+      
+    } catch (error) {
+      if (window.showToast) {
+        window.showToast('failed to create voice clone: ' + error.message, 'error');
+      }
+    } finally {
+      // Re-enable save button
+      const saveBtn = document.getElementById('ttsCloneSaveBtn');
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'save';
+      }
+    }
+  }
+
+  // Expose functions globally
+  window.removeCloneSample = removeCloneSample;
+  window.playCloneSample = playCloneSample;
+
+  function deleteVoice(voiceId) {
+    // Show in-app confirmation modal instead of macOS popup
+    const voice = voices.find(v => v.voice_id === voiceId);
+    const voiceName = voice ? voice.name : 'this voice';
+    
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.className = 'tts-delete-modal-overlay';
+    modal.innerHTML = `
+      <div class="tts-delete-modal">
+        <h3 class="tts-delete-modal-title">delete voice</h3>
+        <p class="tts-delete-modal-text">are you sure you want to delete "${voiceName.toLowerCase()}"? this action cannot be undone.</p>
+        <div class="tts-delete-modal-actions">
+          <button class="tts-delete-modal-cancel" id="ttsDeleteCancel">cancel</button>
+          <button class="tts-delete-modal-confirm" id="ttsDeleteConfirm">delete</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Add show class for animation
+    requestAnimationFrame(() => {
+      modal.classList.add('show');
+    });
+    
+    // Cancel button
+    const cancelBtn = document.getElementById('ttsDeleteCancel');
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.remove('show');
+      setTimeout(() => modal.remove(), 200);
+    });
+    
+    // Confirm button
+    const confirmBtn = document.getElementById('ttsDeleteConfirm');
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'deleting...';
+      
+      try {
+        // Get ElevenLabs API key
+        const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
+        const apiKey = settings.elevenlabsApiKey;
+        
+        if (!apiKey) {
+          throw new Error('elevenlabs api key not configured');
+        }
+        
+        // Call backend to delete voice
+        const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+        const response = await fetch(`http://127.0.0.1:${port}/tts/voices/delete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            voiceId: voiceId,
+            elevenApiKey: apiKey
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}: ${response.statusText}` }));
+          throw new Error(errorData.error || `failed to delete voice (${response.status})`);
+        }
+        
+        const responseData = await response.json();
+        if (!responseData.ok) {
+          throw new Error(responseData.error || 'failed to delete voice');
+        }
+        
+        // Remove from local voices array
+        voices = voices.filter(v => v.voice_id !== voiceId);
+        
+        // If deleted voice was selected, select first available
+        if (selectedVoiceId === voiceId) {
+          if (voices.length > 0) {
+            selectVoice(voices[0].voice_id, voices[0].name);
+          } else {
+            selectedVoiceId = null;
+            selectedVoiceName = null;
+            updateVoiceButton();
+          }
+        }
+        
+        // Reload voices list if selector is open
+        const ttsVoiceSelectorOverlay = document.getElementById('ttsVoiceSelectorOverlay');
+        if (ttsVoiceSelectorOverlay && ttsVoiceSelectorOverlay.classList.contains('show')) {
+          renderVoices(voices);
+        }
+        
+      if (window.showToast) {
+          window.showToast('voice deleted successfully', 'success');
+        }
+        
+        // Close modal
+        modal.classList.remove('show');
+        setTimeout(() => modal.remove(), 200);
+        
+      } catch (error) {
+        if (window.showToast) {
+          window.showToast('failed to delete voice: ' + error.message, 'error');
+        }
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'delete';
+      }
+    });
+    
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('show');
+        setTimeout(() => modal.remove(), 200);
+      }
+    });
   }
 
   // Expose delete function globally for onclick handler
@@ -883,9 +1862,23 @@
       // Hide TTS interface and show audio preview
       hideTTSInterface();
       
-      // Load the generated audio into the audio preview
+      // Load the generated audio into the audio preview (without triggering cost estimation)
       if (window.loadAudioFile) {
         await window.loadAudioFile(data.audioPath, false);
+      } else if (typeof window.renderInputPreview === 'function') {
+        // Fallback if loadAudioFile doesn't exist
+        window.selectedAudio = data.audioPath;
+        window.selectedAudioIsTemp = false;
+        window.selectedAudioIsUrl = false;
+        window.renderInputPreview('tts');
+        if (typeof window.updateLipsyncButton === 'function') {
+          window.updateLipsyncButton();
+        }
+      }
+      
+      // Now trigger cost estimation after audio is loaded
+      if (typeof scheduleEstimate === 'function') {
+        scheduleEstimate();
       }
       
       if (window.showToast) {
@@ -901,7 +1894,7 @@
       const ttsPreviewBtn = document.getElementById('ttsPreviewBtn');
       if (ttsPreviewBtn) {
         ttsPreviewBtn.disabled = false;
-        ttsPreviewBtn.innerHTML = '<i data-lucide="audio-lines"></i><span class="tts-preview-text" style="display: none;">preview</span>';
+        ttsPreviewBtn.innerHTML = '<i data-lucide="audio-lines"></i><span class="tts-preview-text" style="display: none;">generate</span>';
         if (window.lucide) {
           window.lucide.createIcons();
         }

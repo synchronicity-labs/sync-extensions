@@ -1662,18 +1662,128 @@
           } catch(_){ }
         });
 
-        // Update time and progress highlight
+        // Track if audio has finished to prevent laggy updates
+        let audioFinished = false;
+        let animationFrameId = null;
+
+        // Smooth waveform update using requestAnimationFrame for real-time syncing
+        const updateWaveform = () => {
+          if (audioFinished || audio.ended || audio.paused) {
+            animationFrameId = null;
+            return;
+          }
+          
+          const duration = audio.duration || 0;
+          const currentTime = audio.currentTime || 0;
+          
+          // Check if we've reached the end (with small tolerance for precision issues)
+          if (duration > 0 && currentTime >= duration - 0.1) {
+            audioFinished = true;
+            animationFrameId = null;
+            // Reset button to play state
+            if (playBtn) {
+              playBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
+              if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons();
+              }
+            }
+            // Final update to show completed progress
+            const durationStr = isFinite(duration) ? formatTime(duration) : '0:00';
+            if (timeDisplay) timeDisplay.innerHTML = `<span class="time-current">${durationStr}</span> <span class="time-total">/ ${durationStr}</span>`;
+            const w = canvas.clientWidth || canvas.offsetWidth || 600;
+            const h = canvas.clientHeight || canvas.offsetHeight || 80;
+            if (waveformBars && waveformBars.length) {
+              updateWaveformProgress(canvas, waveformBars, 1, w, h);
+            }
+            return;
+          }
+          
+          // Update waveform progress smoothly
+          const w = canvas.clientWidth || canvas.offsetWidth || 600;
+          const h = canvas.clientHeight || canvas.offsetHeight || 80;
+          if (waveformBars && waveformBars.length) {
+            const progress = Math.min(1, currentTime / (duration || 1));
+            updateWaveformProgress(canvas, waveformBars, progress, w, h);
+          }
+          
+          // Continue animation loop
+          animationFrameId = requestAnimationFrame(updateWaveform);
+        };
+
+        // Update time display (less frequent updates are fine for text)
         audio.addEventListener('timeupdate', () => {
+          if (audioFinished || audio.ended) {
+            return;
+          }
           const current = formatTime(audio.currentTime);
           const duration = audio.duration || 0;
           const durationStr = isFinite(duration) ? formatTime(duration) : '0:00';
           if (timeDisplay) timeDisplay.innerHTML = `<span class="time-current">${current}</span> <span class="time-total">/ ${durationStr}</span>`;
+        });
+
+        // Handle audio ending
+        audio.addEventListener('ended', () => {
+          audioFinished = true;
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+          // Reset button to play state
+          if (playBtn) {
+            playBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+              lucide.createIcons();
+            }
+          }
+          // Final update to show completed progress
+          const duration = audio.duration || 0;
+          const durationStr = isFinite(duration) ? formatTime(duration) : '0:00';
+          if (timeDisplay) timeDisplay.innerHTML = `<span class="time-current">${durationStr}</span> <span class="time-total">/ ${durationStr}</span>`;
           const w = canvas.clientWidth || canvas.offsetWidth || 600;
           const h = canvas.clientHeight || canvas.offsetHeight || 80;
-          if (waveformBars && waveformBars.length) {
-            updateWaveformProgress(canvas, waveformBars, audio.currentTime / (audio.duration || 1), w, h);
+          if (waveformBars && waveformBars.length && duration > 0) {
+            updateWaveformProgress(canvas, waveformBars, 1, w, h);
           }
         });
+        
+        // Reset finished flag and start animation loop when play starts
+        audio.addEventListener('play', () => {
+          audioFinished = false;
+          if (!animationFrameId && !audio.paused) {
+            animationFrameId = requestAnimationFrame(updateWaveform);
+          }
+        });
+        
+        // Stop animation loop when paused
+        audio.addEventListener('pause', () => {
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+        });
+        
+        // Reset finished flag when user seeks (e.g., clicks waveform)
+        audio.addEventListener('seeked', () => {
+          const duration = audio.duration || 0;
+          const currentTime = audio.currentTime || 0;
+          // Only reset if we're not at the end
+          if (duration > 0 && currentTime < duration - 0.1) {
+            audioFinished = false;
+            // Restart animation loop if playing
+            if (!audio.paused && !animationFrameId) {
+              animationFrameId = requestAnimationFrame(updateWaveform);
+            }
+          }
+        });
+
+        // Store cleanup function on audio element for external cleanup
+        audio.__waveformCleanup = () => {
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+          audioFinished = false;
+        };
 
         // Play/pause functionality
         const toggleAudioPlay = () => {
@@ -2533,10 +2643,10 @@
           
           const audioFormat = renderAudioEl ? renderAudioEl.value : 'wav';
           
-          // Prepare request body
+          // Prepare request body - prefer uploadedVideoUrl over selectedVideoUrl
           const body = {
             videoPath: window.selectedVideo || '',
-            videoUrl: window.selectedVideoUrl || '',
+            videoUrl: window.uploadedVideoUrl || window.selectedVideoUrl || '',
             format: audioFormat,
             apiKey: settings.syncApiKey || ''
           };
@@ -2697,20 +2807,36 @@
       }
 
       function renderOutputVideo(job) {
-        if (!job || !job.outputPath) return;
+        if (!job || (!job.outputPath && !job.outputUrl)) return;
         
         const videoSection = document.getElementById('videoSection');
         const videoDropzone = document.getElementById('videoDropzone');
         const videoPreview = document.getElementById('videoPreview');
         
         if (videoSection && videoPreview) {
+          // Use outputUrl if available, otherwise check if outputPath is a URL or file path
+          let videoSrc = '';
+          if (job.outputUrl) {
+            videoSrc = job.outputUrl;
+          } else if (job.outputPath) {
+            // Check if outputPath is already a URL (starts with http:// or https://)
+            if (job.outputPath.startsWith('http://') || job.outputPath.startsWith('https://')) {
+              videoSrc = job.outputPath;
+            } else {
+              // It's a file path, prepend file://
+              videoSrc = `file://${job.outputPath.replace(/ /g, '%20')}`;
+            }
+          }
+          
+          if (!videoSrc) return;
+          
           // Ensure video preview is visible for output display
           videoDropzone.style.display = 'none';
           videoPreview.style.display = 'block';
           videoPreview.innerHTML = `
             <div class="custom-video-player">
-              <video id="outputVideo" class="video-element" src="file://${job.outputPath.replace(/ /g, '%20')}">
-                <source src="file://${job.outputPath.replace(/ /g, '%20')}" type="video/mp4">
+              <video id="outputVideo" class="video-element" src="${videoSrc}" preload="metadata" playsinline>
+                <source src="${videoSrc}" type="video/mp4">
               </video>
               <!-- Center play button overlay -->
               <div class="video-play-overlay" id="outputVideoPlayOverlay">
@@ -2767,17 +2893,13 @@ function showPostLipsyncActions(job) {
         const actionsHtml = `
           <div class="post-lipsync-actions" id="postLipsyncActions">
             <div class="post-lipsync-actions-left">
-              <button class="post-action-btn" onclick="saveCompletedJob('${job.id}')">
+              <button class="post-action-btn" id="save-${job.id}" onclick="saveCompletedJob('${job.id}')">
                 <i data-lucide="cloud-download"></i>
                 <span>save</span>
               </button>
-              <button class="post-action-btn" onclick="insertCompletedJob('${job.id}')">
+              <button class="post-action-btn" id="insert-${job.id}" onclick="insertCompletedJob('${job.id}')">
                 <i data-lucide="copy-plus"></i>
                 <span>insert</span>
-              </button>
-              <button class="post-action-btn" onclick="clearCompletedJob()">
-                <i data-lucide="eraser"></i>
-                <span>clear</span>
               </button>
             </div>
             <div class="post-lipsync-actions-right">
@@ -2786,6 +2908,9 @@ function showPostLipsyncActions(job) {
               </button>
               <button class="post-action-btn-icon" onclick="copyJobId('${job.syncJobId || job.id}')" title="copy job id">
                 <span class="post-action-btn-id-text">id</span>
+              </button>
+              <button class="post-action-btn-icon" onclick="clearCompletedJob()" title="clear">
+                <i data-lucide="eraser"></i>
               </button>
             </div>
           </div>`;
@@ -2796,6 +2921,41 @@ function showPostLipsyncActions(job) {
         if (typeof lucide !== 'undefined' && lucide.createIcons) {
           setTimeout(() => {
             lucide.createIcons();
+            
+            // Set stroke-width for action button icons (16px icons)
+            document.querySelectorAll('.post-action-btn i svg').forEach(svg => {
+              svg.setAttribute('stroke-width', '2');
+              svg.setAttribute('width', '16');
+              svg.setAttribute('height', '16');
+              svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
+                el.setAttribute('stroke-width', '2');
+              });
+            });
+            
+            // Set stroke-width for icon button icons (18px icons)
+            const iconBtns = document.querySelectorAll('.post-action-btn-icon i');
+            iconBtns.forEach(icon => {
+              const svg = icon.querySelector('svg');
+              if (svg) {
+                svg.setAttribute('stroke-width', '2');
+                svg.setAttribute('width', '18');
+                svg.setAttribute('height', '18');
+                svg.style.color = 'var(--text-primary)';
+                svg.style.stroke = 'var(--text-primary)';
+                svg.style.fill = 'none';
+                // Also set stroke-width and attributes on all paths
+                const paths = svg.querySelectorAll('path, circle, line, polyline, polygon');
+                paths.forEach(path => {
+                  path.setAttribute('stroke-width', '2');
+                  if (!path.getAttribute('stroke')) {
+                    path.setAttribute('stroke', 'var(--text-primary)');
+                  }
+                  if (!path.getAttribute('fill') || path.getAttribute('fill') === 'currentColor') {
+                    path.setAttribute('fill', 'none');
+                  }
+                });
+              }
+            });
           }, 100);
         }
       }
@@ -2913,33 +3073,44 @@ function showPostLipsyncActions(job) {
           window.selectedAudioIsTemp = isTemp;
           window.selectedAudioUrl = '';
           window.selectedAudioIsUrl = false;
-          window.selectedAudioUrl = '';
           
           // Upload to cloud if API key is available
           const settings = window.getSettings?.() || {};
           if (settings.syncApiKey) {
             try {
+              await window.ensureAuthToken();
               const uploadBody = { path: window.selectedAudio, apiKey: settings.syncApiKey };
-              const uploadResp = await fetch('http://127.0.0.1:3000/upload', {
+              const port = typeof getServerPort === 'function' ? getServerPort() : 3000;
+              const uploadResp = await fetch(`http://127.0.0.1:${port}/upload`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: window.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(uploadBody)
               });
               if (uploadResp.ok) {
                 const uploadData = await uploadResp.json();
-                window.selectedAudioUrl = uploadData.url;
-                window.selectedAudioIsUrl = true;
-                window.selectedAudioUrl = uploadData.url;
+                if (uploadData.ok && uploadData.url) {
+                  window.selectedAudioUrl = uploadData.url;
+                  window.uploadedAudioUrl = uploadData.url;
+                  window.selectedAudioIsUrl = true;
+                }
               }
             } catch (err) {
               console.warn('Cloud upload failed, using local file:', err);
             }
           }
           
-          updateUIState();
+          // Render the audio preview (same as other audio loading methods)
+          // Don't trigger cost estimation here - let caller handle it
+          if (typeof window.renderInputPreview === 'function') {
+            window.renderInputPreview('tts');
+          }
           
-          if (window.showToast) {
-            window.showToast('audio generated successfully', 'success');
+          // Update UI state
+          if (typeof window.updateLipsyncButton === 'function') {
+            window.updateLipsyncButton();
+          }
+          if (typeof window.updateInputStatus === 'function') {
+            window.updateInputStatus();
           }
           
           return true;
@@ -2978,7 +3149,7 @@ function showPostLipsyncActions(job) {
           return;
         }
         
-        if (job.status !== 'completed' || !job.outputPath) {
+        if (job.status !== 'completed' || (!job.outputPath && !job.outputUrl)) {
           if (typeof window.showToast === 'function') {
             window.showToast('job is not completed yet', 'error');
           }

@@ -361,7 +361,7 @@
                     </button>
                     <button class="tts-preview-btn" id="ttsPreviewBtn">
                       <i data-lucide="audio-lines"></i>
-                      <span class="tts-preview-text" style="display: none;">preview</span>
+                      <span class="tts-preview-text" style="display: none;">generate</span>
                     </button>
                     
                     <!-- TTS Voice Settings Popup -->
@@ -573,7 +573,7 @@
       <div class="bottom-bar">
         <div class="bottom-content">
           <button class="model-btn" id="modelSelectorBtn">
-            <span id="currentModel">lipsync-2</span>
+            <span id="currentModel">lipsync 2 pro</span>
             <i data-lucide="chevron-down"></i>
             <div class="update-dot"></div>
           </button>
@@ -652,7 +652,7 @@
             <!-- Voice Name Input -->
             <div class="tts-clone-field">
               <label class="tts-clone-label">voice name</label>
-              <input type="text" id="ttsCloneVoiceName" class="tts-clone-input" placeholder="custom voice 1" value="custom voice 1" />
+              <input type="text" id="ttsCloneVoiceName" class="tts-clone-input" placeholder="custom voice 1" />
             </div>
             
             <!-- Upload/Record Area -->
@@ -684,24 +684,6 @@
               <label class="tts-clone-label">voice samples</label>
               <div id="ttsCloneSamplesList" class="tts-clone-samples">
                 <!-- Sample items will be added dynamically -->
-                <div class="tts-clone-sample-item">
-                  <button class="tts-clone-sample-btn">
-                    <i data-lucide="play"></i>
-                    <span>sample2-recorded.mp3</span>
-                  </button>
-                  <button class="tts-clone-sample-delete">
-                    <i data-lucide="x"></i>
-                  </button>
-                </div>
-                <div class="tts-clone-sample-item">
-                  <button class="tts-clone-sample-btn">
-                    <i data-lucide="play"></i>
-                    <span>sample1-uploaded.mp3</span>
-                  </button>
-                  <button class="tts-clone-sample-delete">
-                    <i data-lucide="x"></i>
-                  </button>
-                </div>
               </div>
             </div>
             
@@ -728,14 +710,14 @@
           
           <div class="model-options">
             <label class="model-option">
-              <input type="radio" name="model" value="lipsync-2-pro" />
+              <input type="radio" name="model" value="lipsync 2 pro" />
               <div class="model-option-icon"></div>
               <div class="model-option-content">
                 <div class="model-option-title">
-                  <span class="model-name">lipsync-2-pro</span>
+                  <span class="model-name">lipsync 2 pro</span>
                   <span class="model-badge">new</span>
                 </div>
-                <span class="model-desc">lipsync-2 optimized for the highest resolution</span>
+                <span class="model-desc">lipsync 2, optimized for the highest resolution</span>
               </div>
             </label>
             
@@ -746,18 +728,18 @@
               </div>
               <div class="model-option-content">
                 <div class="model-option-title">
-                  <span class="model-name">lipsync-2</span>
+                  <span class="model-name">lipsync 2</span>
                 </div>
-                <span class="model-desc">our best model yet: high-rez, matches speaker style</span>
+                <span class="model-desc">our best model yet: high-res + matches speaker style</span>
               </div>
             </label>
             
             <label class="model-option">
-              <input type="radio" name="model" value="lipsync-1.9.0-beta" />
+              <input type="radio" name="model" value="lipsync 1.9" />
               <div class="model-option-icon"></div>
               <div class="model-option-content">
                 <div class="model-option-title">
-                  <span class="model-name">lipsync-1.9.0-beta</span>
+                  <span class="model-name">lipsync 1.9</span>
                 </div>
                 <span class="model-desc">our fastest lipsync model yet</span>
               </div>

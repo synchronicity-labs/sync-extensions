@@ -10,6 +10,21 @@ import { createServer } from 'net';
 import FormData from 'form-data';
 import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
+
+// Load .env file BEFORE importing modules that depend on it
+const envPath = path.join(process.cwd(), '.env');
+console.log('Looking for .env at:', envPath);
+console.log('Current working directory:', process.cwd());
+console.log('.env file exists:', fs.existsSync(envPath));
+const dotenvResult = dotenv.config({ path: envPath });
+if (dotenvResult.error) {
+  console.error('Error loading .env file:', dotenvResult.error);
+} else {
+  console.log('.env file loaded successfully');
+  console.log('R2_ACCESS_KEY present:', !!process.env.R2_ACCESS_KEY);
+  console.log('R2_SECRET_KEY present:', !!process.env.R2_SECRET_KEY);
+}
+
 import { track, identify, setUserProperties, distinctId } from './telemetry.js';
 
 // Modular imports
@@ -43,12 +58,6 @@ if (isSpawnedByCEP) {
   console.warn = () => {};
   console.info = () => {};
 }
-
-const envPath = path.join(process.cwd(), '.env');
-console.log('Looking for .env at:', envPath);
-console.log('Current working directory:', process.cwd());
-console.log('.env file exists:', fs.existsSync(envPath));
-dotenv.config({ path: envPath });
 
 const app = express();
 app.disable('x-powered-by');
@@ -310,6 +319,8 @@ app.use((req, res, next) => {
     '/dubbing',
     '/tts/generate',
     '/tts/voices',
+    '/tts/voices/create',
+    '/tts/voices/delete',
     '/recording/save',
     '/recording/file',
     '/extract-audio',
@@ -317,7 +328,10 @@ app.use((req, res, next) => {
     '/wav/file',
     '/waveform/file'
   ];
-  if (publicPaths.includes(req.path)) {
+  // Check exact path match - Express normalizes req.path
+  // Also check req.url without query string as fallback
+  const requestPath = req.path || req.url.split('?')[0];
+  if (publicPaths.includes(requestPath)) {
     return next();
   }
   return requireAuth(req, res, next);

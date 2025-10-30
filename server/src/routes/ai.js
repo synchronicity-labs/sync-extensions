@@ -298,5 +298,121 @@ router.get('/tts/voices', async (req, res) => {
   }
 });
 
+router.post('/tts/voices/create', async (req, res) => {
+  try {
+    const { name, files, elevenApiKey } = req.body || {};
+    tlog('POST /tts/voices/create', 'name=' + name, 'files=' + files?.length);
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Voice name required' });
+    }
+    
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'At least one audio file required' });
+    }
+    
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey required' });
+    }
+    
+    try {
+      // Create FormData for ElevenLabs API
+      const formData = new FormData();
+      formData.append('name', name);
+      
+      // Add all files to FormData
+      for (const filePath of files) {
+        if (!fs.existsSync(filePath)) {
+          return res.status(400).json({ error: `File not found: ${filePath}` });
+        }
+        
+        // Check file size (max 10MB per file)
+        const stats = fs.statSync(filePath);
+        if (stats.size > 10 * 1024 * 1024) {
+          return res.status(400).json({ error: `File too large: ${path.basename(filePath)} (max 10MB)` });
+        }
+        
+        formData.append('files', fs.createReadStream(filePath));
+      }
+      
+      // Call ElevenLabs API
+      const response = await fetch('https://api.elevenlabs.io/v1/voices/add', {
+        method: 'POST',
+        headers: {
+          'xi-api-key': elevenApiKey,
+        },
+        body: formData,
+        signal: AbortSignal.timeout(300000) // 5 minute timeout
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        tlog('ElevenLabs voice creation error:', response.status, errorText);
+        return res.status(response.status).json({ error: `ElevenLabs API error: ${errorText}` });
+      }
+      
+      const data = await response.json();
+      tlog('Voice clone created successfully:', data.voice_id);
+      
+      res.json({
+        voice_id: data.voice_id,
+        requires_verification: data.requires_verification || false
+      });
+    } catch (e) {
+      tlog('Voice creation error:', e.message);
+      return res.status(500).json({ error: String(e?.message || e) });
+    }
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+router.post('/tts/voices/delete', async (req, res) => {
+  try {
+    const { voiceId, elevenApiKey } = req.body || {};
+    tlog('POST /tts/voices/delete', 'voiceId=' + voiceId);
+    
+    if (!voiceId) {
+      return res.status(400).json({ error: 'voiceId is required' });
+    }
+    
+    if (!elevenApiKey) {
+      return res.status(400).json({ error: 'elevenApiKey is required' });
+    }
+    
+    // Call ElevenLabs API to delete voice
+    const response = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+      method: 'DELETE',
+      headers: {
+        'xi-api-key': elevenApiKey,
+      },
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { detail: { message: errorText } };
+      }
+      
+      tlog('ElevenLabs delete voice error:', response.status, errorText);
+      return res.status(response.status).json({
+        error: 'ElevenLabs API error: ' + JSON.stringify(errorData)
+      });
+    }
+    
+    // Parse response - ElevenLabs returns { "status": "ok" } on success
+    const data = await response.json().catch(() => ({}));
+    tlog('Voice deleted successfully:', voiceId);
+    
+    res.json({ ok: true, message: 'Voice deleted successfully', status: data.status || 'ok' });
+  } catch (e) {
+    tlog('Delete voice error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
 export default router;
 
