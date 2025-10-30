@@ -250,7 +250,7 @@ router.post('/tts/generate', async (req, res) => {
 
 router.get('/tts/voices', async (req, res) => {
   try {
-    const { elevenApiKey } = req.query;
+    const { elevenApiKey, page_size = 100, category, voice_type } = req.query;
     tlog('GET /tts/voices');
     
     if (!elevenApiKey) {
@@ -258,7 +258,15 @@ router.get('/tts/voices', async (req, res) => {
     }
     
     try {
-      const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+      // Build query parameters for v2 API
+      const params = new URLSearchParams();
+      if (page_size) params.append('page_size', page_size.toString());
+      if (category) params.append('category', category);
+      if (voice_type) params.append('voice_type', voice_type);
+      
+      const url = `https://api.elevenlabs.io/v2/voices${params.toString() ? '?' + params.toString() : ''}`;
+      
+      const response = await fetch(url, {
         headers: {
           'xi-api-key': elevenApiKey,
         },
@@ -272,8 +280,15 @@ router.get('/tts/voices', async (req, res) => {
       }
       
       const data = await response.json();
-      tlog('TTS voices fetched', 'count=' + data.voices?.length);
-      res.json(data);
+      tlog('TTS voices fetched', 'count=' + data.voices?.length, 'has_more=' + data.has_more);
+      
+      // Return the full response including pagination info
+      res.json({
+        voices: data.voices || [],
+        has_more: data.has_more || false,
+        total_count: data.total_count || 0,
+        next_page_token: data.next_page_token || null
+      });
     } catch (e) {
       tlog('TTS voices error:', e.message);
       return res.status(500).json({ error: String(e?.message || e) });

@@ -2755,25 +2755,49 @@
         }
       }
 
-      function showPostLipsyncActions(job) {
+function showPostLipsyncActions(job) {
         const videoSection = document.getElementById('videoSection');
         if (!videoSection) return;
         
-        // Create actions container
+        // Remove existing actions if any
+        const existingActions = document.getElementById('postLipsyncActions');
+        if (existingActions) existingActions.remove();
+        
+        // Create actions container matching Figma design
         const actionsHtml = `
           <div class="post-lipsync-actions" id="postLipsyncActions">
-            <button class="action-btn action-btn-primary" onclick="saveCompletedJob('${job.id}')">
-              save
-            </button>
-            <button class="action-btn" onclick="insertCompletedJob('${job.id}')">
-              insert
-            </button>
-            <button class="action-btn" onclick="clearCompletedJob()">
-              clear
-            </button>
+            <div class="post-lipsync-actions-left">
+              <button class="post-action-btn" onclick="saveCompletedJob('${job.id}')">
+                <i data-lucide="cloud-download"></i>
+                <span>save</span>
+              </button>
+              <button class="post-action-btn" onclick="insertCompletedJob('${job.id}')">
+                <i data-lucide="copy-plus"></i>
+                <span>insert</span>
+              </button>
+              <button class="post-action-btn" onclick="clearCompletedJob()">
+                <i data-lucide="eraser"></i>
+                <span>clear</span>
+              </button>
+            </div>
+            <div class="post-lipsync-actions-right">
+              <button class="post-action-btn-icon" onclick="copyOutputLink('${job.id}')" title="copy output link">
+                <i data-lucide="link"></i>
+              </button>
+              <button class="post-action-btn-icon" onclick="copyJobId('${job.syncJobId || job.id}')" title="copy job id">
+                <span class="post-action-btn-id-text">id</span>
+              </button>
+            </div>
           </div>`;
         
         videoSection.insertAdjacentHTML('afterend', actionsHtml);
+        
+        // Initialize Lucide icons for the new buttons
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+          setTimeout(() => {
+            lucide.createIcons();
+          }, 100);
+        }
       }
 
       function initOutputVideoPlayer() {
@@ -2937,4 +2961,52 @@
       window.updateLipsyncButton = updateLipsyncButton;
       window.updateInputStatus = updateInputStatus;
       window.loadAudioFile = loadAudioFile;
+      window.renderOutputVideo = renderOutputVideo;
+      window.showPostLipsyncActions = showPostLipsyncActions;
+
+      /**
+       * Loads a completed job into the sources tab
+       */
+      window.loadJobIntoSources = function(jobId) {
+        const jobs = window.jobs || [];
+        const job = jobs.find(j => String(j.id) === String(jobId));
+        
+        if (!job) {
+          if (typeof window.showToast === 'function') {
+            window.showToast('job not found', 'error');
+          }
+          return;
+        }
+        
+        if (job.status !== 'completed' || !job.outputPath) {
+          if (typeof window.showToast === 'function') {
+            window.showToast('job is not completed yet', 'error');
+          }
+          return;
+        }
+        
+        // Hide lipsync button and audio section
+        const btn = document.getElementById('lipsyncBtn');
+        if (btn) btn.style.display = 'none';
+        const audioSection = document.getElementById('audioSection');
+        if (audioSection) audioSection.style.display = 'none';
+        
+        // Switch to sources tab
+        if (typeof window.showTab === 'function') {
+          window.showTab('sources');
+        }
+        
+        // Render the output video and actions
+        if (typeof window.renderOutputVideo === 'function') {
+          window.renderOutputVideo(job);
+        }
+        if (typeof window.showPostLipsyncActions === 'function') {
+          window.showPostLipsyncActions(job);
+        }
+        
+        // Show toast
+        if (typeof window.showToast === 'function') {
+          window.showToast('generation loaded', 'success');
+        }
+      };
 

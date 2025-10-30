@@ -1,0 +1,102 @@
+/* ===== LOADER COMPONENT ===== */
+.loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 32px;
+  height: 32px;
+}
+
+.loader-bar {
+  width: 4px;
+  background: var(--text-primary);
+  border-radius: 1px;
+  animation: loader-wave 1.2s ease-in-out infinite;
+}
+
+.loader-bar:nth-child(1) {
+  height: 18px;
+  animation-delay: 0s;
+}
+
+.loader-bar:nth-child(2) {
+  height: 32px;
+  animation-delay: 0.4s;
+}
+
+.loader-bar:nth-child(3) {
+  height: 26px;
+  animation-delay: 0.8s;
+}
+
+@keyframes loader-wave {
+  0% {
+    transform: scaleY(0.55);
+  }
+  33% {
+    transform: scaleY(1);
+  }
+  66% {
+    transform: scaleY(0.81);
+  }
+  100% {
+    transform: scaleY(0.55);
+  }
+}
+
+/* Loader variant: small */
+.loader.loader-sm {
+  width: 24px;
+  height: 24px;
+  gap: 6px;
+}
+
+.loader.loader-sm .loader-bar {
+  width: 3px;
+}
+
+.loader.loader-sm .loader-bar:nth-child(1) {
+  height: 13px;
+}
+
+.loader.loader-sm .loader-bar:nth-child(2) {
+  height: 24px;
+}
+
+.loader.loader-sm .loader-bar:nth-child(3) {
+  height: 19px;
+}
+
+/* Loader variant: large */
+.loader.loader-lg {
+  width: 48px;
+  height: 48px;
+  gap: 12px;
+}
+
+.loader.loader-lg .loader-bar {
+  width: 6px;
+}
+
+.loader.loader-lg .loader-bar:nth-child(1) {
+  height: 27px;
+}
+
+.loader.loader-lg .loader-bar:nth-child(2) {
+  height: 48px;
+}
+
+.loader.loader-lg .loader-bar:nth-child(3) {
+  height: 39px;
+}
+
+/* Loader with custom color */
+.loader.loader-primary .loader-bar {
+  background: var(--color-primary);
+}
+
+.loader.loader-muted .loader-bar {
+  background: var(--text-tertiary);
+}
+

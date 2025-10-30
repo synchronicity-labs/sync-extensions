@@ -417,8 +417,19 @@
                 btn.style.display = 'none';
                 const audioSection = document.getElementById('audioSection');
                 if (audioSection) audioSection.style.display = 'none';
-                renderOutputVideo(data);
-                showPostLipsyncActions(data);
+                
+                // Auto-switch to sources tab to show the completed video
+                if (typeof window.showTab === 'function') {
+                  window.showTab('sources');
+                }
+                
+                // Call functions using window to ensure they're accessible
+                if (typeof window.renderOutputVideo === 'function') {
+                  window.renderOutputVideo(data);
+                }
+                if (typeof window.showPostLipsyncActions === 'function') {
+                  window.showPostLipsyncActions(data);
+                }
               }
             } else if (data.status === 'failed') {
               clearInterval(interval);
@@ -944,16 +955,49 @@
         window.selectedVideoIsTemp = false;
         window.selectedAudioIsTemp = false;
         const btn = document.getElementById('lipsyncBtn');
-        btn.style.display = 'flex';
-        btn.disabled = true;
-        btn.textContent = 'lipsync';
+        if (btn) {
+          btn.style.display = 'flex';
+          btn.disabled = true;
+          btn.textContent = 'lipsync';
+        }
         const audioSection = document.getElementById('audioSection');
         if (audioSection) audioSection.style.display = 'block';
         const actions = document.getElementById('postLipsyncActions');
         if (actions) actions.remove();
-        renderInputPreview();
-        updateInputStatus();
+        
+        // Clear output video preview and show dropzone again
+        const videoPreview = document.getElementById('videoPreview');
+        const videoDropzone = document.getElementById('videoDropzone');
+        if (videoPreview) {
+          videoPreview.style.display = 'none';
+          videoPreview.innerHTML = '';
+        }
+        if (videoDropzone) {
+          videoDropzone.style.display = 'flex';
+        }
+        
+        // Also clear output video element if it exists
+        const outputVideo = document.getElementById('outputVideo');
+        if (outputVideo) {
+          try {
+            outputVideo.pause();
+            outputVideo.removeAttribute('src');
+            outputVideo.load();
+          } catch(_) {}
+        }
+        
+        if (typeof renderInputPreview === 'function') {
+          renderInputPreview();
+        }
+        if (typeof updateInputStatus === 'function') {
+          updateInputStatus();
+        }
       }
+
+      // Expose functions globally for onclick handlers
+      window.saveCompletedJob = saveCompletedJob;
+      window.insertCompletedJob = insertCompletedJob;
+      window.clearCompletedJob = clearCompletedJob;
 
       async function saveOutput() {
         const latest = jobs.slice().sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0))[0];

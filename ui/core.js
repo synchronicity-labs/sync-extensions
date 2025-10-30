@@ -90,6 +90,22 @@
       
       // Check server status
       async function checkServerStatus() {
+        // Skip offline check if we're running on a simple HTTP server (not the backend server)
+        // Detect if we're on localhost with a non-standard port (like 8080 for Python HTTP server)
+        const currentHost = window.location.hostname;
+        const currentPort = window.location.port;
+        const isSimpleHttpServer = currentHost === 'localhost' || currentHost === '127.0.0.1';
+        
+        // If we're on a simple HTTP server (like Python's http.server on 8080), skip health checks
+        // Only check if we're on the expected backend port (3000) or if no port is specified
+        if (isSimpleHttpServer && currentPort && currentPort !== '3000' && currentPort !== '') {
+          // We're likely on a simple HTTP server, don't show offline state
+          if (isOffline) {
+            setOfflineState(false);
+          }
+          return true; // Pretend we're online
+        }
+        
         try {
           // Use normal fetch - no timeout. Health endpoint should respond instantly.
           // Only abort if it takes more than 3 seconds
@@ -775,6 +791,18 @@
       
       document.addEventListener('keydown', function(e){
         const targetEditable = isEditable(e.target);
+        
+        // Handle ESC key to clear loaded generation
+        if (e.key === 'Escape' && !targetEditable) {
+          const postLipsyncActions = document.getElementById('postLipsyncActions');
+          if (postLipsyncActions && typeof window.clearCompletedJob === 'function') {
+            window.clearCompletedJob();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
+        }
+        
         // Allow standard edit combos in editable fields
         if (targetEditable && isStandardEditCombo(e)) {
           // Handle copy/paste/select-all ourselves so CEP honors Cmd/Ctrl in panel

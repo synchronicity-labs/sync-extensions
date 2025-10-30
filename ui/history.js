@@ -495,6 +495,20 @@ window.createHistoryCard = function(job) {
     </div>
   `;
   
+  // Add click handler to load job into sources tab (only for completed jobs)
+  if (isCompleted && job.outputPath) {
+    card.addEventListener('click', (e) => {
+      // Don't trigger if clicking on a button
+      if (e.target.closest('button')) {
+        return;
+      }
+      // Load the job into sources tab
+      if (typeof window.loadJobIntoSources === 'function') {
+        window.loadJobIntoSources(job.id);
+      }
+    });
+  }
+  
   return card;
 }
 
