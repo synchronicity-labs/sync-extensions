@@ -3,6 +3,7 @@ import os from 'os';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { DEBUG_FLAG_FILE } from './utils/log.js';
 
 const POSTHOG_KEY = process.env.POSTHOG_KEY || '<your_project_api_key>';
 const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
@@ -19,6 +20,15 @@ function platformAppData(appName) {
 const BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || platformAppData('sync. extensions');
 const idFile = path.join(BASE_DIR, '.install-id');
 fs.mkdirSync(path.dirname(idFile), { recursive: true });
+
+// Check if debug logging is enabled
+function isDebugEnabled() {
+  try {
+    return fs.existsSync(DEBUG_FLAG_FILE);
+  } catch {
+    return false;
+  }
+}
 
 let distinctId;
 try {
@@ -46,12 +56,14 @@ function getPostHogClient() {
     
     phClient = new PostHog(key, { 
       host: host,
-  flushAt: 1, // Send events immediately for testing
-  flushInterval: 1000, // Send events every 1 second for testing
-  debug: true // Enable debug mode
+      flushAt: 1, // Send events immediately for testing
+      flushInterval: 1000, // Send events every 1 second for testing
+      debug: isDebugEnabled() // Only enable debug mode if debug flag file exists
     });
     
-    console.log('PostHog client initialized with key:', key.substring(0, 10) + '...');
+    if (isDebugEnabled()) {
+      console.log('PostHog client initialized with key:', key.substring(0, 10) + '...');
+    }
   }
   return phClient;
 }
@@ -106,8 +118,8 @@ export async function track(event, properties = {}) {
     // Use captureImmediate for critical events to ensure they're sent
     await client.captureImmediate(eventData);
 
-    // Debug logging (always log when DEBUG_POSTHOG is set)
-    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_POSTHOG) {
+    // Debug logging (only when debug flag file exists)
+    if (isDebugEnabled()) {
       console.log('PostHog event captured:', event, eventData.properties);
     }
   } catch (error) {

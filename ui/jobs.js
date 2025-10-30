@@ -633,7 +633,7 @@
             const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
             const isAEConfirmed = isAE && hostId !== 'PPRO';
             
-            // File logging for debugging
+            // File logging for debugging - use standard host log files per debug.md
             function logToFile(msg) {
               try {
                 var logPath = (function(){
@@ -643,14 +643,31 @@
                       var cs2 = new CSInterface();
                       cs2.evalScript('(typeof SYNC_getLogDir===\'function\'?SYNC_getLogDir():\'\')', function(r){ dir = r||''; });
                     }
-                    if (dir) return dir + ((navigator.platform && navigator.platform.indexOf('Win') !== -1) ? '\\' : '/') + 'sync_save_debug.log';
+                    if (dir) {
+                      // Determine correct log file based on host
+                      var isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+                      var isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === 'PPRO';
+                      var logName = isAE ? 'sync_ae_debug.log' : (isPPRO ? 'sync_ppro_debug.log' : 'sync_server_debug.log');
+                      return dir + ((navigator.platform && navigator.platform.indexOf('Win') !== -1) ? '\\' : '/') + logName;
+                    }
                   } catch(_){ }
-                  if (navigator.platform && navigator.platform.indexOf('Win') !== -1) return 'C:\\temp\\sync_save_debug.log';
-                  try{ if (typeof require !== 'undefined'){ return require('os').tmpdir() + '/sync_save_debug.log'; } }catch(_){ }
-                  return '/tmp/sync_save_debug.log';
+                  // Fallback to standard app data directory
+                  try{ 
+                    if (typeof require !== 'undefined'){ 
+                      var os=require('os'); var path=require('path'); var home=os.homedir();
+                      var base = (process.platform === 'win32') ? path.join(home, 'AppData', 'Roaming', 'sync. extensions') : (process.platform === 'darwin') ? path.join(home, 'Library', 'Application Support', 'sync. extensions') : path.join(home, '.config', 'sync. extensions');
+                      var logs = path.join(base, 'logs');
+                      var isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+                      var isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === 'PPRO';
+                      var logName = isAE ? 'sync_ae_debug.log' : (isPPRO ? 'sync_ppro_debug.log' : 'sync_server_debug.log');
+                      return path.join(logs, logName);
+                    }
+                  }catch(_){ }
+                  return null;
                 })();
+                if (!logPath) return;
                 // Only write when debug flag file exists
-                try{ if (typeof require !== 'undefined'){ var fs2=require('fs'); var path2=require('path'); var base=logPath.replace(/(\\|\/)sync_save_debug\.log$/,''); if(!fs2.existsSync(path2.join(base,'debug.enabled'))){ return; } } }catch(_){ }
+                try{ if (typeof require !== 'undefined'){ var fs2=require('fs'); var path2=require('path'); var base=path2.dirname(logPath); if(!fs2.existsSync(path2.join(base,'debug.enabled'))){ return; } } }catch(_){ }
                 var logFile = new File(logPath);
                 logFile.open('a');
                 logFile.write('[' + new Date().toISOString() + '] ' + msg + '\n');
@@ -782,7 +799,7 @@
           const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
           const isAEConfirmed = isAE && hostId !== 'PPRO';
           
-          // File logging for debugging
+          // File logging for debugging - use standard host log files per debug.md
             function logToFile(msg) {
             try {
               var logPath = (function(){
@@ -792,14 +809,31 @@
                     var cs3 = new CSInterface();
                     cs3.evalScript('(typeof SYNC_getLogDir===\'function\'?SYNC_getLogDir():\'\')', function(r){ dir = r||''; });
                   }
-                  if (dir) return dir + ((navigator.platform && navigator.platform.indexOf('Win') !== -1) ? '\\' : '/') + 'sync_insert_debug.log';
+                  if (dir) {
+                    // Determine correct log file based on host
+                    var isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+                    var isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === 'PPRO';
+                    var logName = isAE ? 'sync_ae_debug.log' : (isPPRO ? 'sync_ppro_debug.log' : 'sync_server_debug.log');
+                    return dir + ((navigator.platform && navigator.platform.indexOf('Win') !== -1) ? '\\' : '/') + logName;
+                  }
                 } catch(_){ }
-                if (navigator.platform && navigator.platform.indexOf('Win') !== -1) return 'C:\\temp\\sync_insert_debug.log';
-                try{ if (typeof require !== 'undefined'){ return require('os').tmpdir() + '/sync_insert_debug.log'; } }catch(_){ }
-                return '/tmp/sync_insert_debug.log';
+                // Fallback to standard app data directory
+                try{ 
+                  if (typeof require !== 'undefined'){ 
+                    var os=require('os'); var path=require('path'); var home=os.homedir();
+                    var base = (process.platform === 'win32') ? path.join(home, 'AppData', 'Roaming', 'sync. extensions') : (process.platform === 'darwin') ? path.join(home, 'Library', 'Application Support', 'sync. extensions') : path.join(home, '.config', 'sync. extensions');
+                    var logs = path.join(base, 'logs');
+                    var isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+                    var isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === 'PPRO';
+                    var logName = isAE ? 'sync_ae_debug.log' : (isPPRO ? 'sync_ppro_debug.log' : 'sync_server_debug.log');
+                    return path.join(logs, logName);
+                  }
+                }catch(_){ }
+                return null;
               })();
+              if (!logPath) return;
               // Only write when debug flag file exists
-              try{ if (typeof require !== 'undefined'){ var fs3=require('fs'); var path3=require('path'); var base=logPath.replace(/(\\|\/)sync_insert_debug\.log$/,''); if(!fs3.existsSync(path3.join(base,'debug.enabled'))){ return; } } }catch(_){ }
+              try{ if (typeof require !== 'undefined'){ var fs3=require('fs'); var path3=require('path'); var base=path3.dirname(logPath); if(!fs3.existsSync(path3.join(base,'debug.enabled'))){ return; } } }catch(_){ }
               var logFile = new File(logPath);
               logFile.open('a');
               logFile.write('[' + new Date().toISOString() + '] ' + msg + '\n');

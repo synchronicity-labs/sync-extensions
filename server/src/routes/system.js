@@ -1,12 +1,22 @@
 import express from 'express';
 import path from 'path';
 import { track, distinctId } from '../telemetry.js';
-import { tlog } from '../utils/log.js';
+import { tlog, tlogSync, DEBUG_FLAG_FILE } from '../utils/log.js';
 import { getCurrentVersion } from '../utils/version.js';
 import { getLatestReleaseInfo, applyUpdate } from '../services/update.js';
 import { APP_ID, isSpawnedByUI } from '../config.js';
+import fs from 'fs';
 
 const router = express.Router();
+
+// Check if debug logging is enabled
+function isDebugEnabled() {
+  try {
+    return fs.existsSync(DEBUG_FLAG_FILE);
+  } catch {
+    return false;
+  }
+}
 
 // Rate limiting for /auth/token (1 req/sec per IP)
 const tokenRateLimit = new Map();
@@ -45,12 +55,6 @@ router.get('/telemetry/test', async (req, res) => {
     const posthogHost = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
     const hasValidKey = posthogKey && posthogKey !== '<your_project_api_key>';
     
-    console.log('PostHog Config:', {
-      keyPresent: !!process.env.POSTHOG_KEY,
-      keyValue: hasValidKey ? `${posthogKey.substring(0, 10)}...` : 'INVALID/MISSING',
-      host: posthogHost,
-      distinctId: distinctId
-    });
     
     // Test PostHog connectivity
     track('telemetry_test', {
@@ -80,13 +84,9 @@ router.get('/telemetry/test', async (req, res) => {
 
 router.post('/telemetry/posthog-status', async (req, res) => {
   try {
-    const status = req.body || {};
-    console.log('PostHog Client Status:', JSON.stringify(status, null, 2));
-    
     res.json({ 
       ok: true, 
-      message: 'PostHog status logged',
-      received: status
+      message: 'PostHog status received'
     });
   } catch (error) {
     res.status(500).json({ 
@@ -146,9 +146,9 @@ router.post('/update/apply', async (req, res) => {
   try {
     const result = await applyUpdate(isSpawnedByUI);
     res.json(result);
-    setTimeout(() => { try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } if (!isSpawnedByUI) console.log('Exiting server after successful update'); process.exit(0); }, 800);
+    setTimeout(() => { try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } if (!isSpawnedByUI && isDebugEnabled()) console.log('Exiting server after successful update'); process.exit(0); }, 800);
   } catch (e) {
-    if (!isSpawnedByUI) {
+    if (!isSpawnedByUI && isDebugEnabled()) {
       console.error('Update failed:', e.message);
       console.error('Update error stack:', e.stack);
     }

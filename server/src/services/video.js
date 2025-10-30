@@ -24,7 +24,7 @@ const DEBUG = (function() {
   } catch (_) { return false; }
 })();
 
-const DEBUG_LOG = path.join(LOGS_DIR, 'sync_video_extract_debug.log');
+const DEBUG_LOG = path.join(LOGS_DIR, 'sync_server_debug.log');
 
 function debugLog() {
   if (!DEBUG) return;

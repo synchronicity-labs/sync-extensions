@@ -249,7 +249,6 @@
       selectedAudioIsUrl: window.selectedAudioIsUrl,
       source: source || 'unknown'
     };
-    console.log('renderInputPreview called with:', payload);
     if (window.debugLog) window.debugLog('renderInputPreview_called', payload);
     try {
       const statusEl = document.getElementById('costStatus');
@@ -2278,18 +2277,18 @@
         const overlay = document.getElementById('urlInputOverlay');
         const input = document.getElementById('urlInput');
         const submitBtn = document.getElementById('urlInputSubmit');
+        const clearBtn = document.getElementById('urlInputClear');
         
         if (!overlay || !input || !submitBtn) return;
         
-        // Set placeholder based on type
-        if (type === 'video') {
-          input.placeholder = 'paste video url here...';
-        } else {
-          input.placeholder = 'paste audio url here...';
-        }
+        // Set placeholder
+        input.placeholder = 'enter direct url';
         
-        // Clear input
+        // Clear input and hide clear button
         input.value = '';
+        if (clearBtn) {
+          clearBtn.style.display = 'none';
+        }
         
         // Show modal
         overlay.style.display = 'flex';
@@ -2297,6 +2296,22 @@
         
         // Focus input
         setTimeout(() => input.focus(), 100);
+        
+        // Update clear button visibility based on input
+        const updateClearButton = () => {
+          if (clearBtn) {
+            clearBtn.style.display = input.value.trim() ? 'flex' : 'none';
+          }
+        };
+        
+        // Handle clear button
+        const handleClear = () => {
+          input.value = '';
+          if (clearBtn) {
+            clearBtn.style.display = 'none';
+          }
+          input.focus();
+        };
         
         // Set up event handlers
         const handleSubmit = async () => {
@@ -2360,6 +2375,10 @@
           }
         };
         
+        const handleInput = () => {
+          updateClearButton();
+        };
+        
         const closeUrlInputModal = () => {
           overlay.classList.remove('show');
           setTimeout(() => overlay.style.display = 'none', 300);
@@ -2367,6 +2386,10 @@
           // Remove event listeners
           submitBtn.removeEventListener('click', handleSubmit);
           input.removeEventListener('keydown', handleKeyPress);
+          input.removeEventListener('input', handleInput);
+          if (clearBtn) {
+            clearBtn.removeEventListener('click', handleClear);
+          }
           document.getElementById('urlInputClose').removeEventListener('click', closeUrlInputModal);
           overlay.removeEventListener('click', handleOverlayClick);
         };
@@ -2380,6 +2403,10 @@
         // Add event listeners
         submitBtn.addEventListener('click', handleSubmit);
         input.addEventListener('keydown', handleKeyPress);
+        input.addEventListener('input', handleInput);
+        if (clearBtn) {
+          clearBtn.addEventListener('click', handleClear);
+        }
         document.getElementById('urlInputClose').addEventListener('click', closeUrlInputModal);
         overlay.addEventListener('click', handleOverlayClick);
       }
@@ -2387,45 +2414,326 @@
       async function selectVideoUrl() {
         const urlInput = document.getElementById('videoUrlInput');
         const urlField = document.getElementById('videoUrlField');
-        if (urlInput && urlField) {
-          urlInput.style.display = 'flex';
-          setTimeout(() => urlField.focus(), 100);
-          
-          // Add Enter key handler
-          const handleKeyPress = (e) => {
-            if (e.key === 'Enter') {
-              submitVideoUrl();
-            } else if (e.key === 'Escape') {
-              cancelVideoUrl();
-            }
-          };
-          urlField.addEventListener('keydown', handleKeyPress);
-          
-          // Store handler for cleanup
-          urlField._keyHandler = handleKeyPress;
+        const clearBtn = document.getElementById('videoUrlClear');
+        const dropzone = document.getElementById('videoDropzone');
+        const uploadVisual = document.getElementById('videoUploadVisual');
+        const uploadActions = document.getElementById('videoUploadActions');
+        const videoSection = document.getElementById('videoSection');
+        
+        if (!urlInput || !urlField || !dropzone) return;
+        
+        // Add class to maintain height FIRST, before any display changes
+        if (videoSection) videoSection.classList.add('url-input-active');
+        
+        // Hide upload visual and actions with fade
+        if (uploadVisual) {
+          uploadVisual.style.transition = 'opacity 0.2s ease';
+          uploadVisual.style.opacity = '0';
+          setTimeout(() => { uploadVisual.style.display = 'none'; }, 200);
         }
+        if (uploadActions) {
+          uploadActions.style.transition = 'opacity 0.2s ease';
+          uploadActions.style.opacity = '0';
+          setTimeout(() => { uploadActions.style.display = 'none'; }, 200);
+        }
+        
+        // Show URL input with fade animation
+        dropzone.classList.add('url-input-mode');
+        urlInput.style.display = 'flex';
+        // Trigger reflow
+        urlInput.offsetHeight;
+        setTimeout(() => {
+          urlInput.classList.add('show');
+        }, 10);
+        
+        // Clear input and hide clear button
+        urlField.value = '';
+        if (clearBtn) clearBtn.style.display = 'none';
+        
+        // Focus input
+        setTimeout(() => urlField.focus(), 100);
+        
+        // Update clear button visibility
+        const updateClearButton = () => {
+          if (clearBtn) {
+            clearBtn.style.display = urlField.value.trim() ? 'flex' : 'none';
+          }
+        };
+        
+        // Handle clear button
+        const handleClear = () => {
+          urlField.value = '';
+          if (clearBtn) {
+            clearBtn.style.display = 'none';
+          }
+          urlField.focus();
+        };
+        
+        // Handle close button
+        const handleClose = () => {
+          // Fade out URL input
+          urlInput.classList.remove('show');
+          setTimeout(() => {
+            urlInput.style.display = 'none';
+            dropzone.classList.remove('url-input-mode');
+            if (videoSection) videoSection.classList.remove('url-input-active');
+            
+            // Fade in upload visual and actions
+            if (uploadVisual) {
+              uploadVisual.style.display = 'flex';
+              uploadVisual.style.opacity = '0';
+              setTimeout(() => {
+                uploadVisual.style.transition = 'opacity 0.2s ease';
+                uploadVisual.style.opacity = '1';
+              }, 10);
+            }
+            if (uploadActions) {
+              uploadActions.style.display = 'flex';
+              uploadActions.style.opacity = '0';
+              setTimeout(() => {
+                uploadActions.style.transition = 'opacity 0.2s ease';
+                uploadActions.style.opacity = '1';
+              }, 10);
+            }
+          }, 200);
+          
+          urlField.value = '';
+          if (clearBtn) clearBtn.style.display = 'none';
+          
+          // Remove event listeners
+          urlField.removeEventListener('input', updateClearButton);
+          if (clearBtn) {
+            clearBtn.removeEventListener('click', handleClear);
+          }
+          document.getElementById('videoUrlClose').removeEventListener('click', handleClose);
+          document.getElementById('videoUrlSubmit').removeEventListener('click', handleSubmit);
+          urlField.removeEventListener('keydown', handleKeyPress);
+        };
+        
+        // Handle submit
+        const handleSubmit = async () => {
+          const url = urlField.value.trim();
+          if (!url) return;
+          
+          if (typeof window.showToast === 'function') {
+            window.showToast('loading...', 'info');
+          }
+          
+          // Validate URL
+          if (!isValidVideoUrl(url)) {
+            if (typeof window.showToast === 'function') {
+              window.showToast('invalid video url format', 'error');
+            }
+            return;
+          }
+          
+          // Check file size
+          const sizeCheck = await checkUrlSize(url);
+          if (!sizeCheck.valid) {
+            if (typeof window.showToast === 'function') {
+              window.showToast('video exceeds 1gb (not allowed)', 'error');
+            }
+            return;
+          }
+          
+          // Set URL selection
+          window.selectedVideoUrl = url;
+          window.selectedVideoIsUrl = true;
+          window.selectedVideo = null;
+          window.selectedVideoIsTemp = false;
+          updateFromVideoButton();
+          
+          updateLipsyncButton();
+          renderInputPreview();
+          
+          if (typeof window.showToast === 'function') {
+            window.showToast('video url loaded successfully');
+          }
+          
+          scheduleEstimate();
+          
+          // Close URL input mode
+          handleClose();
+        };
+        
+        const handleKeyPress = (e) => {
+          if (e.key === 'Enter') {
+            handleSubmit();
+          } else if (e.key === 'Escape') {
+            handleClose();
+          }
+        };
+        
+        // Add event listeners
+        urlField.addEventListener('input', updateClearButton);
+        if (clearBtn) {
+          clearBtn.addEventListener('click', handleClear);
+        }
+        document.getElementById('videoUrlClose').addEventListener('click', handleClose);
+        document.getElementById('videoUrlSubmit').addEventListener('click', handleSubmit);
+        urlField.addEventListener('keydown', handleKeyPress);
       }
 
       async function selectAudioUrl() {
         const urlInput = document.getElementById('audioUrlInput');
         const urlField = document.getElementById('audioUrlField');
-        if (urlInput && urlField) {
-          urlInput.style.display = 'flex';
-          setTimeout(() => urlField.focus(), 100);
-          
-          // Add Enter key handler
-          const handleKeyPress = (e) => {
-            if (e.key === 'Enter') {
-              submitAudioUrl();
-            } else if (e.key === 'Escape') {
-              cancelAudioUrl();
-            }
-          };
-          urlField.addEventListener('keydown', handleKeyPress);
-          
-          // Store handler for cleanup
-          urlField._keyHandler = handleKeyPress;
+        const clearBtn = document.getElementById('audioUrlClear');
+        const dropzone = document.getElementById('audioDropzone');
+        const uploadVisual = document.getElementById('audioUploadVisual');
+        const uploadActions = document.getElementById('audioUploadActions');
+        const audioSection = document.getElementById('audioSection');
+        
+        if (!urlInput || !urlField || !dropzone) return;
+        
+        // Add class to maintain height FIRST, before any display changes
+        if (audioSection) audioSection.classList.add('url-input-active');
+        
+        // Hide upload visual and actions with fade
+        if (uploadVisual) {
+          uploadVisual.style.transition = 'opacity 0.2s ease';
+          uploadVisual.style.opacity = '0';
+          setTimeout(() => { uploadVisual.style.display = 'none'; }, 200);
         }
+        if (uploadActions) {
+          uploadActions.style.transition = 'opacity 0.2s ease';
+          uploadActions.style.opacity = '0';
+          setTimeout(() => { uploadActions.style.display = 'none'; }, 200);
+        }
+        
+        // Show URL input with fade animation
+        dropzone.classList.add('url-input-mode');
+        urlInput.style.display = 'flex';
+        // Trigger reflow
+        urlInput.offsetHeight;
+        setTimeout(() => {
+          urlInput.classList.add('show');
+        }, 10);
+        
+        // Clear input and hide clear button
+        urlField.value = '';
+        if (clearBtn) clearBtn.style.display = 'none';
+        
+        // Focus input
+        setTimeout(() => urlField.focus(), 100);
+        
+        // Update clear button visibility
+        const updateClearButton = () => {
+          if (clearBtn) {
+            clearBtn.style.display = urlField.value.trim() ? 'flex' : 'none';
+          }
+        };
+        
+        // Handle clear button
+        const handleClear = () => {
+          urlField.value = '';
+          if (clearBtn) {
+            clearBtn.style.display = 'none';
+          }
+          urlField.focus();
+        };
+        
+        // Handle close button
+        const handleClose = () => {
+          // Fade out URL input
+          urlInput.classList.remove('show');
+          setTimeout(() => {
+            urlInput.style.display = 'none';
+            dropzone.classList.remove('url-input-mode');
+            if (audioSection) audioSection.classList.remove('url-input-active');
+            
+            // Fade in upload visual and actions
+            if (uploadVisual) {
+              uploadVisual.style.display = 'flex';
+              uploadVisual.style.opacity = '0';
+              setTimeout(() => {
+                uploadVisual.style.transition = 'opacity 0.2s ease';
+                uploadVisual.style.opacity = '1';
+              }, 10);
+            }
+            if (uploadActions) {
+              uploadActions.style.display = 'flex';
+              uploadActions.style.opacity = '0';
+              setTimeout(() => {
+                uploadActions.style.transition = 'opacity 0.2s ease';
+                uploadActions.style.opacity = '1';
+              }, 10);
+            }
+          }, 200);
+          
+          urlField.value = '';
+          if (clearBtn) clearBtn.style.display = 'none';
+          
+          // Remove event listeners
+          urlField.removeEventListener('input', updateClearButton);
+          if (clearBtn) {
+            clearBtn.removeEventListener('click', handleClear);
+          }
+          document.getElementById('audioUrlClose').removeEventListener('click', handleClose);
+          document.getElementById('audioUrlSubmit').removeEventListener('click', handleSubmit);
+          urlField.removeEventListener('keydown', handleKeyPress);
+        };
+        
+        // Handle submit
+        const handleSubmit = async () => {
+          const url = urlField.value.trim();
+          if (!url) return;
+          
+          if (typeof window.showToast === 'function') {
+            window.showToast('loading...', 'info');
+          }
+          
+          // Validate URL
+          if (!isValidAudioUrl(url)) {
+            if (typeof window.showToast === 'function') {
+              window.showToast('invalid audio url format', 'error');
+            }
+            return;
+          }
+          
+          // Check file size
+          const sizeCheck = await checkUrlSize(url);
+          if (!sizeCheck.valid) {
+            if (typeof window.showToast === 'function') {
+              window.showToast('audio exceeds 1gb (not allowed)', 'error');
+            }
+            return;
+          }
+          
+          // Set URL selection
+          window.selectedAudioUrl = url;
+          window.selectedAudioIsUrl = true;
+          window.selectedAudio = null;
+          window.selectedAudioIsTemp = false;
+          
+          updateLipsyncButton();
+          renderInputPreview();
+          
+          if (typeof window.showToast === 'function') {
+            window.showToast('audio url loaded successfully');
+          }
+          
+          scheduleEstimate();
+          
+          // Close URL input mode
+          handleClose();
+        };
+        
+        const handleKeyPress = (e) => {
+          if (e.key === 'Enter') {
+            handleSubmit();
+          } else if (e.key === 'Escape') {
+            handleClose();
+          }
+        };
+        
+        // Add event listeners
+        urlField.addEventListener('input', updateClearButton);
+        if (clearBtn) {
+          clearBtn.addEventListener('click', handleClear);
+        }
+        document.getElementById('audioUrlClose').addEventListener('click', handleClose);
+        document.getElementById('audioUrlSubmit').addEventListener('click', handleSubmit);
+        urlField.addEventListener('keydown', handleKeyPress);
       }
 
       async function submitVideoUrl() {

@@ -1,5 +1,3 @@
-      console.log('Core.js loaded and executing');
-      
       // Debug logging helper - cleaner format
       function debugLog(type, payload) {
         try {
@@ -682,25 +680,20 @@
 
       async function waitForHealth(maxAttempts = 20, delayMs = 250, expectedToken) {
         const port = getServerPort();
-        console.log('[waitForHealth] Starting health check, port:', port, 'maxAttempts:', maxAttempts);
         for (let i = 0; i < maxAttempts; i++) {
           try {
             const url = `http://127.0.0.1:${port}/health`;
-            console.log('[waitForHealth] Attempt', i + 1, 'checking:', url);
             const resp = await fetchWithTimeout(url, { 
               headers: { 'X-CEP-Panel': 'sync' }, 
               cache: 'no-store' 
             }, 5000); // 5 second timeout per attempt
-            console.log('[waitForHealth] Response:', resp.status, resp.ok);
             if (resp.ok) return true;
           } catch (e) {
-            console.log('[waitForHealth] Attempt', i + 1, 'failed:', e.message);
             // ignore until attempts exhausted
           }
           if (expectedToken != null && expectedToken !== runToken) return false;
           await new Promise(r => setTimeout(r, delayMs));
         }
-        console.log('[waitForHealth] All attempts failed');
         return false;
       }
 
@@ -814,7 +807,7 @@
           if (!cs) cs = new CSInterface();
           cs.openURLInDefaultBrowser(url);
         } catch(e) {
-          console.error('Failed to open URL:', e);
+          // Failed to open URL - silently fail
         }
       }
       
@@ -971,33 +964,13 @@
                 }
                 el.__clickHandler = handler;
                 el.addEventListener('click', handler);
-                if (selector.includes('audio-from-video')) {
-                  console.log('From video button found and handler attached:', el);
-                }
-                if (selector.includes('lipsyncBtn')) {
-                  console.log('Lipsync button found and handler attached:', el);
-                }
-              } else {
-                if (selector.includes('audio-from-video')) {
-                  console.error('From video button NOT FOUND with selector:', selector);
-                }
-                if (selector.includes('lipsyncBtn')) {
-                  console.error('Lipsync button NOT FOUND with selector:', selector);
-                }
               }
             } catch(e){
-              if (selector.includes('audio-from-video')) {
-                console.error('Error attaching handler to from video button:', e);
-              }
-              if (selector.includes('lipsyncBtn')) {
-                console.error('Error attaching handler to lipsync button:', e);
-              }
+              // Error attaching handler - silently fail
             } 
           }
           // Video buttons
-          console.log('Setting up video button listeners');
           const videoRecordBtn = document.querySelector('.video-upload .action-btn[data-action="video-record"]');
-          console.log('Video record button found:', !!videoRecordBtn);
           debugLog('wire_buttons_start', { 
             videoRecordBtn: !!videoRecordBtn,
             audioRecordBtn: false, // will be set below
@@ -1007,11 +980,9 @@
           on('.video-upload .action-btn[data-action="video-upload"]', function(){ try{ selectVideo(); }catch(_){ } });
           on('.video-upload .action-btn[data-action="video-inout"]', function(){ try{ selectVideoInOut(); }catch(_){ } });
           on('.video-upload .action-btn[data-action="video-record"]', function(){ 
-            console.log('Video record button clicked');
             debugLog('video_record_clicked');
             try{ 
               if (typeof window.startVideoRecording === 'function') {
-                console.log('Calling startVideoRecording');
                 debugLog('start_video_recording', {
                   functionAvailable: true,
                   selectedVideo: window.selectedVideo,
@@ -1021,7 +992,6 @@
                 });
                 window.startVideoRecording();
               } else {
-                console.error('startVideoRecording function not available');
                 debugLog('start_video_recording', {
                   functionAvailable: false,
                   selectedVideo: window.selectedVideo,
@@ -1031,18 +1001,14 @@
                 });
               }
             }catch(e){ 
-              console.error('Video recording error:', e);
               debugLog('video_recording_error', { error: String(e) });
             } 
           });
           on('.video-upload .action-btn[data-action="video-link"]', function(){ try{ selectVideoUrl(); }catch(_){ } });
 
           // Audio buttons
-          console.log('Setting up audio button listeners');
           const audioRecordBtn = document.querySelector('.audio-upload .action-btn[data-action="audio-record"]');
           const audioTtsBtn = document.querySelector('.audio-upload .action-btn[data-action="audio-tts"]');
-          console.log('Audio record button found:', !!audioRecordBtn);
-          console.log('Audio TTS button found:', !!audioTtsBtn);
           debugLog('wire_audio_buttons', { 
             audioRecordBtn: !!audioRecordBtn,
             audioTtsBtn: !!audioTtsBtn
@@ -1051,11 +1017,9 @@
           on('.audio-upload .action-btn[data-action="audio-upload"]', function(){ try{ selectAudio(); }catch(_){ } });
           on('.audio-upload .action-btn[data-action="audio-inout"]', function(){ try{ selectAudioInOut(); }catch(_){ } });
           on('.audio-upload .action-btn[data-action="audio-record"]', function(){ 
-            console.log('Audio record button clicked');
             debugLog('audio_record_clicked');
             try{ 
               if (typeof window.startAudioRecording === 'function') {
-                console.log('Calling startAudioRecording');
                 debugLog('start_audio_recording', {
                   functionAvailable: true,
                   selectedVideo: window.selectedVideo,
@@ -1065,7 +1029,6 @@
                 });
                 window.startAudioRecording();
               } else {
-                console.error('startAudioRecording function not available');
                 debugLog('start_audio_recording', {
                   functionAvailable: false,
                   selectedVideo: window.selectedVideo,
@@ -1075,7 +1038,6 @@
                 });
               }
             }catch(e){ 
-              console.error('Audio recording error:', e);
               debugLog('audio_recording_error', { error: String(e) });
             } 
           });
@@ -1118,19 +1080,15 @@
           });
           // TTS/Dubbing stub dropdowns (toggle only)
           on('.audio-upload .action-btn[data-action="audio-tts"]', function(){ 
-            console.log('TTS button clicked');
             debugLog('tts_button_clicked');
             try{ 
               if (typeof window.TTSInterface !== 'undefined' && window.TTSInterface.show) {
-                console.log('Calling TTSInterface.show');
                 debugLog('tts_interface_show', { interfaceAvailable: true });
                 window.TTSInterface.show();
               } else {
-                console.error('TTSInterface not available');
                 debugLog('tts_interface_show', { interfaceAvailable: false });
               }
             }catch(e){ 
-              console.error('TTS button error:', e);
               debugLog('tts_button_error', { error: String(e) });
             } 
           });
@@ -1146,7 +1104,6 @@
           
           // Lipsync button
           const lipsyncBtn = document.querySelector('#lipsyncBtn');
-          console.log('Lipsync button found:', !!lipsyncBtn, 'disabled:', lipsyncBtn?.disabled);
           debugLog('lipsync_button_setup', { 
             buttonFound: !!lipsyncBtn, 
             disabled: lipsyncBtn?.disabled,
@@ -1161,17 +1118,14 @@
                 e.stopImmediatePropagation();
               }
               
-              console.log('Lipsync button clicked!');
               debugLog('lipsync_button_clicked', { timestamp: new Date().toISOString() });
               
               if (window.__lipsyncRunning) {
-                console.log('[Lipsync Button] Already running, ignoring click');
                 return;
               }
               
               const btn = document.getElementById('lipsyncBtn');
               if (btn && btn.disabled) {
-                console.log('[Lipsync Button] Already disabled, ignoring click');
                 return;
               }
               
@@ -1186,16 +1140,13 @@
               if (window.showToast) {
                 window.showToast('submitting...', 'info');
               }
-              console.log('About to call startLipsync()');
               if (window.startLipsync) {
                 window.startLipsync();
               } else {
-                console.error('startLipsync function not found on window');
                 debugLog('lipsync_function_missing', { startLipsyncAvailable: false });
                 window.__lipsyncRunning = false;
               } 
             }catch(e){ 
-              console.error('Error in lipsync button handler:', e);
               window.__lipsyncRunning = false;
             } 
           });
