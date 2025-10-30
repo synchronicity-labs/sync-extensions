@@ -40,6 +40,19 @@ router.get('/', (_req, res) => res.json({ ok: true, service: 'sync-extension-ser
 
 router.get('/telemetry/test', async (req, res) => {
   try {
+    // Debug: Check PostHog configuration
+    const posthogKey = process.env.POSTHOG_KEY || '<your_project_api_key>';
+    const posthogHost = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+    const hasValidKey = posthogKey && posthogKey !== '<your_project_api_key>';
+    
+    console.log('PostHog Config:', {
+      keyPresent: !!process.env.POSTHOG_KEY,
+      keyValue: hasValidKey ? `${posthogKey.substring(0, 10)}...` : 'INVALID/MISSING',
+      host: posthogHost,
+      distinctId: distinctId
+    });
+    
+    // Test PostHog connectivity
     track('telemetry_test', {
       testType: 'connectivity',
       timestamp: new Date().toISOString()
@@ -49,13 +62,36 @@ router.get('/telemetry/test', async (req, res) => {
       ok: true, 
       message: 'PostHog test event sent',
       distinctId: distinctId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      debug: {
+        posthogKeyPresent: !!process.env.POSTHOG_KEY,
+        posthogKeyValid: hasValidKey,
+        posthogHost: posthogHost
+      }
     });
   } catch (error) {
     res.status(500).json({ 
       ok: false, 
       error: error.message,
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+router.post('/telemetry/posthog-status', async (req, res) => {
+  try {
+    const status = req.body || {};
+    console.log('PostHog Client Status:', JSON.stringify(status, null, 2));
+    
+    res.json({ 
+      ok: true, 
+      message: 'PostHog status logged',
+      received: status
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      ok: false, 
+      error: error.message
     });
   }
 });

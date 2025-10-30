@@ -23,6 +23,8 @@ if (dotenvResult.error) {
   console.log('.env file loaded successfully');
   console.log('R2_ACCESS_KEY present:', !!process.env.R2_ACCESS_KEY);
   console.log('R2_SECRET_KEY present:', !!process.env.R2_SECRET_KEY);
+console.log('POSTHOG_KEY present:', !!process.env.POSTHOG_KEY);
+console.log('POSTHOG_KEY valid:', !!(process.env.POSTHOG_KEY && process.env.POSTHOG_KEY !== '<your_project_api_key>'));
 }
 
 import { track, identify, setUserProperties, distinctId } from './telemetry.js';
@@ -114,7 +116,7 @@ app.use(cors({
 }));
 
 let jobs = [];
-let jobCounter = 0;
+// jobCounter removed - using Sync API IDs directly
 const STATE_DIR = DIRS.state;
 if (!fs.existsSync(STATE_DIR)) {
   try {
@@ -148,7 +150,7 @@ getOrCreateToken().then(token => {
 
 function initializeJobs() {
   jobs = jobs || [];
-  jobCounter = jobs.length ? Math.max(...jobs.map(j => Number(j.id) || 0)) + 1 : 1;
+  // No need to initialize jobCounter - using Sync API IDs directly
 }
 
 function saveJobs() {
@@ -204,7 +206,7 @@ function requireAuth(req, res, next) {
 app.use((req, res, next) => {
   req.authToken = AUTH_TOKEN;
   req.jobs = jobs;
-  req.jobCounter = () => ++jobCounter;
+  // req.jobCounter removed - using Sync API IDs directly
   req.saveJobs = saveJobs;
   next();
 });

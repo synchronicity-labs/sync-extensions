@@ -12,8 +12,34 @@
       (function(){
         var s=document.createElement('script');
         s.src='https://cdn.posthog.com/posthog.js'; 
-        s.async=true;
+        s.async=false; // Load synchronously to ensure PostHog is available
+        s.onerror=function(err){
+          // Log PostHog script load failure
+          try {
+            fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                error: 'PostHog script failed to load from CDN',
+                errorDetails: err.toString()
+              })
+            }).catch(() => {});
+          } catch(e) {}
+        };
         s.onload=function(){
+          // Check if posthog is available
+          if (typeof posthog === 'undefined') {
+            fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                error: 'PostHog object not available after script load',
+                windowPosthog: typeof window.posthog !== 'undefined'
+              })
+            }).catch(() => {});
+            return;
+          }
+          
           // Get distinctId from server to ensure consistency
           fetch('http://127.0.0.1:3000/telemetry/test')
             .then(response => response.json())
@@ -24,9 +50,84 @@
                 api_host: 'https://us.i.posthog.com',
                 autocapture: false,           // be explicit about what you send
                 capture_pageview: false,      // panels aren't real pages
-                disable_session_recording: true, // turn ON later if you need replay
-                distinct_id: distinctId       // Use same ID as server
+                disable_session_recording: false, // Enable session replays
+                disable_external_dependency_loading: true, // Required for CEP/extensions
+                persistence: 'localStorage',  // Use localStorage for CEP compatibility
+                maskAllText: false,           // Don't mask all text
+                maskAllInputs: false,         // Don't mask all inputs
+                maskTextSelector: '[data-sensitive], .api-key-input, input[type="password"], input[name*="api"], input[name*="key"], input[id*="api"], input[id*="key"]', // Mask sensitive fields
+                distinct_id: distinctId,       // Use same ID as server
+                loaded: function(posthog) {
+                  // Ensure session recording starts after initialization
+                  try {
+                    if (posthog && typeof posthog.startSessionRecording === 'function') {
+                      posthog.startSessionRecording();
+                    }
+                    // Also try alternative method
+                    if (posthog.sessionRecording && typeof posthog.sessionRecording.startRecording === 'function') {
+                      posthog.sessionRecording.startRecording();
+                    }
+                  } catch(e) {
+                    console.error('Failed to start session recording:', e);
+                  }
+                }
               });
+              
+              // Identify user with custom properties for filtering
+              posthog.identify(distinctId, {
+                syncExtensionId: distinctId,
+                installId: distinctId,
+                source: 'sync-extension'
+              });
+              
+              // Send PostHog status to server for debugging
+              try {
+                // Wait a bit for PostHog to fully initialize
+                setTimeout(() => {
+                  fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      distinctId: distinctId,
+                      posthogLoaded: typeof posthog !== 'undefined',
+                      sessionRecordingEnabled: !posthog.__loadedOptions?.disable_session_recording,
+                      sessionRecordingStarted: posthog.sessionRecordingStarted || false,
+                      hasSessionManager: typeof posthog.sessionManager !== 'undefined',
+                      hasSessionReplay: typeof posthog.sessionReplay !== 'undefined',
+                      sessionId: posthog.get_session_id ? posthog.get_session_id() : null,
+                      options: {
+                        api_host: posthog.config?.api_host,
+                        disable_session_recording: posthog.__loadedOptions?.disable_session_recording,
+                        persistence: posthog.__loadedOptions?.persistence,
+                        disable_external_dependency_loading: posthog.__loadedOptions?.disable_external_dependency_loading
+                      },
+                      error: null
+                    })
+                  }).catch(err => {
+                    // Try to send error info
+                    fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        distinctId: distinctId,
+                        error: err.message
+                      })
+                    }).catch(() => {});
+                  });
+                }, 1000);
+              } catch(e) {
+                // Try to send error info
+                try {
+                  fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      distinctId: distinctId,
+                      error: e.message
+                    })
+                  }).catch(() => {});
+                } catch(_) {}
+              }
               
               // Track panel initialization
               posthog.capture('ui_panel_loaded', {
@@ -45,7 +146,31 @@
                 api_host: 'https://us.i.posthog.com',
                 autocapture: false,
                 capture_pageview: false,
-                disable_session_recording: true
+                disable_session_recording: false, // Enable session replays
+                disable_external_dependency_loading: true, // Required for CEP/extensions
+                persistence: 'localStorage',  // Use localStorage for CEP compatibility
+                maskAllText: false,
+                maskAllInputs: false,
+                maskTextSelector: '[data-sensitive], .api-key-input, input[type="password"], input[name*="api"], input[name*="key"], input[id*="api"], input[id*="key"]', // Mask sensitive fields
+                loaded: function(posthog) {
+                  // Ensure session recording starts after initialization
+                  try {
+                    if (posthog && typeof posthog.startSessionRecording === 'function') {
+                      posthog.startSessionRecording();
+                    }
+                    if (posthog.sessionRecording && typeof posthog.sessionRecording.startRecording === 'function') {
+                      posthog.sessionRecording.startRecording();
+                    }
+                  } catch(e) {}
+                }
+              });
+              
+              // Identify user with custom properties for filtering (fallback)
+              const fallbackId = 'unknown';
+              posthog.identify(fallbackId, {
+                syncExtensionId: fallbackId,
+                installId: fallbackId,
+                source: 'sync-extension'
               });
               
               posthog.capture('ui_panel_loaded', {
@@ -710,7 +835,7 @@
           
           <div class="model-options">
             <label class="model-option">
-              <input type="radio" name="model" value="lipsync 2 pro" />
+              <input type="radio" name="model" value="lipsync-2-pro" />
               <div class="model-option-icon"></div>
               <div class="model-option-content">
                 <div class="model-option-title">
@@ -735,7 +860,7 @@
             </label>
             
             <label class="model-option">
-              <input type="radio" name="model" value="lipsync 1.9" />
+              <input type="radio" name="model" value="lipsync-1.9.0-beta" />
               <div class="model-option-icon"></div>
               <div class="model-option-content">
                 <div class="model-option-title">

@@ -243,15 +243,15 @@
             videoUrl: window.uploadedVideoUrl || window.selectedVideoUrl || '',
             audioUrl: window.uploadedAudioUrl || window.selectedAudioUrl || '',
             model: (document.querySelector('input[name="model"]:checked')||{}).value || 'lipsync-2-pro',
-            temperature: parseFloat(document.getElementById('temperature').value),
-            activeSpeakerOnly: document.getElementById('activeSpeakerOnly').checked,
-            detectObstructions: document.getElementById('detectObstructions').checked,
+            temperature: parseFloat((document.getElementById('temperature') || {}).value || 0.7),
+            activeSpeakerOnly: (document.getElementById('activeSpeakerOnly') || {}).checked || false,
+            detectObstructions: (document.getElementById('detectObstructions') || {}).checked || false,
             syncApiKey: apiKey,
             options: {
               sync_mode: (document.getElementById('syncMode')||{}).value || 'loop',
-              temperature: parseFloat(document.getElementById('temperature').value),
-              active_speaker_detection: { auto_detect: !!document.getElementById('activeSpeakerOnly').checked },
-              occlusion_detection_enabled: !!document.getElementById('detectObstructions').checked
+              temperature: parseFloat((document.getElementById('temperature') || {}).value || 0.7),
+              active_speaker_detection: { auto_detect: !!(document.getElementById('activeSpeakerOnly') || {}).checked },
+              occlusion_detection_enabled: !!(document.getElementById('detectObstructions') || {}).checked
             }
           };
           let resp, data;

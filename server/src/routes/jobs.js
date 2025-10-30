@@ -95,8 +95,29 @@ router.post('/jobs', async (req, res) => {
       return res.status(400).json({ error: 'Files over 1GB are not allowed. Please use smaller files.' });
     }
 
+    // Create Sync API generation first to get the ID
+    let syncJobId = null;
+    try {
+      const tempJob = {
+        videoPath,
+        audioPath,
+        videoUrl: videoUrl || '',
+        audioUrl: audioUrl || '',
+        model: model || 'lipsync-2-pro',
+        options: (options && typeof options === 'object') ? options : {},
+        syncApiKey,
+      };
+      await createGeneration(tempJob);
+      syncJobId = tempJob.syncJobId;
+      if (!syncJobId) {
+        throw new Error('Failed to get Sync API generation ID');
+      }
+    } catch (e) {
+      return res.status(500).json({ error: `Failed to create generation: ${String(e?.message || e)}` });
+    }
+
     const job = {
-      id: req.jobCounter(),
+      id: syncJobId, // Use Sync API ID as the job ID
       videoPath,
       audioPath,
       videoUrl: videoUrl || '',
@@ -110,7 +131,6 @@ router.post('/jobs', async (req, res) => {
       options: (options && typeof options === 'object') ? options : {},
       status: 'processing',
       createdAt: new Date().toISOString(),
-      syncJobId: null,
       outputPath: null,
       outputDir: normalizeOutputDir(outputDir || '') || null,
       syncApiKey,
@@ -125,7 +145,6 @@ router.post('/jobs', async (req, res) => {
     
     setImmediate(async () => {
       try {
-        await createGeneration(job);
         try {
           if (job.isTempVideo && job.videoPath && await safeExists(job.videoPath)) {
             await fs.promises.unlink(job.videoPath);
@@ -186,7 +205,7 @@ router.post('/jobs/:id/save', async (req, res) => {
     let job = req.jobs.find(j => String(j.id) === String(req.params.id));
     if (!job) {
       if (!keyOverride) return res.status(404).json({ error: 'Job not found and syncApiKey missing' });
-      job = { id: String(req.params.id), syncJobId: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
+      job = { id: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
     }
 
     const outDir = (location === 'documents') ? DOCS_DEFAULT_DIR : (targetDir || job.outputDir || TEMP_DEFAULT_DIR);

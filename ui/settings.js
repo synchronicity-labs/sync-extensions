@@ -170,8 +170,17 @@
         function loadModalSettings() {
           const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
           
-          // Set model radio
-          const model = settings.model || 'lipsync-2-pro';
+          let model = settings.model || 'lipsync-2-pro';
+          if (model === 'lipsync 1.9') {
+            model = 'lipsync-1.9.0-beta';
+            settings.model = model;
+            localStorage.setItem('syncSettings', JSON.stringify(settings));
+          } else if (model === 'lipsync 2 pro') {
+            model = 'lipsync-2-pro';
+            settings.model = model;
+            localStorage.setItem('syncSettings', JSON.stringify(settings));
+          }
+          
           modelRadios.forEach(radio => {
             if (radio.value === model) {
               radio.checked = true;
@@ -301,17 +310,22 @@
       function loadSettings() {
         const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
         if (settings.model) {
-          document.querySelector(`input[value="${settings.model}"]`).checked = true;
+          const modelInput = document.querySelector(`input[value="${settings.model}"]`);
+          if (modelInput) modelInput.checked = true;
         }
         if (settings.temperature !== undefined) {
-          document.getElementById('temperature').value = settings.temperature;
-          document.getElementById('tempValue').textContent = settings.temperature;
+          const tempEl = document.getElementById('temperature');
+          if (tempEl) tempEl.value = settings.temperature;
+          const tempValueEl = document.getElementById('tempValue');
+          if (tempValueEl) tempValueEl.textContent = settings.temperature;
         }
         if (settings.activeSpeakerOnly) {
-          document.getElementById('activeSpeakerOnly').checked = settings.activeSpeakerOnly;
+          const asdEl = document.getElementById('activeSpeakerOnly');
+          if (asdEl) asdEl.checked = settings.activeSpeakerOnly;
         }
         if (settings.detectObstructions) {
-          document.getElementById('detectObstructions').checked = settings.detectObstructions;
+          const doEl = document.getElementById('detectObstructions');
+          if (doEl) doEl.checked = settings.detectObstructions;
         }
         if (settings.syncMode) {
           const sm = document.getElementById('syncMode'); if (sm) sm.value = settings.syncMode;

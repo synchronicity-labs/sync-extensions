@@ -72,11 +72,6 @@
             </button>
             <div class="player-time">00:00 / 00:00</div>
             <input type="range" class="player-seek" min="0" max="100" value="0">
-            <button class="player-btn fullscreen-btn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-              </svg>
-            </button>
           </div>
         </div>`;
         try { const p = preview.querySelector('.player'); if (p) initVideoPlayer(p); } catch(_){ }
@@ -90,7 +85,6 @@
         const playBtn = playerEl.querySelector('.play-btn');
         const timeDisplay = playerEl.querySelector('.player-time');
         const seekBar = playerEl.querySelector('.player-seek');
-        const fullscreenBtn = playerEl.querySelector('.fullscreen-btn');
         
         if (playBtn) {
           playBtn.addEventListener('click', () => {
@@ -126,14 +120,6 @@
           // Keep play button icon in sync
           video.addEventListener('play', () => { if (playBtn) playBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'; });
           video.addEventListener('pause', () => { if (playBtn) playBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>'; });
-        }
-        
-        if (fullscreenBtn) {
-          fullscreenBtn.addEventListener('click', () => {
-            if (video.requestFullscreen) {
-              video.requestFullscreen();
-            }
-          });
         }
       }
 
@@ -296,6 +282,14 @@
           }
           
           if (videoSection) videoSection.classList.add('has-media');
+          const sourcesContainer = document.querySelector('.sources-container');
+          const audioSection = document.getElementById('audioSection');
+          if (sourcesContainer) {
+            sourcesContainer.classList.add('has-video');
+            if (audioSection && audioSection.classList.contains('has-media')) {
+              sourcesContainer.classList.add('has-both');
+            }
+          }
           videoDropzone.style.display = 'none';
           videoPreview.style.display = 'flex';
           const videoSrc = window.selectedVideoIsUrl ? window.selectedVideoUrl : `file://${window.selectedVideo.replace(/ /g, '%20')}`;
@@ -334,11 +328,6 @@
                     <div class="video-frame-info" id="videoFrameInfo">0 / 0</div>
                   </div>
                   <div class="video-right-controls">
-                    <button class="video-control-btn fullscreen-btn" id="fullscreenBtn">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-                      </svg>
-                    </button>
                     <button class="video-control-btn video-delete-btn" onclick="clearVideoSelection()">
                       <i data-lucide="trash-2" style="width: 18px; height: 18px;"></i>
                     </button>
@@ -354,6 +343,10 @@
           }
         } else {
           if (videoSection) videoSection.classList.remove('has-media');
+          const sourcesContainer = document.querySelector('.sources-container');
+          if (sourcesContainer) {
+            sourcesContainer.classList.remove('has-video', 'has-both');
+          }
           videoDropzone.style.display = 'flex';
           videoPreview.style.display = 'none';
         }
@@ -374,6 +367,14 @@
           }
           
           if (audioSection) audioSection.classList.add('has-media');
+          const sourcesContainer = document.querySelector('.sources-container');
+          const videoSection = document.getElementById('videoSection');
+          if (sourcesContainer) {
+            sourcesContainer.classList.add('has-audio');
+            if (videoSection && videoSection.classList.contains('has-media')) {
+              sourcesContainer.classList.add('has-both');
+            }
+          }
           audioDropzone.style.display = 'none';
           audioPreview.style.display = 'flex';
           const audioSrc = window.selectedAudioIsUrl ? window.selectedAudioUrl : "file://" + window.selectedAudio.replace(/ /g, '%20');
@@ -462,6 +463,8 @@
           }
         } else {
           if (audioSection) audioSection.classList.remove('has-media');
+          const sourcesContainer = document.querySelector('.sources-container');
+          if (sourcesContainer) sourcesContainer.classList.remove('has-audio', 'has-both');
           audioDropzone.style.display = 'flex';
           audioPreview.style.display = 'none';
         }
@@ -1241,7 +1244,6 @@
         const progressBar = document.querySelector('.video-progress-bar');
         const volumeBtn = document.getElementById('volumeBtn');
         const volumeSlider = document.getElementById('volumeSlider');
-        const fullscreenBtn = document.getElementById('fullscreenBtn');
         
         if (!video) return;
 
@@ -1422,17 +1424,6 @@
               volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" stroke-width="2"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" stroke-width="2"/></svg>';
             } else {
               volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
-            }
-          });
-        }
-
-        // Fullscreen
-        if (fullscreenBtn) {
-          fullscreenBtn.addEventListener('click', () => {
-            if (video.requestFullscreen) {
-              video.requestFullscreen();
-            } else if (video.webkitRequestFullscreen) {
-              video.webkitRequestFullscreen();
             }
           });
         }
@@ -2812,8 +2803,17 @@
         const videoSection = document.getElementById('videoSection');
         const videoDropzone = document.getElementById('videoDropzone');
         const videoPreview = document.getElementById('videoPreview');
+        const sourcesContainer = document.querySelector('.sources-container');
         
         if (videoSection && videoPreview) {
+          // Add classes for proper layout
+          if (videoSection) videoSection.classList.add('has-media');
+          if (sourcesContainer) {
+            sourcesContainer.classList.add('has-video');
+            // For output video with post-lipsync actions, treat it as "has-both" for proper centering
+            // This ensures equal black bars top/bottom with actions below
+            sourcesContainer.classList.add('has-both');
+          }
           // Use outputUrl if available, otherwise check if outputPath is a URL or file path
           let videoSrc = '';
           if (job.outputUrl) {
@@ -2868,11 +2868,6 @@
                     <div class="video-frame-info" id="outputVideoFrameInfo">0 / 0</div>
                   </div>
                   <div class="video-right-controls">
-                    <button class="video-control-btn fullscreen-btn" id="outputFullscreenBtn">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-                      </svg>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -2915,6 +2910,7 @@ function showPostLipsyncActions(job) {
             </div>
           </div>`;
         
+        // Insert as sibling after videoSection (like audio section), not inside it
         videoSection.insertAdjacentHTML('afterend', actionsHtml);
         
         // Initialize Lucide icons for the new buttons
@@ -2971,7 +2967,6 @@ function showPostLipsyncActions(job) {
         const progressBar = document.querySelector('.video-progress-bar');
         const volumeBtn = document.getElementById('outputVolumeBtn');
         const volumeSlider = document.getElementById('outputVolumeSlider');
-        const fullscreenBtn = document.getElementById('outputFullscreenBtn');
         
         if (!video) return;
 
@@ -3054,16 +3049,6 @@ function showPostLipsyncActions(job) {
             }
           });
         }
-
-        if (fullscreenBtn) {
-          fullscreenBtn.addEventListener('click', () => {
-            if (video.requestFullscreen) {
-              video.requestFullscreen();
-            } else if (video.webkitRequestFullscreen) {
-              video.webkitRequestFullscreen();
-            }
-          });
-        }
       }
 
       // Function to load audio from file path (for TTS integration)
@@ -3139,32 +3124,69 @@ function showPostLipsyncActions(job) {
        * Loads a completed job into the sources tab
        */
       window.loadJobIntoSources = function(jobId) {
+        console.log('[loadJobIntoSources] Called with jobId:', jobId);
         const jobs = window.jobs || [];
+        console.log('[loadJobIntoSources] Available jobs:', jobs.length, 'ids:', jobs.map(j => j.id).slice(0, 5));
         const job = jobs.find(j => String(j.id) === String(jobId));
         
         if (!job) {
+          console.warn('[loadJobIntoSources] Job not found:', jobId, 'Available IDs:', jobs.map(j => j.id));
           if (typeof window.showToast === 'function') {
             window.showToast('job not found', 'error');
           }
           return;
         }
         
+        console.log('[loadJobIntoSources] Found job:', {
+          id: job.id,
+          status: job.status,
+          outputPath: job.outputPath,
+          outputUrl: job.outputUrl
+        });
+        
         if (job.status !== 'completed' || (!job.outputPath && !job.outputUrl)) {
+          console.warn('[loadJobIntoSources] Job not ready:', {
+            status: job.status,
+            hasOutputPath: !!job.outputPath,
+            hasOutputUrl: !!job.outputUrl
+          });
           if (typeof window.showToast === 'function') {
             window.showToast('job is not completed yet', 'error');
           }
           return;
         }
         
-        // Hide lipsync button and audio section
-        const btn = document.getElementById('lipsyncBtn');
-        if (btn) btn.style.display = 'none';
+        console.log('[loadJobIntoSources] Loading job into sources tab...');
+        
+        // Disable lipsync button (keep visible, greyed out) and hide audio section FIRST
+        // Do this before switching tabs to prevent showTab from re-enabling it
+        if (typeof window.setLipsyncButtonState === 'function') {
+          window.setLipsyncButtonState({ disabled: true, text: 'lipsync' });
+        } else {
+          const btn = document.getElementById('lipsyncBtn');
+          if (btn) {
+            btn.disabled = true;
+            btn.style.display = 'flex';
+          }
+        }
         const audioSection = document.getElementById('audioSection');
         if (audioSection) audioSection.style.display = 'none';
         
         // Switch to sources tab
         if (typeof window.showTab === 'function') {
           window.showTab('sources');
+          
+          // Ensure button stays disabled after tab switch (showTab might re-enable it)
+          setTimeout(() => {
+            if (typeof window.setLipsyncButtonState === 'function') {
+              window.setLipsyncButtonState({ disabled: true, text: 'lipsync' });
+            } else {
+              const btn = document.getElementById('lipsyncBtn');
+              if (btn) {
+                btn.disabled = true;
+              }
+            }
+          }, 50);
         }
         
         // Render the output video and actions

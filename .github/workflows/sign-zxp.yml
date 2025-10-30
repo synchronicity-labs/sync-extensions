@@ -43,6 +43,9 @@ jobs:
           R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
           R2_BUCKET=${{ secrets.R2_BUCKET }}
           R2_PREFIX=${{ secrets.R2_PREFIX }}
+          # PostHog Configuration
+          POSTHOG_KEY=${{ secrets.POSTHOG_KEY }}
+          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
           EOF
           echo "Created .env file:"
           ls -la .env
@@ -68,6 +71,12 @@ jobs:
           fi
           
           echo "✅ .env file validation passed"
+          
+          # Move .env to server/.env before copying server directory
+          # Server runs with cwd=server/, so .env must be in server/.env
+          mkdir -p server
+          cp .env server/.env
+          echo "✅ Moved .env to server/.env"
 
       - name: Build CEP folders for macOS
         shell: bash
@@ -164,6 +173,9 @@ jobs:
           R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
           R2_BUCKET=${{ secrets.R2_BUCKET }}
           R2_PREFIX=${{ secrets.R2_PREFIX }}
+          # PostHog Configuration
+          POSTHOG_KEY=${{ secrets.POSTHOG_KEY }}
+          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
           EOF
           echo "Created .env file:"
           ls -la .env
@@ -189,6 +201,12 @@ jobs:
           fi
           
           echo "✅ .env file validation passed"
+          
+          # Move .env to server/.env before copying server directory
+          # Server runs with cwd=server/, so .env must be in server/.env
+          if (-not (Test-Path "server")) { New-Item -ItemType Directory -Force -Path "server" | Out-Null }
+          Copy-Item ".env" "server/.env" -Force
+          echo "✅ Moved .env to server/.env"
 
       - name: Build CEP folders for Windows
         shell: pwsh
@@ -305,16 +323,22 @@ jobs:
           echo "AE macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ae.panel\.env")"
           echo "Premiere macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ppro.panel\.env")"
           
-          # Since .env files are missing from the artifact, recreate them
-          echo "Recreating .env files for macOS packages..."
-          $envContent = "# R2 Configuration`nR2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}`nR2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}`nR2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}`nR2_BUCKET=${{ secrets.R2_BUCKET }}`nR2_PREFIX=${{ secrets.R2_PREFIX }}"
+          # Since .env files are missing from the artifact, recreate them in server/.env
+          echo "Recreating .env files for macOS packages in server/.env..."
+          $envContent = "# R2 Configuration`nR2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}`nR2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}`nR2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}`nR2_BUCKET=${{ secrets.R2_BUCKET }}`nR2_PREFIX=${{ secrets.R2_PREFIX }}`n# PostHog Configuration`nPOSTHOG_KEY=${{ secrets.POSTHOG_KEY }}`nPOSTHOG_HOST=${{ secrets.POSTHOG_HOST }}"
           
-          $envContent | Out-File -FilePath "build\mac\com.sync.extension.ae.panel\.env" -Encoding UTF8
-          $envContent | Out-File -FilePath "build\mac\com.sync.extension.ppro.panel\.env" -Encoding UTF8
+          # Create server directory if it doesn't exist and write .env file there
+          $aeServerDir = "build\mac\com.sync.extension.ae.panel\server"
+          $ppServerDir = "build\mac\com.sync.extension.ppro.panel\server"
+          New-Item -ItemType Directory -Force -Path $aeServerDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $ppServerDir | Out-Null
           
-          echo "Recreated .env files for both macOS packages"
-          echo "AE macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ae.panel\.env")"
-          echo "Premiere macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ppro.panel\.env")"
+          $envContent | Out-File -FilePath "$aeServerDir\.env" -Encoding UTF8
+          $envContent | Out-File -FilePath "$ppServerDir\.env" -Encoding UTF8
+          
+          echo "Recreated .env files for both macOS packages in server/.env"
+          echo "AE macOS server/.env exists: $(Test-Path "$aeServerDir\.env")"
+          echo "Premiere macOS server/.env exists: $(Test-Path "$ppServerDir\.env")"
 
       - name: Fetch ZXPSignCmd
         shell: pwsh

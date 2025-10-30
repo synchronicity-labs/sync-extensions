@@ -73,20 +73,20 @@
 
 .action-btn i,
 .audio-play-btn i {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  min-width: 16px;
-  min-height: 16px;
+  min-width: 18px;
+  min-height: 18px;
 }
 
 .action-btn i svg,
 .audio-play-btn i svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  min-width: 16px;
-  min-height: 16px;
+  min-width: 18px;
+  min-height: 18px;
 }
 
 .action-btn i svg path,
@@ -102,6 +102,21 @@
 .audio-play-btn i svg polyline,
 .audio-play-btn i svg polygon {
   stroke-width: 1.5 !important;
+}
+
+.audio-play-btn {
+  border: none;
+  outline: none;
+  width: 32px;
+  min-width: 32px;
+  padding: 8px;
+}
+
+.audio-play-btn:focus,
+.audio-play-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 /* Full-width button variant */
@@ -348,7 +363,7 @@
   min-height: 32px;
   background: transparent;
   border: none;
-  color: var(--color-error);
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -359,9 +374,30 @@
   padding: 8px;
 }
 
-.audio-delete-btn:hover,
-.video-delete-btn:hover {
+.audio-delete-btn {
+  color: var(--color-error-alt);
+}
+
+.audio-delete-btn:hover {
   background: var(--color-error-light);
+}
+
+.video-delete-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.audio-delete-btn i,
+.video-delete-btn i {
+  width: 18px;
+  height: 18px;
+}
+
+.audio-delete-btn i {
+  color: var(--color-error-alt);
+}
+
+.video-delete-btn i {
+  color: var(--text-primary);
 }
 
 /* Video control buttons */

@@ -41,8 +41,17 @@
         const modelEl = document.getElementById('currentModel');
         if (modelEl) {
           const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
-          const model = settings.model || 'lipsync 2 pro';
-          const displayName = model.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          const model = settings.model || 'lipsync-2-pro';
+          
+          const modelDisplayMap = {
+            'lipsync-1.9.0-beta': 'lipsync 1.9',
+            'lipsync-2': 'lipsync 2',
+            'lipsync-2-pro': 'lipsync 2 pro',
+            'lipsync 2 pro': 'lipsync 2 pro',
+            'lipsync 1.9': 'lipsync 1.9'
+          };
+          
+          const displayName = modelDisplayMap[model] || model.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
           modelEl.textContent = displayName;
           
           setTimeout(() => {
@@ -632,19 +641,41 @@
               try { window.scrollTo(0, 0); } catch(_) { }
             }, 0);
           } catch(_) { }
+          
+          // Update lipsync button state when switching to history tab
+          const hasProcessingJob = window.jobs && window.jobs.some(j => j.status === 'processing');
+          if (hasProcessingJob) {
+            if (typeof window.setLipsyncButtonState === 'function') {
+              window.setLipsyncButtonState({ disabled: true, text: 'submitted' });
+            }
+          }
         } else {
           // Stop auto-refresh when switching away from history tab
           try { 
             if (typeof stopHistoryAutoRefresh === 'function') stopHistoryAutoRefresh(); 
           } catch(_) {}
           
-          // Update lipsync button state when switching back to sources tab
+          // Update lipsync button state when switching to sources tab
           if (tabName === 'sources') {
-            try {
+            // Check if we have a completed job loaded (output video visible)
+            const outputVideo = document.getElementById('outputVideo');
+            const postActions = document.getElementById('postLipsyncActions');
+            const hasCompletedJob = !!(outputVideo || postActions);
+            
+            if (!hasCompletedJob) {
+              // No completed job - normal state: enable button if we have inputs
+              if (typeof window.setLipsyncButtonState === 'function') {
+                window.setLipsyncButtonState({ disabled: false, text: 'lipsync' });
+              }
               if (typeof window.updateLipsyncButton === 'function') {
                 window.updateLipsyncButton();
               }
-            } catch(_) {}
+            } else {
+              // Completed job is loaded - keep button disabled
+              if (typeof window.setLipsyncButtonState === 'function') {
+                window.setLipsyncButtonState({ disabled: true, text: 'lipsync' });
+              }
+            }
           }
         }
       }
@@ -927,11 +958,18 @@
       document.addEventListener('keypress', function(e){ e.stopImmediatePropagation(); }, true);
 
       (function wireSourcesButtons(){
+        if (window.__sourcesButtonsWired) return;
+        window.__sourcesButtonsWired = true;
         try{
           function on(selector, handler){ 
             try { 
               const el = document.querySelector(selector); 
               if (el) {
+                const existingHandler = el.__clickHandler;
+                if (existingHandler) {
+                  el.removeEventListener('click', existingHandler);
+                }
+                el.__clickHandler = handler;
                 el.addEventListener('click', handler);
                 if (selector.includes('audio-from-video')) {
                   console.log('From video button found and handler attached:', el);
@@ -1115,20 +1153,36 @@
             textContent: lipsyncBtn?.textContent 
           });
           
-          on('#lipsyncBtn', function(){ 
+          on('#lipsyncBtn', function(e){ 
             try{ 
+              if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+              }
+              
               console.log('Lipsync button clicked!');
               debugLog('lipsync_button_clicked', { timestamp: new Date().toISOString() });
               
-              // Disable button immediately
-              const btn = document.getElementById('lipsyncBtn');
-              if (btn) {
-                btn.disabled = true;
-                btn.textContent = 'submitting...';
-                console.log('Button disabled and text changed to submitting...');
-              } else {
-                console.error('Lipsync button not found when trying to disable it');
+              if (window.__lipsyncRunning) {
+                console.log('[Lipsync Button] Already running, ignoring click');
+                return;
               }
+              
+              const btn = document.getElementById('lipsyncBtn');
+              if (btn && btn.disabled) {
+                console.log('[Lipsync Button] Already disabled, ignoring click');
+                return;
+              }
+              
+              window.__lipsyncRunning = true;
+              
+              if (typeof window.setLipsyncButtonState === 'function') {
+                window.setLipsyncButtonState({ disabled: true, text: 'submitting...' });
+              } else if (btn) {
+                btn.disabled = true;
+              }
+              
               if (window.showToast) {
                 window.showToast('submitting...', 'info');
               }
@@ -1138,9 +1192,11 @@
               } else {
                 console.error('startLipsync function not found on window');
                 debugLog('lipsync_function_missing', { startLipsyncAvailable: false });
+                window.__lipsyncRunning = false;
               } 
             }catch(e){ 
               console.error('Error in lipsync button handler:', e);
+              window.__lipsyncRunning = false;
             } 
           });
 

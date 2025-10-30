@@ -19,9 +19,10 @@ function saveJobs() {
 }
 
 export async function createGeneration(job) {
-  const vStat = await safeStat(job.videoPath);
-  const aStat = await safeStat(job.audioPath);
-  const overLimit = ((vStat && vStat.size > FILE_SIZE_LIMIT_20MB) || (aStat && aStat.size > FILE_SIZE_LIMIT_20MB));
+  // Only stat files if URLs are not provided
+  const vStat = job.videoUrl ? null : await safeStat(job.videoPath);
+  const aStat = job.audioUrl ? null : await safeStat(job.audioPath);
+  const overLimit = (!job.videoUrl || !job.audioUrl) && ((vStat && vStat.size > FILE_SIZE_LIMIT_20MB) || (aStat && aStat.size > FILE_SIZE_LIMIT_20MB));
   
   const timeoutMs = 60000;
   const timeoutPromise = new Promise((_, reject) => 
@@ -29,10 +30,12 @@ export async function createGeneration(job) {
   );
   
   try {
-    return await Promise.race([
+    const syncJobId = await Promise.race([
       createGenerationInternal(job, vStat, aStat, overLimit),
       timeoutPromise
     ]);
+    job.syncJobId = syncJobId; // Keep for backward compatibility during transition
+    return syncJobId;
   } catch (e) {
     try { tlog('createGeneration:error', e && e.message ? e.message : String(e)); } catch (_) {}
     throw e;
@@ -58,8 +61,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit) {
         throw new Error(`create(url) failed ${resp.status} ${t}`);
       }
       const data = await resp.json();
-      job.syncJobId = data.id;
-      return;
+      return data.id;
     }
     if (overLimit) {
       const videoUrl = await r2Upload(await resolveSafeLocalPath(job.videoPath));
@@ -82,8 +84,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit) {
         throw new Error(`create(url) failed ${resp.status} ${t}`);
       }
       const data = await resp.json();
-      job.syncJobId = data.id;
-      return;
+      return data.id;
     }
   } catch (e) { console.error('URL mode failed:', e); }
   
@@ -107,13 +108,14 @@ async function createGenerationInternal(job, vStat, aStat, overLimit) {
     throw new Error(`create(url) failed ${resp.status} ${t}`);
   }
   const data = await resp.json();
-  job.syncJobId = data.id;
+  return data.id;
 }
 
 export async function fetchGeneration(job) {
-  let resp = await fetch(`${SYNC_API_BASE}/generate/${job.syncJobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
+  const jobId = job.id || job.syncJobId; // Support both formats during transition
+  let resp = await fetch(`${SYNC_API_BASE}/generate/${jobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   if (!resp.ok && resp.status === 404) {
-    resp = await fetch(`${SYNC_API_BASE}/generations/${job.syncJobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
+    resp = await fetch(`${SYNC_API_BASE}/generations/${jobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   }
   if (!resp.ok) return null;
   return await resp.json();

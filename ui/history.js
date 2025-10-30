@@ -155,6 +155,9 @@ window.updateHistory = async function() {
   if (apiKey && (!window.jobs || window.jobs.length === 0) && !window.historyState.isLoadingFromServer) {
     console.log('[History] API key present but no jobs loaded, fetching from server...');
     
+    // Remove infinite loader if present
+    window.removeInfiniteScrollLoader();
+    
     // Always show loading state when fetching from server
     historyList.innerHTML = `
       <div class="history-loading-state">
@@ -177,16 +180,20 @@ window.updateHistory = async function() {
   // If we have jobs but no visible cards yet (thumbnails still loading), show loading state
   if (window.jobs && window.jobs.length > 0 && !hasRenderedItems && !isShowingLoading && !isShowingEmpty) {
     console.log('[History] Jobs loaded but no cards rendered yet, showing loading state...');
+    
+    // Remove infinite loader if present
+    window.removeInfiniteScrollLoader();
+    
     historyList.innerHTML = `
       <div class="history-loading-state">
         ${loaderHTML({ size: 'lg', color: 'white' })}
-        <div class="history-loading-text">loading thumbnails...</div>
+        <div class="history-loading-text">loading generations...</div>
       </div>
     `;
   }
   
-  // Get jobs from global window.jobs array
-  const currentJobs = window.jobs || [];
+  // Get jobs from global window.jobs array, filtering out local placeholder jobs
+  const currentJobs = (window.jobs || []).filter(j => !j.id || !j.id.startsWith('local-'));
   console.log('[History] Current jobs:', { count: currentJobs.length, jobs: currentJobs });
   
   // Sort jobs by created date (newest first)
@@ -241,10 +248,23 @@ window.updateHistory = async function() {
     window.historyState.displayedCount = 0;
     await renderHistoryPage();
   } else if (dataChanged || statusChanged) {
-    // Data changed - re-render
+    // Data changed - re-render, but show loading state during transition
     console.log('[History] Data changed - re-rendering from start');
     window.historyState.displayedCount = 0;
-    historyList.innerHTML = '';
+    
+    // Remove infinite loader if present
+    window.removeInfiniteScrollLoader();
+    
+    // Show loading state before clearing to prevent blank screen
+    if (!isShowingLoading) {
+      historyList.innerHTML = `
+        <div class="history-loading-state">
+          ${loaderHTML({ size: 'lg', color: 'white' })}
+          <div class="history-loading-text">updating...</div>
+        </div>
+      `;
+    }
+    
     await renderHistoryPage();
   } else {
     console.log('[History] No changes detected - skipping render');
@@ -312,6 +332,25 @@ window.renderHistoryPage = async function() {
     console.log('[History] Thumbnails ready, adding cards to DOM');
   }
   
+  // Remove infinite scroll loader BEFORE adding new cards (so cards appear above loader)
+  // This ensures the loader stays at the bottom after new cards are added
+  const existingLoader = document.getElementById('historyInfiniteLoader');
+  if (existingLoader) {
+    existingLoader.remove();
+  }
+  
+  // Helper function to add loader after cards are rendered
+  const addLoaderIfNeeded = () => {
+    const isShowingMainLoading = historyList.querySelector('.history-loading-state');
+    if (!isShowingMainLoading && window.historyState.hasMore && window.historyState.displayedCount >= window.historyState.pageSize) {
+      // Ensure loader is added AFTER cards are in DOM
+      window.addInfiniteScrollLoader();
+    } else if (!window.historyState.hasMore) {
+      // No more items - ensure loader is removed
+      window.removeInfiniteScrollLoader();
+    }
+  };
+  
   // Handle loading state fade-out and history fade-in
   const isShowingLoading = /history-loading-state/.test(historyList.innerHTML);
   if (isShowingLoading) {
@@ -333,12 +372,22 @@ window.renderHistoryPage = async function() {
         // Remove temp container
         tempContainer.remove();
         
+        // Initialize lucide icons for new cards
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+          lucide.createIcons();
+        }
+        
         // Fade in all the cards over 1 second
         setTimeout(() => {
           cardsToAdd.forEach(card => {
             card.style.transition = 'opacity 1s ease-in';
             card.style.opacity = '1';
           });
+          
+          // Add loader after cards are faded in
+          setTimeout(() => {
+            addLoaderIfNeeded();
+          }, 100);
         }, 10);
       }, 1000);
     } else {
@@ -348,10 +397,20 @@ window.renderHistoryPage = async function() {
         historyList.appendChild(card);
       });
       tempContainer.remove();
+      
+      // Initialize lucide icons for new cards
+      if (typeof lucide !== 'undefined' && lucide.createIcons) {
+        lucide.createIcons();
+      }
+      
       setTimeout(() => {
         cardsToAdd.forEach(card => {
           card.style.opacity = '1';
         });
+        // Add loader after cards are faded in
+        setTimeout(() => {
+          addLoaderIfNeeded();
+        }, 100);
       }, 10);
     }
   } else {
@@ -360,29 +419,23 @@ window.renderHistoryPage = async function() {
       historyList.appendChild(card);
     });
     tempContainer.remove();
+    
+    // Initialize lucide icons for new cards
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      requestAnimationFrame(() => {
+        lucide.createIcons();
+      });
+    }
+    
     setTimeout(() => {
       cardsToAdd.forEach(card => {
         card.style.opacity = '1';
       });
+      // Add loader after cards are faded in
+      setTimeout(() => {
+        addLoaderIfNeeded();
+      }, 200);
     }, 10);
-  }
-  
-  // Initialize lucide icons for new cards
-  if (typeof lucide !== 'undefined' && lucide.createIcons) {
-    // Use requestAnimationFrame for more reliable timing
-    requestAnimationFrame(() => {
-      lucide.createIcons();
-    });
-  }
-  
-  // Add loader if more items available (after thumbnails are ready)
-  if (window.historyState.hasMore) {
-    // Only add loader if we're showing the 10th item (or more)
-    if (window.historyState.displayedCount >= 10) {
-      window.addInfiniteScrollLoader();
-    }
-  } else {
-    window.removeInfiniteScrollLoader();
   }
   
   // Clear loading from server flag after rendering is complete
@@ -573,9 +626,16 @@ function formatDuration(ms) {
 function getModelText(job) {
   const parts = [];
   
-  // Add model
   if (job.model) {
-    parts.push(job.model);
+    const modelDisplayMap = {
+      'lipsync-1.9.0-beta': 'lipsync 1.9',
+      'lipsync-2': 'lipsync 2',
+      'lipsync-2-pro': 'lipsync 2 pro',
+      'lipsync 2 pro': 'lipsync 2 pro',
+      'lipsync 1.9': 'lipsync 1.9'
+    };
+    const displayModel = modelDisplayMap[job.model] || job.model.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    parts.push(displayModel);
   }
   
   // Add all options if available
@@ -620,6 +680,12 @@ window.addInfiniteScrollLoader = function() {
   const historyList = document.getElementById('historyList');
   if (!historyList) return;
   
+  // Never add infinite loader if main loading state is showing
+  const isShowingMainLoading = historyList.querySelector('.history-loading-state');
+  if (isShowingMainLoading) {
+    return;
+  }
+  
   // Remove existing loader if any
   window.removeInfiniteScrollLoader();
   
@@ -631,12 +697,10 @@ window.addInfiniteScrollLoader = function() {
   
   historyList.appendChild(loaderDiv);
   
-  console.log('[History] Added infinite scroll loader at bottom');
-  
-  // Set up intersection observer with a small delay to ensure DOM is ready
-  setTimeout(() => {
+  // Set up intersection observer after DOM update
+  requestAnimationFrame(() => {
     setupInfiniteScroll();
-  }, 50);
+  });
 }
 
 /**
@@ -659,61 +723,52 @@ window.removeInfiniteScrollLoader = function() {
 function setupInfiniteScroll() {
   const loader = document.getElementById('historyInfiniteLoader');
   if (!loader) {
-    console.warn('[History] Cannot setup infinite scroll - loader not found');
     return;
   }
-  
-  console.log('[History] Setting up intersection observer for loader');
   
   // Clean up existing observer
   if (window.historyScrollObserver) {
     window.historyScrollObserver.disconnect();
-    console.log('[History] Disconnected previous observer');
+    window.historyScrollObserver = null;
   }
   
-  // Create new observer
+  // Find the scrollable container - MUST be .history-wrapper
+  const scrollContainer = loader.closest('.history-wrapper');
+  
+  if (!scrollContainer) {
+    // Fallback: can't work without scroll container
+    return;
+  }
+  
+  // Create observer with the scroll container as root
   window.historyScrollObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting && !window.historyState.isLoading && window.historyState.hasMore) {
-        console.log('[History] Loading more items...', {
-          displayedCount: window.historyState.displayedCount,
-          totalJobs: window.historyState.allJobs.length,
-          hasMore: window.historyState.hasMore
-        });
-        
-        // Mark as loading to prevent concurrent loads
         window.historyState.isLoading = true;
-        console.log('[History] Loader intersected! Starting to load next batch');
         
-        // Keep loader visible while loading - it will be replaced when renderHistoryPage completes
-        // Load next page asynchronously - this will wait for thumbnails to complete (max 5s)
+        // Load next page
         (async () => {
           try {
             if (typeof window.renderHistoryPage === 'function') {
               await window.renderHistoryPage();
-              console.log('[History] Finished rendering next batch');
             }
           } catch (e) {
-            console.error('[History] Error rendering page:', e);
+            // Silent fail
           } finally {
-            // Mark loading as complete
             window.historyState.isLoading = false;
-            console.log('[History] Loading complete, ready for next batch');
           }
         })();
         
-        // Break after first intersecting entry to avoid multiple triggers
         break;
       }
     }
   }, {
-    root: null,
-    rootMargin: '100px',
-    threshold: 0.1
+    root: scrollContainer, // MUST use the scroll container
+    rootMargin: '200px', // Trigger 200px before visible
+    threshold: 0 // Trigger as soon as any part enters
   });
   
   window.historyScrollObserver.observe(loader);
-  console.log('[History] Now observing loader element');
 }
 
 /**
@@ -808,7 +863,13 @@ window.redoGeneration = async function(jobId) {
     
     // Set model and options
     if (job.model) {
-      const modelRadio = document.querySelector(`input[name="model"][value="${job.model}"]`);
+      let modelValue = job.model;
+      if (modelValue === 'lipsync 1.9') {
+        modelValue = 'lipsync-1.9.0-beta';
+      } else if (modelValue === 'lipsync 2 pro') {
+        modelValue = 'lipsync-2-pro';
+      }
+      const modelRadio = document.querySelector(`input[name="model"][value="${modelValue}"]`);
       if (modelRadio) modelRadio.checked = true;
     }
     
