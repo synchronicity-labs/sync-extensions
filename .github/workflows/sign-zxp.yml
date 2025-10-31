@@ -577,31 +577,18 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Create a batch file wrapper to ensure proper argument handling
-            # Use environment variable for password to avoid quoting issues
-            $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp-$($pkg.Name.Replace(' ','')).bat"
-            $batchContent = @"
-@echo off
-set ZXP_PASSWORD=$password
-"$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD% -tsa "$tsaUrl"
-if %ERRORLEVEL% neq 0 (
-  echo Signing with timestamp failed, trying without timestamp...
-  "$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD%
-  exit /b %ERRORLEVEL%
-)
-exit /b 0
-"@
-            Set-Content -Path $batchFile -Value $batchContent -Encoding ASCII
-            
-            # Run the batch file
-            Push-Location $env:GITHUB_WORKSPACE
+            # Try using Start-Process with explicit working directory set to Exe location
+            $exeDir = Split-Path $Exe -Parent
+            Push-Location $exeDir
             try {
-              & cmd.exe /c $batchFile
-              $exitCode = $LASTEXITCODE
-              if ($exitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $exitCode" }
+              $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $cleanInputPath, $cleanOutputPath, $cleanCertPath, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
+                $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $cleanInputPath, $cleanOutputPath, $cleanCertPath, $password -Wait -PassThru -NoNewWindow
+                if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
+              }
             } finally {
               Pop-Location
-              if (Test-Path $batchFile) { Remove-Item $batchFile -Force }
             }
             
             echo "$($pkg.Name) signed successfully"
