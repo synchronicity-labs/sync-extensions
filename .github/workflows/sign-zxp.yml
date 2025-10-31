@@ -559,10 +559,10 @@ jobs:
             # Use & operator with explicit working directory set to input path
             Push-Location $inputPath
             try {
-              $proc = & $Exe -sign "." $outputPath $certPathResolved $password -tsa $tsaUrl 2>&1; $LASTEXITCODE
+              & $Exe -sign "." $outputPath $certPathResolved $password -tsa $tsaUrl
               if ($LASTEXITCODE -ne 0) { 
                 echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                $proc = & $Exe -sign "." $outputPath $certPathResolved $password 2>&1; $LASTEXITCODE
+                & $Exe -sign "." $outputPath $certPathResolved $password
                 if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               }
             } finally {
