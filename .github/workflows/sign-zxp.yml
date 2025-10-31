@@ -454,7 +454,9 @@ jobs:
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
           foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
             $mimetypePath = Join-Path $zxpDir "mimetype"
-            [IO.File]::WriteAllText($mimetypePath, $mimetypeContent)
+            # Use ASCII encoding without BOM for mimetype file
+            $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [System.IO.File]::WriteAllText($mimetypePath, $mimetypeContent, $utf8NoBom)
             echo "Created mimetype file: $mimetypePath"
           }
           
@@ -562,6 +564,15 @@ jobs:
               throw "mimetype file missing in input directory: $mimetypePath"
             }
             echo "mimetype file verified: $mimetypePath"
+            
+            # List directory contents for debugging
+            echo "Directory contents of $inputPath:"
+            Get-ChildItem $inputPath -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+            
+            # Verify mimetype file content and encoding
+            $mimetypeContent = Get-Content $mimetypePath -Raw
+            echo "mimetype file content: '$mimetypeContent'"
+            echo "mimetype file length: $($mimetypeContent.Length)"
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
