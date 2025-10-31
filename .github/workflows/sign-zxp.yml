@@ -578,13 +578,15 @@ jobs:
             }
             
             # Create a batch file wrapper to ensure proper argument handling
+            # Use environment variable for password to avoid quoting issues
             $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp-$($pkg.Name.Replace(' ','')).bat"
             $batchContent = @"
 @echo off
-"$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" "$password" -tsa "$tsaUrl"
+set ZXP_PASSWORD=$password
+"$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD% -tsa "$tsaUrl"
 if %ERRORLEVEL% neq 0 (
   echo Signing with timestamp failed, trying without timestamp...
-  "$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" "$password"
+  "`$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD%
   exit /b %ERRORLEVEL%
 )
 exit /b 0
