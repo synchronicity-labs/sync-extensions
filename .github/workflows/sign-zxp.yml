@@ -578,12 +578,27 @@ jobs:
               Remove-Item $outputPath -Force
             }
             
-            # Get short paths using GetShortPathName (fso method)
-            $fso = New-Object -ComObject Scripting.FileSystemObject
-            $shortInputPath = $fso.GetFolder($inputPath).ShortPath
-            $shortOutputPath = $fso.GetFolder((Split-Path $outputPath -Parent)).ShortPath + "\" + (Split-Path $outputPath -Leaf)
-            $shortCertPath = $fso.GetFolder((Split-Path $certPathResolved -Parent)).ShortPath + "\" + (Split-Path $certPathResolved -Leaf)
-            $shortExe = $fso.GetFolder((Split-Path $Exe -Parent)).ShortPath + "\" + (Split-Path $Exe -Leaf)
+            # Get short paths using GetShortPathName API
+            Add-Type -TypeDefinition @"
+              using System;
+              using System.Runtime.InteropServices;
+              public class ShortPath {
+                [DllImport("kernel32.dll", CharSet=CharSet.Auto)]
+                public static extern int GetShortPathName(string path, System.Text.StringBuilder shortPath, int shortPathLength);
+              }
+"@
+            $sb = New-Object System.Text.StringBuilder(260)
+            [ShortPath]::GetShortPathName($inputPath, $sb, 260) | Out-Null
+            $shortInputPath = $sb.ToString()
+            $sb = New-Object System.Text.StringBuilder(260)
+            [ShortPath]::GetShortPathName($outputPath, $sb, 260) | Out-Null
+            $shortOutputPath = $sb.ToString()
+            $sb = New-Object System.Text.StringBuilder(260)
+            [ShortPath]::GetShortPathName($certPathResolved, $sb, 260) | Out-Null
+            $shortCertPath = $sb.ToString()
+            $sb = New-Object System.Text.StringBuilder(260)
+            [ShortPath]::GetShortPathName($Exe, $sb, 260) | Out-Null
+            $shortExe = $sb.ToString()
             
             echo "Using short paths:"
             echo "  Input: $shortInputPath"
