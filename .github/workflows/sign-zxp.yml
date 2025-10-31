@@ -578,7 +578,7 @@ jobs:
             }
             
             # Create a batch file wrapper to ensure proper argument handling
-            $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp.bat"
+            $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp-$($pkg.Name.Replace(' ','')).bat"
             $batchContent = @"
 @echo off
 "$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" "$password" -tsa "$tsaUrl"
@@ -589,7 +589,7 @@ if %ERRORLEVEL% neq 0 (
 )
 exit /b 0
 "@
-            $batchContent | Out-File -FilePath $batchFile -Encoding ASCII
+            Set-Content -Path $batchFile -Value $batchContent -Encoding ASCII
             
             # Run the batch file
             Push-Location $env:GITHUB_WORKSPACE
