@@ -589,18 +589,41 @@ jobs:
             [ShortPath]::GetShortPathName($Exe, $sb, 260) | Out-Null
             $shortExe = $sb.ToString()
             
-            echo "Using short paths:"
-            echo "  Input: $shortInputPath"
-            echo "  Output: $shortOutputPath"
-            echo "  Cert: $shortCertPath"
-            echo "  Exe: $shortExe"
+            # Verify directory structure before signing
+            echo "Verifying directory structure..."
+            $requiredFiles = @(
+              (Join-Path $inputPath "CSXS\manifest.xml"),
+              (Join-Path $inputPath "index.html")
+            )
+            foreach ($file in $requiredFiles) {
+              if (-not (Test-Path $file)) {
+                throw "Required file missing: $file"
+              }
+              echo "Found: $file"
+            }
             
-            # Use & operator with short paths and capture stderr
-            & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password -tsa $tsaUrl 2>&1 | ForEach-Object { echo $_ }
-            if ($LASTEXITCODE -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password 2>&1 | ForEach-Object { echo $_ }
-              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+            # Use & operator with absolute paths - simplest approach
+            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+            if ([string]::IsNullOrEmpty($tsaUrl)) {
+              $tsaUrl = "http://timestamp.digicert.com"
+            }
+            
+            # Ensure output file doesn't exist
+            if (Test-Path $outputPath) {
+              Remove-Item $outputPath -Force
+            }
+            
+            # Run ZXPSignCmd from workspace root
+            Push-Location $env:GITHUB_WORKSPACE
+            try {
+              & $Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl
+              if ($LASTEXITCODE -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                & $Exe -sign $inputPath $outputPath $certPathResolved $password
+                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+              }
+            } finally {
+              Pop-Location
             }
             
             echo "$($pkg.Name) signed successfully"
