@@ -593,6 +593,20 @@ exit /b 0
             $batchContent = $batchContent -replace "`$password", $password
             $batchContent | Out-File -FilePath $batchFile -Encoding ASCII -NoNewline
             
+            # Create a batch file wrapper to ensure proper argument handling
+            $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp.bat"
+            $batchContent = @"
+@echo off
+"$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" "$password" -tsa "$tsaUrl"
+if %ERRORLEVEL% neq 0 (
+  echo Signing with timestamp failed, trying without timestamp...
+  "$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" "$password"
+  exit /b %ERRORLEVEL%
+)
+exit /b 0
+"@
+            $batchContent | Out-File -FilePath $batchFile -Encoding ASCII
+            
             # Run the batch file
             Push-Location $env:GITHUB_WORKSPACE
             try {
