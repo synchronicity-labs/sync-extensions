@@ -595,11 +595,11 @@ jobs:
             echo "  Cert: $shortCertPath"
             echo "  Exe: $shortExe"
             
-            # Use & operator with short paths
-            & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password -tsa $tsaUrl
+            # Use & operator with short paths and capture stderr
+            & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password -tsa $tsaUrl 2>&1 | ForEach-Object { echo $_ }
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password
+              & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password 2>&1 | ForEach-Object { echo $_ }
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             
