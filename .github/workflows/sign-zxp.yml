@@ -556,12 +556,6 @@ jobs:
               throw "Required manifest.xml missing: $manifestPath"
             }
             
-            # Try using short paths (8.3 format) to avoid path length issues
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrEmpty($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
-            
             # Verify directory structure before signing
             echo "Verifying directory structure..."
             $requiredFiles = @(
