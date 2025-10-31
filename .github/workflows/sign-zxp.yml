@@ -560,19 +560,17 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing - use quoted paths to handle spaces/special chars
+            # Try signing - ZXPSignCmd expects unquoted paths (it handles spaces internally)
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Call ZXPSignCmd with explicit path quoting
-            $signArgs = @("-sign", "`"$inputPath`"", "`"$outputPath`"", "`"$certPathResolved`"", "`"$password`"", "-tsa", "`"$tsaUrl`"")
-            & $Exe $signArgs
+            # Call ZXPSignCmd - paths don't need quotes when passed as separate arguments
+            & $Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              $signArgsNoTSA = @("-sign", "`"$inputPath`"", "`"$outputPath`"", "`"$certPathResolved`"", "`"$password`"")
-              & $Exe $signArgsNoTSA
+              & $Exe -sign $inputPath $outputPath $certPathResolved $password
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             echo "$($pkg.Name) signed successfully"
