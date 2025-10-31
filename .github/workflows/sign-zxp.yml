@@ -576,16 +576,35 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing with timestamp first
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrEmpty($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
-            & $Exe -sign "$inputPath" "$outputPath" "$certPathResolved" "$password" -tsa "$tsaUrl"
-            if ($LASTEXITCODE -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $Exe -sign "$inputPath" "$outputPath" "$certPathResolved" "$password"
-              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+            # Change to workspace directory to avoid path length issues
+            Push-Location $env:GITHUB_WORKSPACE
+            
+            try {
+              # Use relative paths from workspace root (keep Windows backslashes)
+              $relInputPath = $inputPath.Replace($env:GITHUB_WORKSPACE + "\", "")
+              $relOutputPath = $outputPath.Replace($env:GITHUB_WORKSPACE + "\", "")
+              $relCertPath = $certPathResolved.Replace($env:GITHUB_WORKSPACE + "\", "")
+              
+              echo "Using relative paths:"
+              echo "  Input: $relInputPath"
+              echo "  Output: $relOutputPath"
+              echo "  Cert: $relCertPath"
+              
+              # Try signing with timestamp first
+              $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+              if ([string]::IsNullOrEmpty($tsaUrl)) {
+                $tsaUrl = "http://timestamp.digicert.com"
+              }
+              
+              # Use absolute path for exe (it's outside workspace)
+              & $Exe -sign $relInputPath $relOutputPath $relCertPath $password -tsa $tsaUrl
+              if ($LASTEXITCODE -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                & $Exe -sign $relInputPath $relOutputPath $relCertPath $password
+                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+              }
+            } finally {
+              Pop-Location
             }
             echo "$($pkg.Name) signed successfully"
           }
