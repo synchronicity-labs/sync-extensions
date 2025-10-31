@@ -36,6 +36,7 @@ jobs:
       - name: Create .env file from secrets
         shell: bash
         run: |
+          set -euo pipefail
           cat > .env << EOF
           # R2 Configuration
           R2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}
@@ -74,8 +75,12 @@ jobs:
           
           # Move .env to server/.env before copying server directory
           # Server runs with cwd=server/, so .env must be in server/.env
-          mkdir -p server
-          cp .env server/.env
+          mkdir -p server || { echo "ERROR: Failed to create server directory"; exit 1; }
+          cp .env server/.env || { echo "ERROR: Failed to copy .env to server/.env"; exit 1; }
+          if [ ! -f server/.env ]; then
+            echo "ERROR: server/.env file was not created"
+            exit 1
+          fi
           echo "✅ Moved .env to server/.env"
 
       - name: Build CEP folders for macOS
@@ -166,6 +171,7 @@ jobs:
       - name: Create .env file from secrets
         shell: bash
         run: |
+          set -euo pipefail
           cat > .env << EOF
           # R2 Configuration
           R2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}
@@ -204,8 +210,12 @@ jobs:
           
           # Move .env to server/.env before copying server directory
           # Server runs with cwd=server/, so .env must be in server/.env
-          if (-not (Test-Path "server")) { New-Item -ItemType Directory -Force -Path "server" | Out-Null }
-          Copy-Item ".env" "server/.env" -Force
+          mkdir -p server || { echo "ERROR: Failed to create server directory"; exit 1; }
+          cp .env server/.env || { echo "ERROR: Failed to copy .env to server/.env"; exit 1; }
+          if [ ! -f server/.env ]; then
+            echo "ERROR: server/.env file was not created"
+            exit 1
+          fi
           echo "✅ Moved .env to server/.env"
 
       - name: Build CEP folders for Windows
