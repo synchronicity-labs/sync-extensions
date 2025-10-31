@@ -567,28 +567,6 @@ jobs:
               Remove-Item $outputPath -Force
             }
             
-            # Get short paths using GetShortPathName API
-            Add-Type -TypeDefinition @"
-              using System;
-              using System.Runtime.InteropServices;
-              public class ShortPath {
-                [DllImport("kernel32.dll", CharSet=CharSet.Auto)]
-                public static extern int GetShortPathName(string path, System.Text.StringBuilder shortPath, int shortPathLength);
-              }
-"@
-            $sb = New-Object System.Text.StringBuilder(260)
-            [ShortPath]::GetShortPathName($inputPath, $sb, 260) | Out-Null
-            $shortInputPath = $sb.ToString()
-            $sb = New-Object System.Text.StringBuilder(260)
-            [ShortPath]::GetShortPathName($outputPath, $sb, 260) | Out-Null
-            $shortOutputPath = $sb.ToString()
-            $sb = New-Object System.Text.StringBuilder(260)
-            [ShortPath]::GetShortPathName($certPathResolved, $sb, 260) | Out-Null
-            $shortCertPath = $sb.ToString()
-            $sb = New-Object System.Text.StringBuilder(260)
-            [ShortPath]::GetShortPathName($Exe, $sb, 260) | Out-Null
-            $shortExe = $sb.ToString()
-            
             # Verify directory structure before signing
             echo "Verifying directory structure..."
             $requiredFiles = @(
@@ -606,11 +584,6 @@ jobs:
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
-            }
-            
-            # Ensure output file doesn't exist
-            if (Test-Path $outputPath) {
-              Remove-Item $outputPath -Force
             }
             
             # Run ZXPSignCmd from workspace root
