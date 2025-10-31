@@ -562,11 +562,6 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Ensure output file doesn't exist
-            if (Test-Path $outputPath) {
-              Remove-Item $outputPath -Force
-            }
-            
             # Verify directory structure before signing
             echo "Verifying directory structure..."
             $requiredFiles = @(
@@ -584,6 +579,11 @@ jobs:
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
+            }
+            
+            # Ensure output file doesn't exist
+            if (Test-Path $outputPath) {
+              Remove-Item $outputPath -Force
             }
             
             # Run ZXPSignCmd from workspace root
