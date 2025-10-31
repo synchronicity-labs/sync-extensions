@@ -556,14 +556,18 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Use cmd.exe /c to invoke ZXPSignCmd - better path handling on Windows
-            $signCmd = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`" -tsa `"$tsaUrl`""
-            cmd.exe /c $signCmd
-            if ($LASTEXITCODE -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              $signCmdNoTSA = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`""
-              cmd.exe /c $signCmdNoTSA
-              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+            # Use Start-Process for better exit code handling
+            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+            if ([string]::IsNullOrEmpty($tsaUrl)) {
+              $tsaUrl = "http://timestamp.digicert.com"
+            }
+            
+            # Use Start-Process with -Wait to properly capture exit codes
+            $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", "`"$inputPath`"", "`"$outputPath`"", "`"$certPathResolved`"", "`"$password`"", "-tsa", "`"$tsaUrl`"" -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -ne 0) { 
+              echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
+              $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", "`"$inputPath`"", "`"$outputPath`"", "`"$certPathResolved`"", "`"$password`"" -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
             }
             
             echo "$($pkg.Name) signed successfully"
