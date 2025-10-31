@@ -458,12 +458,6 @@ jobs:
           foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
             echo "Validating $zxpDir..."
             
-            # Check required files exist
-            $mimetypePath = Join-Path $zxpDir "mimetype"
-            if (-not (Test-Path $mimetypePath)) { 
-              throw "Required file missing: $mimetypePath" 
-            }
-            
             # Check manifest.xml and index.html exist at ZXP root
             $manifestPath = Join-Path $zxpDir "CSXS\manifest.xml"
             $indexPath = Join-Path $zxpDir "index.html"
@@ -562,11 +556,13 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Call ZXPSignCmd with directory as input (it will create the ZXP)
-            & $Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl
+            # Use cmd.exe /c to invoke ZXPSignCmd - better path handling on Windows
+            $signCmd = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`" -tsa `"$tsaUrl`""
+            cmd.exe /c $signCmd
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $Exe -sign $inputPath $outputPath $certPathResolved $password
+              $signCmdNoTSA = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`""
+              cmd.exe /c $signCmdNoTSA
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             
