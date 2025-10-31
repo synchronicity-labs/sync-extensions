@@ -577,24 +577,20 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Try using relative paths from Exe directory
+            # Try using absolute paths but run from Exe directory
             $exeDir = Split-Path $Exe -Parent
             Push-Location $exeDir
             try {
-              # Calculate relative paths from Exe directory
-              $relInput = Resolve-Path $cleanInputPath -Relative
-              $relOutput = Resolve-Path $cleanOutputPath -Relative  
-              $relCert = Resolve-Path $cleanCertPath -Relative
+              echo "Running ZXPSignCmd from: $exeDir"
+              echo "Using absolute paths:"
+              echo "  Input: $cleanInputPath"
+              echo "  Output: $cleanOutputPath"
+              echo "  Cert: $cleanCertPath"
               
-              echo "Relative paths from Exe directory:"
-              echo "  Input: $relInput"
-              echo "  Output: $relOutput"
-              echo "  Cert: $relCert"
-              
-              $proc = Start-Process -FilePath ".\ZXPSignCmd.exe" -ArgumentList "-sign", $relInput, $relOutput, $relCert, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
+              $proc = Start-Process -FilePath ".\ZXPSignCmd.exe" -ArgumentList "-sign", $cleanInputPath, $cleanOutputPath, $cleanCertPath, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) { 
                 echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
-                $proc = Start-Process -FilePath ".\ZXPSignCmd.exe" -ArgumentList "-sign", $relInput, $relOutput, $relCert, $password -Wait -PassThru -NoNewWindow
+                $proc = Start-Process -FilePath ".\ZXPSignCmd.exe" -ArgumentList "-sign", $cleanInputPath, $cleanOutputPath, $cleanCertPath, $password -Wait -PassThru -NoNewWindow
                 if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
               }
             } finally {
