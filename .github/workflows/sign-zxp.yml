@@ -567,12 +567,12 @@ jobs:
               Remove-Item $outputPath -Force
             }
             
-            # Use cmd.exe /c with full command string and proper exit code handling
-            $signCmd = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`" -tsa `"$tsaUrl`""
+            # Use cmd.exe /c but pass arguments separately (no quotes in command string)
+            $signCmd = "$Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl"
             & cmd.exe /c $signCmd; $exitCode = $LASTEXITCODE
             if ($exitCode -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $exitCode), trying without timestamp..."
-              $signCmdNoTSA = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`""
+              $signCmdNoTSA = "$Exe -sign $inputPath $outputPath $certPathResolved $password"
               & cmd.exe /c $signCmdNoTSA; $exitCode = $LASTEXITCODE
               if ($exitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $exitCode" }
             }
