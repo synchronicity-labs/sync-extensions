@@ -543,37 +543,32 @@ jobs:
             $outputPath = Join-Path $env:GITHUB_WORKSPACE (Split-Path $pkg.Output -Leaf)
             $certPathResolved = (Resolve-Path $certPath).Path
             
-            # Create temporary ZIP file first (ZXPSignCmd may need ZIP input)
-            $tempZip = Join-Path $env:GITHUB_WORKSPACE "temp-unsigned-$(Split-Path $pkg.Output -Leaf).zip"
-            if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
-            
-            echo "Creating temporary ZIP from directory..."
-            Compress-Archive -Path "$inputPath\*" -DestinationPath $tempZip -CompressionLevel Fastest
-            if (-not (Test-Path $tempZip)) { throw "Failed to create temporary ZIP file" }
+            # Verify manifest.xml exists (required for ZXP)
+            $manifestPath = Join-Path $inputPath "CSXS\manifest.xml"
+            if (-not (Test-Path $manifestPath)) {
+              throw "Required manifest.xml missing: $manifestPath"
+            }
             
             echo "Resolved paths:"
-            echo "  Input ZIP: $tempZip"
-            echo "  Output: $outputPath"
+            echo "  Input directory: $inputPath"
+            echo "  Output ZXP: $outputPath"
             echo "  Cert: $certPathResolved"
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing the ZIP file - ZXPSignCmd expects unquoted paths
+            # Try signing directory - ZXPSignCmd creates ZXP from directory
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Call ZXPSignCmd with ZIP file as input
-            & $Exe -sign $tempZip $outputPath $certPathResolved $password -tsa $tsaUrl
+            # Call ZXPSignCmd with directory as input (it will create the ZXP)
+            & $Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $Exe -sign $tempZip $outputPath $certPathResolved $password
+              & $Exe -sign $inputPath $outputPath $certPathResolved $password
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
-            
-            # Clean up temporary ZIP
-            Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
             
             echo "$($pkg.Name) signed successfully"
           }
