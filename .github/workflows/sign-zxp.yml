@@ -550,30 +550,30 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Verify all files exist before signing
-            if (-not (Test-Path $inputPath)) { throw "Input path does not exist: $inputPath" }
-            if (-not (Test-Path $certPathResolved)) { throw "Certificate path does not exist: $certPathResolved" }
+            # Verify manifest.xml exists (ZXPSignCmd needs this)
+            $manifestPath = Join-Path $inputPath "CSXS\manifest.xml"
+            if (-not (Test-Path $manifestPath)) {
+              throw "Required manifest.xml missing: $manifestPath"
+            }
             
-            # List first few files in input directory to verify structure
-            echo "Sample files in input directory:"
-            Get-ChildItem $inputPath -Depth 0 | Select-Object -First 10 Name
-            
-            # Try signing with absolute paths
+            # Try signing with quoted password to handle special characters
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Ensure output file doesn't exist (ZXPSignCmd may fail if it exists)
+            # Ensure output file doesn't exist
             if (Test-Path $outputPath) {
               Remove-Item $outputPath -Force
             }
             
-            # Use & operator - simple approach
-            & $Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl
+            # Build command as string to ensure proper quoting
+            $signCmd = "$Exe -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`" -tsa `"$tsaUrl`""
+            Invoke-Expression $signCmd
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $Exe -sign $inputPath $outputPath $certPathResolved $password
+              $signCmdNoTSA = "$Exe -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`""
+              Invoke-Expression $signCmdNoTSA
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             
