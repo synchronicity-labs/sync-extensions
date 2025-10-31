@@ -566,7 +566,7 @@ jobs:
             echo "mimetype file verified: $mimetypePath"
             
             # List directory contents for debugging
-            echo "Directory contents of $inputPath:"
+            echo "Directory contents of ${inputPath}:"
             Get-ChildItem $inputPath -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
             
             # Verify mimetype file content and encoding
