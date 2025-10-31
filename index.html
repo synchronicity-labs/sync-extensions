@@ -731,369 +731,192 @@
         <script src="ui/media.js"></script>
         <script src="ui/host-detection.js"></script>
         <script src="ui/thumbnails.js"></script>
-    <script src="ui/history.js"></script>
+        <script src="ui/history.js"></script>
         <script src="ui/settings.js"></script>
         <script src="ui/cost.js"></script>
         <script src="ui/tts.js"></script>
         <script src="ui/recording.js"></script>
         <script src="ui/bootstrap.js"></script>
-        
-        <script>
-          // Initialize Lucide icons when DOM is ready
-          function initLucideIcons() {
-            if (typeof lucide !== 'undefined' && lucide.createIcons) {
-              lucide.createIcons();
-              
-              // Override stroke-width for specific icons after Lucide renders
-              setTimeout(() => {
-              // Main icons (48px) - medium stroke
-              document.querySelectorAll('.icon-main svg').forEach(svg => {
-                svg.setAttribute('stroke-width', '2');
-                svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
-                  el.setAttribute('stroke-width', '2');
-                });
-              });
-                
-                // Button icons (16px) - medium stroke
-                document.querySelectorAll('.action-btn i svg, .audio-play-btn i svg').forEach(svg => {
-                  svg.setAttribute('stroke-width', '1.5');
-                  svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
-                    el.setAttribute('stroke-width', '1.5');
-                  });
-                });
-                
-                // Float icons - thinner stroke
-                document.querySelectorAll('.icon-float i svg, .icon-float svg').forEach(svg => {
-                  svg.setAttribute('stroke-width', '1');
-                  svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
-                    el.setAttribute('stroke-width', '1');
-                  });
-                });
-              }, 100);
-            }
-          }
-          
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initLucideIcons);
-          } else {
-            initLucideIcons();
-          }
-          
-          // Also run when icons are dynamically added
-          const observer = new MutationObserver(() => {
-            setTimeout(() => {
-              document.querySelectorAll('.icon-main svg').forEach(svg => {
-                if (svg.getAttribute('stroke-width') !== '2') {
-                  svg.setAttribute('stroke-width', '2');
-                  svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
-                    el.setAttribute('stroke-width', '2');
-                  });
-                }
-              });
-              
-              document.querySelectorAll('.action-btn i svg, .audio-play-btn i svg').forEach(svg => {
-                if (svg.getAttribute('stroke-width') !== '1.5') {
-                  svg.setAttribute('stroke-width', '1.5');
-                  svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
-                    el.setAttribute('stroke-width', '1.5');
-                  });
-                }
-              });
-              
-              document.querySelectorAll('.icon-float i svg, .icon-float svg').forEach(svg => {
-                if (svg.getAttribute('stroke-width') !== '1') {
-                  svg.setAttribute('stroke-width', '1');
-                  svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach(el => {
-                    el.setAttribute('stroke-width', '1');
-                  });
-                }
-              });
-            }, 50);
-          });
-          
-          observer.observe(document.body, { childList: true, subtree: true });
-        </script>
-    
-    <script>
-      // Tab switching
-      document.querySelectorAll('.tab-switch').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const tab = btn.dataset.tab;
-          
-          // Use showTab function to handle tab switching properly
-          if (typeof window.showTab === 'function') {
-            window.showTab(tab);
-          } else {
-            // Fallback to manual switching
-            document.querySelectorAll('.tab-switch').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            document.getElementById(tab).classList.add('active');
-          }
-        });
-      });
-      
-      // Profile dropdown
-      const profileBtn = document.querySelector('.profile-btn');
-      const dropdown = document.querySelector('.profile-dropdown');
-      
-      profileBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        dropdown.classList.toggle('show');
-      });
-      
-      // Dropdown items with tab attribute
-      document.querySelectorAll('.dropdown-item[data-tab]').forEach(item => {
-        item.addEventListener('click', () => {
-          const tab = item.dataset.tab;
-          
-          // Clear all tabs
-          document.querySelectorAll('.tab-switch').forEach(b => b.classList.remove('active'));
-          document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-          
-          // Show selected tab
-          document.getElementById(tab).classList.add('active');
-          
-          // Close dropdown
-          dropdown.classList.remove('show');
-        });
-      });
-      
-      document.addEventListener('click', () => {
-        dropdown.classList.remove('show');
-      });
-      
-      dropdown.addEventListener('click', (e) => {
-        e.stopPropagation();
-      });
-      
-      // Settings tab switching
-      document.querySelectorAll('.settings-tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const tab = btn.dataset.settingsTab;
-          
-          // Update buttons
-          document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          
-          // Update panes
-          document.querySelectorAll('.settings-tab-pane').forEach(p => p.classList.remove('active'));
-          document.getElementById(tab).classList.add('active');
-        });
-      });
-    </script>
+        <script src="ui/icons.js"></script>
+        <script src="ui/tabs.js"></script>
     
     <!-- PostHog Analytics -->
-    <script src="lib/posthog.js"></script>
-    <script src="lib/posthog-recorder.js"></script>
+    <!-- Set up interceptors BEFORE PostHog loads -->
     <script>
       (function() {
-        if (typeof posthog === 'undefined' && typeof window.posthog === 'undefined') {
-          return;
-        }
+        // Log that interceptors are being set up
+        fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interceptorSetup: true,
+            timestamp: new Date().toISOString(),
+            userAgent: navigator.userAgent
+          })
+        }).catch(function() {});
         
-        var ph = typeof posthog !== 'undefined' ? posthog : window.posthog;
-        
-        fetch('http://127.0.0.1:3000/telemetry/test')
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            var distinctId = data.distinctId || 'unknown';
-            
-            ph.init('phc_82dxgIiZvuUFV41LErIq8UGCNYmisHq8Fn3a4LGtsYO', {
-              api_host: 'https://us.i.posthog.com',
-              autocapture: false,
-              capture_pageview: false,
-              disable_session_recording: false,
-              disable_external_dependency_loading: true,
-              persistence: 'localStorage',
-              maskAllText: false,
-              maskAllInputs: false,
-              maskTextSelector: '[data-sensitive], .api-key-input, input[type="password"], input[name*="api"], input[name*="key"], input[id*="api"], input[id*="key"]',
-              distinct_id: distinctId,
-              flush_at: 1,
-              flush_interval_ms: 1000,
-              loaded: function(posthog) {
-                // Manually initialize session recording for CEP/extensions
+        // Intercept PostHog session replay uploads BEFORE PostHog initializes
+        try {
+          // Intercept fetch requests for PostHog uploads (all endpoints)
+          const originalFetch = window.fetch;
+          window._originalFetch = originalFetch; // Store for use in XHR logging
+          window.fetch = function(url, options) {
+            // Only intercept POST requests to /e/ or /s/ endpoints (session replay uploads)
+            // Don't intercept GET requests for flags/config
+            if (typeof url === 'string' && url.includes('posthog.com') && 
+                options && options.method === 'POST' &&
+                (url.includes('/e/') || url.includes('/s/'))) {
+              // Route through proxy
+              const proxyUrl = 'http://127.0.0.1:3000/telemetry/session-replay';
+              // Log to server for debugging (use setTimeout to avoid blocking)
+              setTimeout(function() {
+                originalFetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    intercepted: true,
+                    url: url,
+                    method: 'fetch',
+                    timestamp: new Date().toISOString(),
+                    hasOptions: !!options,
+                    hasBody: !!(options && options.body)
+                  })
+                }).catch(function() {});
+              }, 0);
+              // Preserve body exactly as-is - critical for gzip-compressed data
+              const proxyOptions = {
+                ...options,
+                headers: {
+                  ...options.headers,
+                  'X-Posthog-Original-Url': url
+                }
+              };
+              // Ensure body is preserved (don't modify it)
+              if (options.body) {
+                proxyOptions.body = options.body;
+              }
+              return originalFetch(proxyUrl, proxyOptions);
+            }
+            return originalFetch.apply(this, arguments);
+          };
+          
+          // Also intercept sendBeacon (PostHog might use this for session replays)
+          if (navigator && navigator.sendBeacon) {
+            const originalSendBeacon = navigator.sendBeacon;
+            navigator.sendBeacon = function(url, data) {
+              if (typeof url === 'string' && url.includes('posthog.com')) {
+                // Convert sendBeacon to fetch through proxy
+                const proxyUrl = 'http://127.0.0.1:3000/telemetry/session-replay';
                 setTimeout(function() {
-                  try {
-                    // Try PostHog extension API first (for disable_external_dependency_loading)
-                    if (window.__PosthogExtensions__ && typeof window.__PosthogExtensions__.initSessionRecording === 'function') {
-                      window.__PosthogExtensions__.initSessionRecording(posthog);
-                    }
-                    
-                    // Also try standard methods
-                    if (posthog && typeof posthog.startSessionRecording === 'function') {
-                      posthog.startSessionRecording();
-                    }
-                    if (posthog.sessionRecording && typeof posthog.sessionRecording.startRecording === 'function') {
-                      posthog.sessionRecording.startRecording();
-                    }
-                  } catch(e) {}
-                }, 500);
-                
-                // Send status to server
-                setTimeout(function() {
-                  fetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+                  originalFetch('http://127.0.0.1:3000/telemetry/posthog-status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      distinctId: distinctId,
-                      posthogLoaded: true,
-                      sessionRecordingEnabled: !posthog.__loadedOptions || !posthog.__loadedOptions.disable_session_recording,
-                      sessionRecordingStarted: posthog.sessionRecordingStarted || false,
-                      hasSessionManager: typeof posthog.sessionManager !== 'undefined',
-                      sessionId: posthog.get_session_id ? posthog.get_session_id() : null
-                    })
-                  }).catch(function(err) {});
-                }, 1500);
-              }
-            });
-            
-            ph.identify(distinctId, {
-              syncExtensionId: distinctId,
-              installId: distinctId,
-              source: 'sync-extension'
-            });
-            
-            ph.capture('ui_panel_loaded', {
-              timestamp: new Date().toISOString(),
-              userAgent: navigator.userAgent
-            });
-            
-            // Force flush events immediately
-            try {
-              if (ph.flush && typeof ph.flush === 'function') {
-                ph.flush();
-              }
-            } catch(e) {}
-            
-            // Set up event listeners
-            function setupPostHogEvents() {
-              var ph = typeof posthog !== 'undefined' ? posthog : (typeof window.posthog !== 'undefined' ? window.posthog : null);
-              if (!ph) return;
-              
-              // Track tab switches
-              document.querySelectorAll('.tab-switch').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                  var tab = btn.dataset.tab;
-                  ph.capture('ui_tab_switched', {
-                    tab: tab,
-                    timestamp: new Date().toISOString()
-                  });
-                });
-              });
-              
-              // Track button clicks
-              document.querySelectorAll('[data-action]').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                  var action = btn.dataset.action;
-                  ph.capture('ui_button_clicked', {
-                    action: action,
-                    timestamp: new Date().toISOString()
-                  });
-                });
-              });
-              
-              // Track model selection
-              document.querySelectorAll('input[name="model"]').forEach(function(radio) {
-                radio.addEventListener('change', function() {
-                  if (radio.checked) {
-                    ph.capture('ui_model_selected', {
-                      model: radio.value,
+                      intercepted: true,
+                      url: url,
+                      method: 'sendBeacon',
                       timestamp: new Date().toISOString()
-                    });
-                  }
-                });
-              });
-              
-              // Track settings changes
-              document.querySelectorAll('.api-key-input').forEach(function(input) {
-                input.addEventListener('input', function() {
-                  ph.capture('ui_api_key_entered', {
-                    field: input.id,
-                    hasValue: input.value.length > 0,
-                    timestamp: new Date().toISOString()
-                  });
-                });
-              });
-              
-              // Track save location changes
-              document.querySelectorAll('[data-save-location]').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                  var location = btn.dataset.saveLocation;
-                  ph.capture('ui_save_location_changed', {
-                    location: location,
-                    timestamp: new Date().toISOString()
-                  });
-                });
-              });
-              
-              // Track render format changes
-              document.querySelectorAll('[data-video-format], [data-audio-format]').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                  var format = btn.dataset.videoFormat || btn.dataset.audioFormat;
-                  var type = btn.dataset.videoFormat ? 'video' : 'audio';
-                  ph.capture('ui_render_format_changed', {
-                    type: type,
-                    format: format,
-                    timestamp: new Date().toISOString()
-                  });
-                });
-              });
-              
-              // Track lipsync button clicks
-              var lipsyncBtn = document.getElementById('lipsyncBtn');
-              if (lipsyncBtn) {
-                lipsyncBtn.addEventListener('click', function() {
-                  ph.capture('ui_run_clicked', {
-                    timestamp: new Date().toISOString()
-                  });
-                });
+                    })
+                  }).catch(function() {});
+                }, 0);
+                // Convert blob/formdata to JSON if needed
+                let body = data;
+                if (data instanceof Blob) {
+                  body = data;
+                } else if (data instanceof FormData) {
+                  body = data;
+                } else if (typeof data === 'string') {
+                  body = data;
+                }
+                // Use fetch instead of sendBeacon (sendBeacon can't be redirected)
+                originalFetch(proxyUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': data instanceof FormData ? undefined : 'application/json',
+                    'X-Posthog-Original-Url': url
+                  },
+                  body: body,
+                  keepalive: true // Match sendBeacon behavior
+                }).catch(function() {});
+                return true; // sendBeacon returns boolean
+              }
+              return originalSendBeacon.apply(this, arguments);
+            };
+          }
+          
+          // Also intercept XMLHttpRequest for older PostHog versions
+          const originalXHROpen = XMLHttpRequest.prototype.open;
+          const originalXHRSend = XMLHttpRequest.prototype.send;
+          const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+          
+          XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            // Only intercept POST requests to /e/ or /s/ endpoints (session replay uploads)
+            if (method === 'POST' && typeof url === 'string' && url.includes('posthog.com') &&
+                (url.includes('/e/') || url.includes('/s/'))) {
+              const proxyUrl = 'http://127.0.0.1:3000/telemetry/session-replay';
+              // Store original URL to add as header
+              this._posthogOriginalUrl = url;
+              // Log to server for debugging (use original fetch to avoid recursion)
+              if (typeof window._originalFetch !== 'undefined') {
+                setTimeout(function() {
+                  window._originalFetch('http://127.0.0.1:3000/telemetry/posthog-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      intercepted: true,
+                      url: url,
+                      method: 'xhr',
+                      timestamp: new Date().toISOString()
+                    })
+                  }).catch(function() {});
+                }, 0);
+              }
+              // Replace URL with proxy
+              url = proxyUrl;
+            }
+            this._url = url;
+            this._method = method;
+            return originalXHROpen.apply(this, [method, url, ...rest]);
+          };
+          
+          // Intercept setRequestHeader to add original URL header
+          XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+            // If this is a proxied PostHog request, add the original URL header
+            if (this._posthogOriginalUrl && name.toLowerCase() === 'content-type') {
+              // Add the original URL header right after content-type
+              originalSetRequestHeader.call(this, name, value);
+              originalSetRequestHeader.call(this, 'X-Posthog-Original-Url', this._posthogOriginalUrl);
+              return;
+            }
+            return originalSetRequestHeader.apply(this, arguments);
+          };
+          
+          XMLHttpRequest.prototype.send = function(data) {
+            // Ensure original URL header is set if it wasn't set via setRequestHeader
+            if (this._posthogOriginalUrl && !this._posthogHeaderSet) {
+              try {
+                originalSetRequestHeader.call(this, 'X-Posthog-Original-Url', this._posthogOriginalUrl);
+                this._posthogHeaderSet = true;
+              } catch(e) {
+                // Headers might already be locked, try embedding in body if JSON
+                if (data && typeof data === 'string') {
+                  try {
+                    const jsonData = JSON.parse(data);
+                    jsonData._proxyOriginalUrl = this._posthogOriginalUrl;
+                    data = JSON.stringify(jsonData);
+                  } catch(e) {}
+                }
               }
             }
-            
-            // Wait for DOM to be ready before setting up events
-            if (document.readyState === 'loading') {
-              document.addEventListener('DOMContentLoaded', setupPostHogEvents);
-            } else {
-              setupPostHogEvents();
-            }
-          })
-          .catch(function(e) {
-            // Fallback initialization
-            var fallbackId = 'unknown';
-            ph.init('phc_82dxgIiZvuUFV41LErIq8UGCNYmisHq8Fn3a4LGtsYO', {
-              api_host: 'https://us.i.posthog.com',
-              autocapture: false,
-              capture_pageview: false,
-              disable_session_recording: false,
-              disable_external_dependency_loading: true,
-              persistence: 'localStorage',
-              maskAllText: false,
-              maskAllInputs: false,
-              maskTextSelector: '[data-sensitive], .api-key-input, input[type="password"], input[name*="api"], input[name*="key"], input[id*="api"], input[id*="key"]',
-              loaded: function(posthog) {
-                try {
-                  if (posthog && typeof posthog.startSessionRecording === 'function') {
-                    posthog.startSessionRecording();
-                  }
-                  if (posthog.sessionRecording && typeof posthog.sessionRecording.startRecording === 'function') {
-                    posthog.sessionRecording.startRecording();
-                  }
-                } catch(e) {}
-              }
-            });
-            ph.identify(fallbackId, {
-              syncExtensionId: fallbackId,
-              installId: fallbackId,
-              source: 'sync-extension'
-            });
-            ph.capture('ui_panel_loaded', {
-              timestamp: new Date().toISOString(),
-              fallback: true
-            });
-          });
+            return originalXHRSend.apply(this, arguments);
+          };
+        } catch(e) {
+          // Silently fail - no console in CEP
+        }
       })();
     </script>
+    <script src="lib/posthog.js"></script>
+    <script src="lib/posthog-recorder.js"></script>
+    <script src="ui/posthog.js"></script>
   </body>
 </html>

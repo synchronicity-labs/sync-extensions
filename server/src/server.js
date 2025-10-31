@@ -87,7 +87,22 @@ app.disable('x-powered-by');
 // Health check endpoint BEFORE middleware to avoid blocking
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
-app.use(express.json({ limit: '50mb' }));
+// Conditional body parsing - skip JSON parsing for session-replay to preserve gzip
+app.use((req, res, next) => {
+  // Skip JSON parsing for session-replay endpoint (needs raw body for gzip)
+  if (req.path === '/telemetry/session-replay' && req.method === 'POST') {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      req.rawBody = Buffer.concat(chunks);
+      req.body = req.rawBody; // Set body to raw buffer
+      next();
+    });
+  } else {
+    // For all other routes, use JSON parsing
+    express.json({ limit: '50mb' })(req, res, next);
+  }
+});
 
 // Request timeout middleware to prevent hanging requests
 app.use((req, res, next) => {
@@ -211,6 +226,42 @@ app.use((req, res, next) => {
   next();
 });
 
+// Auth middleware must run BEFORE routes to check public paths
+app.use((req, res, next) => {
+  const publicPaths = [
+    '/logs',
+    '/health',
+    '/auth/token',
+    '/admin/exit', // Allow localhost shutdown requests
+    '/update/check',
+    '/update/version',
+    '/upload',
+    '/debug',
+    '/costs',
+    '/dubbing',
+    '/tts/generate',
+    '/tts/voices',
+    '/tts/voices/create',
+    '/tts/voices/delete',
+    '/recording/save',
+    '/recording/file',
+    '/extract-audio',
+    '/mp3/file',
+    '/wav/file',
+    '/waveform/file',
+    '/telemetry/test',
+    '/telemetry/posthog-status',
+    '/telemetry/session-replay'
+  ];
+  // Check exact path match - Express normalizes req.path
+  // Also check req.url without query string as fallback
+  const requestPath = req.path || req.url.split('?')[0];
+  if (publicPaths.includes(requestPath)) {
+    return next();
+  }
+  return requireAuth(req, res, next);
+});
+
 // Mount all routes
 app.use('/', systemRoutes);
 app.use('/', apiRoutes);
@@ -308,37 +359,6 @@ app.post('/upload', async (req, res) => {
   }
 });
 
-app.use((req, res, next) => {
-  const publicPaths = [
-    '/logs',
-    '/health',
-    '/auth/token',
-    '/update/check',
-    '/update/version',
-    '/upload',
-    '/debug',
-    '/costs',
-    '/dubbing',
-    '/tts/generate',
-    '/tts/voices',
-    '/tts/voices/create',
-    '/tts/voices/delete',
-    '/recording/save',
-    '/recording/file',
-    '/extract-audio',
-    '/mp3/file',
-    '/wav/file',
-    '/waveform/file'
-  ];
-  // Check exact path match - Express normalizes req.path
-  // Also check req.url without query string as fallback
-  const requestPath = req.path || req.url.split('?')[0];
-  if (publicPaths.includes(requestPath)) {
-    return next();
-  }
-  return requireAuth(req, res, next);
-});
-
 let PANEL_SETTINGS = null;
 
 app.get('/settings', (req, res) => {
@@ -431,23 +451,45 @@ async function startServer() {
   
   try {
     const PORT = 3000;
-    // If an instance is already healthy on 3000, exit quickly without error
+    // Always replace existing server to ensure fresh code is running
     try {
       const r = await fetch(`http://${HOST}:${PORT}/health`, { 
         method: 'GET',
-        timeout: 5000 // 5 second timeout for health check
+        timeout: 2000 // Shorter timeout for health check
       });
       if (r && r.ok) {
         console.log(`Existing Sync Extension server detected on http://${HOST}:${PORT}`);
-        // Always replace the existing server to ensure fresh code is running
         console.log(`Requesting shutdown of existing server to replace with fresh code...`);
-        await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
-          method:'POST',
-          timeout: 5000
-        }).catch (()=>{});
-        await new Promise(r2=>setTimeout(r2, 1000)); // Wait longer for graceful shutdown
+        
+        // Try to gracefully shutdown via admin endpoint
+        try {
+          await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+            method:'POST',
+            timeout: 2000
+          });
+        } catch (e) {
+          // If admin/exit fails, try to find and kill the process
+          console.log('Admin exit failed, will attempt process kill if port still in use');
+        }
+        
+        // Wait for shutdown - check port availability with retries
+        let portFree = false;
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r2=>setTimeout(r2, 200));
+          const available = await isPortAvailable(PORT);
+          if (available) {
+            portFree = true;
+            break;
+          }
+        }
+        
+        if (!portFree) {
+          console.log(`Port ${PORT} still in use after shutdown request, proceeding anyway (will handle EADDRINUSE)`);
+        }
       }
-    } catch (_) { /* ignore */ }
+    } catch (_) { 
+      // Health check failed - server not running, proceed to start
+    }
     const srv = app.listen(PORT, HOST, () => {
       console.log(`Sync Extension server running on http://${HOST}:${PORT}`);
       console.log(`Jobs file: ${jobsFile}`);
@@ -457,25 +499,25 @@ async function startServer() {
     });
     srv.on('error', async (err) => {
       if (err && err.code === 'EADDRINUSE') {
+        // Port is in use - this shouldn't happen if shutdown worked, but handle it
+        console.log(`Port ${PORT} in use - attempting to force shutdown...`);
         try {
-          const r = await fetch(`http://${HOST}:${PORT}/health`, { 
-            method: 'GET',
-            timeout: 5000
-          });
-          if (r && r.ok) {
-            console.log(`Port ${PORT} in use by healthy server; requesting shutdown to replace...`);
-            // Request shutdown of existing server to replace with fresh code
-            await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
-              method:'POST',
-              timeout: 5000
-            }).catch (()=>{});
-            await new Promise(r2=>setTimeout(r2, 1000));
-            // Exit cleanly so any spawner (e.g., the CEP panel) doesn't leave a zombie process.
-            process.exit(0);
-          }
-        } catch (_) {}
-        console.error(`Port ${PORT} in use and health check failed`);
-        process.exit(1);
+          // Try one more time to shut down the existing server
+          await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+            method:'POST',
+            timeout: 2000
+          }).catch (()=>{});
+          
+          // Wait a bit longer for port to be released
+          await new Promise(r2=>setTimeout(r2, 2000));
+          
+          // Exit - the extension will retry starting the server
+          console.log(`Exiting to allow extension to retry server startup...`);
+          process.exit(0);
+        } catch (_) {
+          console.error(`Port ${PORT} in use and cannot shut down existing server`);
+          process.exit(1);
+        }
       } else {
         console.error('Server error', err && err.message ? err.message : String(err));
         process.exit(1);

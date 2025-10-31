@@ -114,19 +114,40 @@
               fetch('http://127.0.0.1:3000/health')
                 .then(function(response) {
                   if (response.ok) {
-                    serverStarted = true;
-                    updateDebugStatus('Server already running on port 3000');
-                    try { window.__syncServerPort = 3000; } catch(_) {}
-                    try { window.dispatchEvent(new CustomEvent('sync-backend-ready', { detail: { port: 3000, source: 'nle-health' } })); } catch(_) {}
+                    // Server is running - request shutdown to ensure fresh code
+                    updateDebugStatus('Server detected, requesting restart for fresh code...');
+                    fetch('http://127.0.0.1:3000/admin/exit', { method: 'POST' })
+                      .then(function() {
+                        updateDebugStatus('Shutdown requested, waiting for restart...');
+                        // Wait a moment, then start new server
+                        setTimeout(function() {
+                          serverStarted = false; // Reset flag to allow restart
+                          spawnServer();
+                        }, 1500);
+                      })
+                      .catch(function() {
+                        // If shutdown fails, proceed to start fresh anyway
+                        updateDebugStatus('Shutdown request failed, starting fresh server...');
+                        serverStarted = false; // Reset flag to allow restart
+                        spawnServer();
+                      });
                     return;
                   }
                   throw new Error('Server not responding');
                 })
                 .catch(function() {
                   // Server not running, start with Node.js spawn
-                  updateDebugStatus('Starting server with Node.js spawn...');
-                  
-                  try {
+                  spawnServer();
+                });
+            } catch(e) {
+              updateDebugStatus('startServer error: ' + e.message);
+            }
+          }
+          
+          function spawnServer() {
+            updateDebugStatus('Starting server with Node.js spawn...');
+            
+            try {
                     var spawn = require('child_process').spawn;
                     var extPath = cs.getSystemPath(CSInterface.SystemPath.EXTENSION);
                     updateDebugStatus('Raw extension path: ' + extPath);
@@ -340,12 +361,8 @@
                         });
                     }, 4000);
                     
-                  } catch(spawnError) {
-                    updateDebugStatus('Spawn error: ' + spawnError.message);
-                  }
-                });
-            } catch(e) {
-              updateDebugStatus('Server startup error: ' + e.message);
+            } catch(spawnError) {
+              updateDebugStatus('Spawn error: ' + spawnError.message);
             }
           }
 
