@@ -556,12 +556,6 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Use Start-Process for better exit code handling
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrEmpty($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
-            
             # Use Start-Process with -Wait to properly capture exit codes
             # Don't quote arguments - Start-Process handles it automatically
             $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $inputPath, $outputPath, $certPathResolved, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
