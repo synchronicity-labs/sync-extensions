@@ -477,14 +477,8 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Use simple & operator like the old working version
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrEmpty($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
-            
             # Try signing with timestamp first (restore old working approach)
-            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
               & $Exe -sign $pkg.Input $pkg.Output $certPath $password
