@@ -282,6 +282,25 @@ jobs:
             echo "✅ $pkg\server\.env verified"
           }
 
+      - name: Create .env file from secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .env << EOF
+          # R2 Configuration
+          R2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
+          R2_BUCKET=${{ secrets.R2_BUCKET }}
+          R2_PREFIX=${{ secrets.R2_PREFIX }}
+          # PostHog Configuration
+          POSTHOG_KEY=${{ secrets.POSTHOG_KEY }}
+          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+          EOF
+          mkdir -p server
+          cp .env server/.env
+          echo "✅ Created server/.env for Windows build"
+
       - name: Download mac build
         uses: actions/download-artifact@v4
         with:
