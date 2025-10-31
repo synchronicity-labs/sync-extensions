@@ -550,19 +550,34 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing directory - ZXPSignCmd creates ZXP from directory
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrEmpty($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
-            
-            # Use Start-Process with -Wait to properly capture exit codes
-            # Don't quote arguments - Start-Process handles it automatically
-            $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $inputPath, $outputPath, $certPathResolved, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
-            if ($proc.ExitCode -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
-              $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $inputPath, $outputPath, $certPathResolved, $password -Wait -PassThru -NoNewWindow
-              if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
+            # Change to input directory and use relative paths
+            Push-Location $inputPath
+            try {
+              $relOutputPath = $outputPath.Replace((Get-Location).Path + "\", "")
+              $relCertPath = $certPathResolved.Replace((Get-Location).Path + "\", "")
+              
+              # If paths are still absolute, use them as-is
+              if ($relOutputPath -eq $outputPath) { $relOutputPath = $outputPath }
+              if ($relCertPath -eq $certPathResolved) { $relCertPath = $certPathResolved }
+              
+              echo "Using current directory: $(Get-Location)"
+              echo "Relative output path: $relOutputPath"
+              echo "Relative cert path: $relCertPath"
+              
+              # Try signing with current directory as input (use .)
+              $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+              if ([string]::IsNullOrEmpty($tsaUrl)) {
+                $tsaUrl = "http://timestamp.digicert.com"
+              }
+              
+              $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", ".", $relOutputPath, $relCertPath, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
+                $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", ".", $relOutputPath, $relCertPath, $password -Wait -PassThru -NoNewWindow
+                if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
+              }
+            } finally {
+              Pop-Location
             }
             
             echo "$($pkg.Name) signed successfully"
