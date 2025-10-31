@@ -563,10 +563,11 @@ jobs:
             }
             
             # Use Start-Process with -Wait to properly capture exit codes
-            $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", "`"$inputPath`"", "`"$outputPath`"", "`"$certPathResolved`"", "`"$password`"", "-tsa", "`"$tsaUrl`"" -Wait -PassThru -NoNewWindow
+            # Don't quote arguments - Start-Process handles it automatically
+            $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $inputPath, $outputPath, $certPathResolved, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
             if ($proc.ExitCode -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
-              $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", "`"$inputPath`"", "`"$outputPath`"", "`"$certPathResolved`"", "`"$password`"" -Wait -PassThru -NoNewWindow
+              $proc = Start-Process -FilePath $Exe -ArgumentList "-sign", $inputPath, $outputPath, $certPathResolved, $password -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
             }
             
