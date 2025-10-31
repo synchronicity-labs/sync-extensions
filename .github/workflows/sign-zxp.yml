@@ -589,10 +589,6 @@ if %ERRORLEVEL% neq 0 (
 )
 exit /b 0
 "@
-            $batchContent | Out-File -FilePath $batchFile -Encoding ASCII -NoNewline
-            $batchContent = $batchContent -replace "`$password", $password
-            $batchContent | Out-File -FilePath $batchFile -Encoding ASCII -NoNewline
-            
             # Create a batch file wrapper to ensure proper argument handling
             $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp.bat"
             $batchContent = @"
