@@ -540,13 +540,40 @@ jobs:
             if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
             if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
             
+            # Ensure output directory exists
+            $outputDir = Split-Path $pkg.Output -Parent
+            if (-not (Test-Path $outputDir)) {
+              New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+            }
+            
+            # Convert paths to absolute and ensure proper formatting
+            $inputPath = (Resolve-Path $pkg.Input).Path
+            $outputPath = Join-Path $env:GITHUB_WORKSPACE (Split-Path $pkg.Output -Leaf)
+            $certPathResolved = (Resolve-Path $certPath).Path
+            
+            echo "Resolved paths:"
+            echo "  Input: $inputPath"
+            echo "  Output: $outputPath"
+            echo "  Cert: $certPathResolved"
+            
+            # Verify mimetype file exists (ZXPSignCmd requires it)
+            $mimetypePath = Join-Path $inputPath "mimetype"
+            if (-not (Test-Path $mimetypePath)) {
+              throw "mimetype file missing in input directory: $mimetypePath"
+            }
+            echo "mimetype file verified: $mimetypePath"
+            
             echo "All required arguments validated successfully for $($pkg.Name)"
             
             # Try signing with timestamp first
-            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
+            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+            if ([string]::IsNullOrEmpty($tsaUrl)) {
+              $tsaUrl = "http://timestamp.digicert.com"
+            }
+            & $Exe -sign "$inputPath" "$outputPath" "$certPathResolved" "$password" -tsa "$tsaUrl"
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+              & $Exe -sign "$inputPath" "$outputPath" "$certPathResolved" "$password"
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             echo "$($pkg.Name) signed successfully"
