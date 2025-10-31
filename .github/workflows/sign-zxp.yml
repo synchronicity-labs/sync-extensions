@@ -550,13 +550,15 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Use & operator with explicit working directory
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrEmpty($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
+            # Verify all files exist before signing
+            if (-not (Test-Path $inputPath)) { throw "Input path does not exist: $inputPath" }
+            if (-not (Test-Path $certPathResolved)) { throw "Certificate path does not exist: $certPathResolved" }
             
-            # Try signing with absolute paths but ensure we're in the right directory context
+            # List first few files in input directory to verify structure
+            echo "Sample files in input directory:"
+            Get-ChildItem $inputPath -Depth 0 | Select-Object -First 10 Name
+            
+            # Try signing with absolute paths
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
