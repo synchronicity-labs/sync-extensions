@@ -553,14 +553,12 @@ jobs:
             # Change to input directory and use relative paths
             Push-Location $inputPath
             try {
-              $relOutputPath = $outputPath.Replace((Get-Location).Path + "\", "")
-              $relCertPath = $certPathResolved.Replace((Get-Location).Path + "\", "")
+              # Calculate relative paths properly
+              $inputDir = (Get-Location).Path
+              $relOutputPath = Resolve-Path $outputPath -Relative
+              $relCertPath = Resolve-Path $certPathResolved -Relative
               
-              # If paths are still absolute, use them as-is
-              if ($relOutputPath -eq $outputPath) { $relOutputPath = $outputPath }
-              if ($relCertPath -eq $certPathResolved) { $relCertPath = $certPathResolved }
-              
-              echo "Using current directory: $(Get-Location)"
+              echo "Current directory: $inputDir"
               echo "Relative output path: $relOutputPath"
               echo "Relative cert path: $relCertPath"
               
