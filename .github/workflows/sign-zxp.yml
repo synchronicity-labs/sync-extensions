@@ -556,7 +556,7 @@ jobs:
               throw "Required manifest.xml missing: $manifestPath"
             }
             
-            # Try signing with quoted password to handle special characters
+            # Use cmd.exe /c for better argument handling
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
@@ -567,13 +567,13 @@ jobs:
               Remove-Item $outputPath -Force
             }
             
-            # Build command as string to ensure proper quoting
-            $signCmd = "$Exe -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`" -tsa `"$tsaUrl`""
-            Invoke-Expression $signCmd
+            # Use cmd.exe /c with full command string
+            $signCmd = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`" -tsa `"$tsaUrl`""
+            cmd.exe /c $signCmd
             if ($LASTEXITCODE -ne 0) { 
               echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              $signCmdNoTSA = "$Exe -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`""
-              Invoke-Expression $signCmdNoTSA
+              $signCmdNoTSA = "`"$Exe`" -sign `"$inputPath`" `"$outputPath`" `"$certPathResolved`" `"$password`""
+              cmd.exe /c $signCmdNoTSA
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             
