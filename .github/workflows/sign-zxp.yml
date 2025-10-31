@@ -586,7 +586,7 @@ set ZXP_PASSWORD=$password
 "$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD% -tsa "$tsaUrl"
 if %ERRORLEVEL% neq 0 (
   echo Signing with timestamp failed, trying without timestamp...
-  "`$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD%
+  "$Exe" -sign "$cleanInputPath" "$cleanOutputPath" "$cleanCertPath" %ZXP_PASSWORD%
   exit /b %ERRORLEVEL%
 )
 exit /b 0
