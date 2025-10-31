@@ -577,21 +577,22 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Try using absolute paths but run from Exe directory
-            $exeDir = Split-Path $Exe -Parent
-            Push-Location $exeDir
+            # Build command string with proper quoting for all arguments
+            # ZXPSignCmd needs all paths quoted, especially if they contain spaces
+            $signCmd = "`"$Exe`" -sign `"$cleanInputPath`" `"$cleanOutputPath`" `"$cleanCertPath`" `"$password`" -tsa `"$tsaUrl`""
+            
+            echo "Running ZXPSignCmd command:"
+            echo $signCmd.Replace($password, "***PASSWORD***")
+            
+            # Use cmd.exe /c to execute with proper command line parsing
+            Push-Location $env:GITHUB_WORKSPACE
             try {
-              echo "Running ZXPSignCmd from: $exeDir"
-              echo "Using absolute paths:"
-              echo "  Input: $cleanInputPath"
-              echo "  Output: $cleanOutputPath"
-              echo "  Cert: $cleanCertPath"
-              
-              $proc = Start-Process -FilePath ".\ZXPSignCmd.exe" -ArgumentList "-sign", $cleanInputPath, $cleanOutputPath, $cleanCertPath, $password, "-tsa", $tsaUrl -Wait -PassThru -NoNewWindow
-              if ($proc.ExitCode -ne 0) { 
-                echo "$($pkg.Name) signing with timestamp failed (exit $($proc.ExitCode)), trying without timestamp..."
-                $proc = Start-Process -FilePath ".\ZXPSignCmd.exe" -ArgumentList "-sign", $cleanInputPath, $cleanOutputPath, $cleanCertPath, $password -Wait -PassThru -NoNewWindow
-                if ($proc.ExitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $($proc.ExitCode)" }
+              cmd.exe /c $signCmd
+              if ($LASTEXITCODE -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                $signCmdNoTSA = "`"$Exe`" -sign `"$cleanInputPath`" `"$cleanOutputPath`" `"$cleanCertPath`" `"$password`""
+                cmd.exe /c $signCmdNoTSA
+                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               }
             } finally {
               Pop-Location
