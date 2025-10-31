@@ -450,19 +450,9 @@ jobs:
           Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\*" "build\zxp-ae-mac\" -Recurse -Force
           Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\*" "build\zxp-ppro-mac\" -Recurse -Force
           
-          # Create mimetype file (must be first file in ZXP)
-          $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
-          foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
-            $mimetypePath = Join-Path $zxpDir "mimetype"
-            # Use ASCII encoding without BOM for mimetype file
-            $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-            [System.IO.File]::WriteAllText($mimetypePath, $mimetypeContent, $utf8NoBom)
-            echo "Created mimetype file: $mimetypePath"
-          }
-          
-          # Note: ZXPSignCmd will include the mimetype file in the ZXP
-          # The mimetype file is created and will be included in the final ZXP
-          echo "Mimetype files created in all ZXP directories"
+          # Note: ZXPSignCmd will create the mimetype file automatically
+          # We don't need to create it manually - ZXPSignCmd handles ZXP structure
+          echo "ZXP directories prepared (ZXPSignCmd will create mimetype file)"
           
           # Validate required files and set permissions
           foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
