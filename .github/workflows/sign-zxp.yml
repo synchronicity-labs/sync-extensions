@@ -562,11 +562,6 @@ jobs:
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Ensure output file doesn't exist
-            if (Test-Path $outputPath) {
-              Remove-Item $outputPath -Force
-            }
-            
             # Try using short paths (8.3 format) to avoid path length issues
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
