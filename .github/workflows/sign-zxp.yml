@@ -429,82 +429,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path "build\zxp-ae-mac" | Out-Null
           New-Item -ItemType Directory -Force -Path "build\zxp-ppro-mac" | Out-Null
           
-          # Move panel contents to ZXP root (not in subdirectory)
-          Copy-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ae.panel\*" "build\zxp-ae-win\" -Recurse -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ppro.panel\*" "build\zxp-ppro-win\" -Recurse -Force
+          # Move each panel to its own ZXP directory (restore old working structure)
+          Move-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ae.panel" "build\zxp-ae-win\" -Force
+          Move-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ppro.panel" "build\zxp-ppro-win\" -Force
+          Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel" "build\zxp-ae-mac\" -Force
+          Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" "build\zxp-ppro-mac\" -Force
           
-          # Debug macOS source directories
-          echo "Checking macOS source directories..."
-          echo "AE macOS source exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel")"
-          echo "Premiere macOS source exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel")"
-          echo "AE macOS server/.env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\server\.env")"
-          echo "Premiere macOS server/.env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\server\.env")"
-          
-          # List contents of macOS directories
-          echo "Contents of AE macOS directory:"
-          Get-ChildItem "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel" | Select-Object Name, Length
-          echo "Contents of Premiere macOS directory:"
-          Get-ChildItem "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" | Select-Object Name, Length
-          
-          # Copy macOS packages (server/.env will be copied as part of server/ directory)
-          Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\*" "build\zxp-ae-mac\" -Recurse -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\*" "build\zxp-ppro-mac\" -Recurse -Force
-          
-          # Note: ZXPSignCmd will create the mimetype file automatically
-          # We don't need to create it manually - ZXPSignCmd handles ZXP structure
-          echo "ZXP directories prepared (ZXPSignCmd will create mimetype file)"
-          
-          # Validate required files and set permissions
+          # Create mimetype file (must be first file in ZXP)
+          $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
           foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
-            echo "Validating $zxpDir..."
-            
-            # Check manifest.xml and index.html exist at ZXP root
-            $manifestPath = Join-Path $zxpDir "CSXS\manifest.xml"
-            $indexPath = Join-Path $zxpDir "index.html"
-            $envPath = Join-Path $zxpDir "server\.env"
-            if (-not (Test-Path $manifestPath)) {
-              throw "Required manifest.xml missing: $manifestPath"
+            $mimetypePath = Join-Path $zxpDir "mimetype"
+            [IO.File]::WriteAllText($mimetypePath, $mimetypeContent)
+            echo "Created mimetype file: $mimetypePath"
+          }
+          
+          # Set execute permissions on Node.js binaries (macOS only)
+          foreach ($zxpDir in @("build\zxp-ae-mac", "build\zxp-ppro-mac")) {
+            $nodeBinaries = Get-ChildItem -Path $zxpDir -Recurse -Name "node" -File
+            foreach ($nodeBin in $nodeBinaries) {
+              $fullPath = Join-Path $zxpDir $nodeBin
+              echo "Setting execute permissions on: $fullPath"
+              attrib +A "$fullPath"
+              $fileInfo = Get-Item $fullPath
+              $fileInfo.Attributes = $fileInfo.Attributes -bor [System.IO.FileAttributes]::Archive
             }
-            if (-not (Test-Path $indexPath)) {
-              throw "Required index.html missing: $indexPath"
-            }
-            if (-not (Test-Path $envPath)) {
-              throw "Required .env file missing: $envPath (server runs with cwd=server/, so .env must be in server/.env)"
-            }
-            echo "Found manifest.xml at: $manifestPath"
-            echo "Found index.html at: $indexPath"
-            echo "Found .env at: $envPath"
-            
-            # Validate .env contains required R2 variables
-            $envContent = Get-Content $envPath -Raw
-            if (-not ($envContent -match "R2_ENDPOINT_URL=") -or -not ($envContent -match "R2_ACCESS_KEY=") -or -not ($envContent -match "R2_SECRET_KEY=")) {
-              throw ".env file missing required R2 configuration variables in $zxpDir"
-            }
-            if ($envContent -match "R2_ACCESS_KEY=$" -or $envContent -match "R2_SECRET_KEY=$") {
-              throw ".env file contains empty R2 credentials in $zxpDir"
-            }
-            echo "✅ .env validation passed for $zxpDir"
-            
-            # Check Node.js binaries exist and set permissions (macOS only)
-            if ($zxpDir -like "*mac*") {
-              $nodeBinaries = Get-ChildItem -Path $zxpDir -Recurse -Name "node" -File
-              if ($nodeBinaries.Count -eq 0) {
-                throw "No Node.js binaries found in macOS package: $zxpDir"
-              }
-              foreach ($nodeBin in $nodeBinaries) {
-                $fullPath = Join-Path $zxpDir $nodeBin
-                echo "Setting execute permissions on: $fullPath"
-                
-                # Use attrib command to set archive bit (Windows equivalent of execute permission)
-                attrib +A "$fullPath"
-                
-                # Also try setting via PowerShell file attributes
-                $fileInfo = Get-Item $fullPath
-                $fileInfo.Attributes = $fileInfo.Attributes -bor [System.IO.FileAttributes]::Archive
-              }
-            }
-            
-            echo "Validation completed for: $zxpDir"
           }
           
           # Define all packages to sign
@@ -523,81 +471,25 @@ jobs:
             
             # Validate all required arguments are present
             if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
+            if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)")) { throw "Panel directory not found: $($pkg.Input)\$($pkg.PanelDir)" }
             if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
             if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
             
-            # Ensure output directory exists
-            $outputDir = Split-Path $pkg.Output -Parent
-            if (-not (Test-Path $outputDir)) {
-              New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-            }
-            
-            # Convert paths to absolute and ensure proper formatting
-            $inputPath = (Resolve-Path $pkg.Input).Path
-            $outputPath = Join-Path $env:GITHUB_WORKSPACE (Split-Path $pkg.Output -Leaf)
-            $certPathResolved = (Resolve-Path $certPath).Path
-            
-            # Verify manifest.xml exists (required for ZXP)
-            $manifestPath = Join-Path $inputPath "CSXS\manifest.xml"
-            if (-not (Test-Path $manifestPath)) {
-              throw "Required manifest.xml missing: $manifestPath"
-            }
-            
-            echo "Resolved paths:"
-            echo "  Input directory: $inputPath"
-            echo "  Output ZXP: $outputPath"
-            echo "  Cert: $certPathResolved"
-            
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Verify manifest.xml exists (ZXPSignCmd needs this)
-            $manifestPath = Join-Path $inputPath "CSXS\manifest.xml"
-            if (-not (Test-Path $manifestPath)) {
-              throw "Required manifest.xml missing: $manifestPath"
-            }
-            
-            # Ensure paths don't have trailing backslashes (ZXPSignCmd may be sensitive to this)
-            $cleanInputPath = $inputPath.TrimEnd('\')
-            $cleanOutputPath = $outputPath.TrimEnd('\')
-            $cleanCertPath = $certPathResolved.TrimEnd('\')
-            
-            echo "Cleaned paths:"
-            echo "  Input: $cleanInputPath"
-            echo "  Output: $cleanOutputPath"
-            echo "  Cert: $cleanCertPath"
-            
-            # Ensure output file doesn't exist
-            if (Test-Path $cleanOutputPath) {
-              Remove-Item $cleanOutputPath -Force
-            }
-            
-            # Use & operator with cleaned paths
+            # Use simple & operator like the old working version
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             if ([string]::IsNullOrEmpty($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
             }
             
-            # Build command string with proper quoting for all arguments
-            # ZXPSignCmd needs all paths quoted, especially if they contain spaces
-            $signCmd = "`"$Exe`" -sign `"$cleanInputPath`" `"$cleanOutputPath`" `"$cleanCertPath`" `"$password`" -tsa `"$tsaUrl`""
-            
-            echo "Running ZXPSignCmd command:"
-            echo $signCmd.Replace($password, "***PASSWORD***")
-            
-            # Use cmd.exe /c to execute with proper command line parsing
-            Push-Location $env:GITHUB_WORKSPACE
-            try {
-              cmd.exe /c $signCmd
-              if ($LASTEXITCODE -ne 0) { 
-                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                $signCmdNoTSA = "`"$Exe`" -sign `"$cleanInputPath`" `"$cleanOutputPath`" `"$cleanCertPath`" `"$password`""
-                cmd.exe /c $signCmdNoTSA
-                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-              }
-            } finally {
-              Pop-Location
+            # Try signing with timestamp first (restore old working approach)
+            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+            if ($LASTEXITCODE -ne 0) { 
+              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
-            
             echo "$($pkg.Name) signed successfully"
           }
 
