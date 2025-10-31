@@ -571,6 +571,12 @@ jobs:
               Remove-Item $cleanOutputPath -Force
             }
             
+            # Use & operator with cleaned paths
+            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+            if ([string]::IsNullOrEmpty($tsaUrl)) {
+              $tsaUrl = "http://timestamp.digicert.com"
+            }
+            
             # Create a batch file wrapper to ensure proper argument handling
             $batchFile = Join-Path $env:GITHUB_WORKSPACE "sign-zxp.bat"
             $batchContent = @"
