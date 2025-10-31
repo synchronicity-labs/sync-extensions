@@ -567,14 +567,36 @@ jobs:
               Remove-Item $outputPath -Force
             }
             
-            # Use cmd.exe /c but pass arguments separately (no quotes in command string)
-            $signCmd = "$Exe -sign $inputPath $outputPath $certPathResolved $password -tsa $tsaUrl"
-            & cmd.exe /c $signCmd; $exitCode = $LASTEXITCODE
-            if ($exitCode -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $exitCode), trying without timestamp..."
-              $signCmdNoTSA = "$Exe -sign $inputPath $outputPath $certPathResolved $password"
-              & cmd.exe /c $signCmdNoTSA; $exitCode = $LASTEXITCODE
-              if ($exitCode -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $exitCode" }
+            # Try using short paths (8.3 format) to avoid path length issues
+            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+            if ([string]::IsNullOrEmpty($tsaUrl)) {
+              $tsaUrl = "http://timestamp.digicert.com"
+            }
+            
+            # Ensure output file doesn't exist
+            if (Test-Path $outputPath) {
+              Remove-Item $outputPath -Force
+            }
+            
+            # Get short paths using GetShortPathName (fso method)
+            $fso = New-Object -ComObject Scripting.FileSystemObject
+            $shortInputPath = $fso.GetFolder($inputPath).ShortPath
+            $shortOutputPath = $fso.GetFolder((Split-Path $outputPath -Parent)).ShortPath + "\" + (Split-Path $outputPath -Leaf)
+            $shortCertPath = $fso.GetFolder((Split-Path $certPathResolved -Parent)).ShortPath + "\" + (Split-Path $certPathResolved -Leaf)
+            $shortExe = $fso.GetFolder((Split-Path $Exe -Parent)).ShortPath + "\" + (Split-Path $Exe -Leaf)
+            
+            echo "Using short paths:"
+            echo "  Input: $shortInputPath"
+            echo "  Output: $shortOutputPath"
+            echo "  Cert: $shortCertPath"
+            echo "  Exe: $shortExe"
+            
+            # Use & operator with short paths
+            & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password -tsa $tsaUrl
+            if ($LASTEXITCODE -ne 0) { 
+              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+              & $shortExe -sign $shortInputPath $shortOutputPath $shortCertPath $password
+              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             
             echo "$($pkg.Name) signed successfully"
