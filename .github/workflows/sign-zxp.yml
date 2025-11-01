@@ -518,6 +518,18 @@ jobs:
             if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
             if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
             
+            # Ensure output directory exists
+            $outputDir = Split-Path $pkg.Output -Parent
+            if (-not (Test-Path $outputDir)) {
+              New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+            }
+            
+            # Remove output file if it exists (ZXPSignCmd may fail if output exists)
+            if (Test-Path $pkg.Output) {
+              Remove-Item $pkg.Output -Force
+              echo "Removed existing output file: $($pkg.Output)"
+            }
+            
             echo "All required arguments validated successfully for $($pkg.Name)"
             
             # Try signing with timestamp first
