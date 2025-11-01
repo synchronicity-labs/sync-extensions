@@ -536,37 +536,26 @@ jobs:
             # Skip -tsa flag if TSA URL is empty (tag pushes don't have TSA URL, empty string causes "Could not locate file" error)
             $tsaUrl = "${{ github.event.inputs.tsa_url }}"
             
-            # Change to ZXPSignCmd directory and use relative paths (ZXPSignCmd may need this)
-            $exeDir = Split-Path $Exe -Parent
-            $originalLocation = Get-Location
-            Set-Location $exeDir
+            # Use absolute paths and ensure we're in workspace root (ZXPSignCmd needs this)
+            Push-Location $env:GITHUB_WORKSPACE
             try {
-              # Calculate relative paths from ZXPSignCmd directory
-              $relativeInput = [System.IO.Path]::GetRelativePath($exeDir, $pkg.Input)
-              $relativeOutput = [System.IO.Path]::GetRelativePath($exeDir, $pkg.Output)
-              $relativeCert = [System.IO.Path]::GetRelativePath($exeDir, $certPath)
-              
-              echo "Changed to ZXPSignCmd directory: $exeDir"
-              echo "Relative paths:"
-              echo "  Input: $relativeInput"
-              echo "  Output: $relativeOutput"
-              echo "  Certificate: $relativeCert"
-              
               if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
                 # Tag push - sign without timestamp
-                & $Exe -sign $relativeInput $relativeOutput $relativeCert $password
+                echo "Executing: $Exe -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" [password]"
+                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
                 if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               } else {
                 # Workflow dispatch - try with timestamp first
-                & $Exe -sign $relativeInput $relativeOutput $relativeCert $password -tsa $tsaUrl
+                echo "Executing: $Exe -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" [password] -tsa `"$tsaUrl`""
+                & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
                 if ($LASTEXITCODE -ne 0) { 
                   echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                  & $Exe -sign $relativeInput $relativeOutput $relativeCert $password
+                  & $Exe -sign $pkg.Input $pkg.Output $certPath $password
                   if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
                 }
               }
             } finally {
-              Set-Location $originalLocation
+              Pop-Location
             }
             echo "$($pkg.Name) signed successfully"
           }
