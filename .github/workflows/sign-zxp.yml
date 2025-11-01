@@ -532,46 +532,12 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Copy certificate to ZXPSignCmd directory to ensure it's accessible
-            $exeDir = Split-Path $Exe -Parent
-            $localCertPath = Join-Path $exeDir "cert.p12"
-            Copy-Item $certPath $localCertPath -Force
-            echo "Copied certificate to: $localCertPath"
-            echo "Certificate copied exists: $(Test-Path $localCertPath)"
-            
-            # Change to ZXPSignCmd directory and use relative paths
-            Push-Location $exeDir
-            try {
-              # Convert to relative paths from ZXPSignCmd directory
-              $relInput = Resolve-Path $pkg.Input -Relative
-              $relOutput = Resolve-Path $pkg.Output -Relative
-              $relCert = "cert.p12"
-              
-              echo "Using relative paths:"
-              echo "  Input: $relInput"
-              echo "  Output: $relOutput"
-              echo "  Cert: $relCert"
-              
-              # Try signing with timestamp first (like v0.8.34), but only if TSA URL is provided
-              $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-              if (-not [string]::IsNullOrWhiteSpace($tsaUrl)) {
-                echo "Attempting signing with timestamp server: $tsaUrl"
-                echo "Command: ZXPSignCmd.exe -sign `"$relInput`" `"$relOutput`" `"$relCert`" [password] -tsa `"$tsaUrl`""
-                & $Exe -sign $relInput $relOutput $relCert $password -tsa $tsaUrl
-                if ($LASTEXITCODE -ne 0) { 
-                  echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                  echo "Command: ZXPSignCmd.exe -sign `"$relInput`" `"$relOutput`" `"$relCert`" [password]"
-                  & $Exe -sign $relInput $relOutput $relCert $password
-                  if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-                }
-              } else {
-                echo "No TSA URL provided, signing without timestamp"
-                echo "Command: ZXPSignCmd.exe -sign `"$relInput`" `"$relOutput`" `"$relCert`" [password]"
-                & $Exe -sign $relInput $relOutput $relCert $password
-                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-              }
-            } finally {
-              Pop-Location
+            # Try signing with timestamp first (exactly like v0.8.34 - always try TSA first, fallback if it fails)
+            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
+            if ($LASTEXITCODE -ne 0) { 
+              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             echo "$($pkg.Name) signed successfully"
           }
