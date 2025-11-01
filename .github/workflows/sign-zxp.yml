@@ -455,7 +455,7 @@ jobs:
             }
           }
           
-          # Define all packages to sign
+          # Define all packages to sign - Input must point to the directory containing the panel subdirectory
           $packages = @(
             @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-windows-signed.zxp"; Name="AE Windows"; PanelDir="com.sync.extension.ae.panel"},
             @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-windows-signed.zxp"; Name="Premiere Windows"; PanelDir="com.sync.extension.ppro.panel"},
@@ -464,33 +464,43 @@ jobs:
           )
           
           # Sign each package
-          foreach ($pkg in $packages) {
-            echo "Signing $($pkg.Name)..."
-            echo "Input: $($pkg.Input)"
-            echo "Output: $($pkg.Output)"
-            
-            # Validate all required arguments are present
-            if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
-            if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)")) { throw "Panel directory not found: $($pkg.Input)\$($pkg.PanelDir)" }
-            if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
-            if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
-            
-            # Debug: List contents of input directory
-            echo "Contents of input directory:"
-            Get-ChildItem $pkg.Input -Recurse -File | Select-Object FullName -First 10 | ForEach-Object { echo "  $($_.FullName)" }
-            echo "Manifest path: $($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml"
-            echo "Manifest exists: $(Test-Path "$($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml")"
-            
-            echo "All required arguments validated successfully for $($pkg.Name)"
-            
-            # Try signing with timestamp first (restore old working approach)
-            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
-            if ($LASTEXITCODE -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
-              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+          # Ensure we're in the workspace root directory
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            foreach ($pkg in $packages) {
+              echo "Signing $($pkg.Name)..."
+              echo "Input: $($pkg.Input)"
+              echo "Output: $($pkg.Output)"
+              
+              # Validate all required arguments are present
+              if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
+              if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)")) { throw "Panel directory not found: $($pkg.Input)\$($pkg.PanelDir)" }
+              if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml")) { throw "Manifest not found: $($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml" }
+              if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
+              if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
+              
+              echo "All required arguments validated successfully for $($pkg.Name)"
+              
+              # Remove output file if it exists (ZXPSignCmd may fail if output exists)
+              if (Test-Path $pkg.Output) { Remove-Item $pkg.Output -Force }
+              
+              # Try signing with timestamp first (restore old working approach)
+              # Use exact same approach as old working version - no path resolution, simple variable expansion
+              $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+              if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
+                $tsaUrl = "http://timestamp.digicert.com"
+              }
+              
+              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+              if ($LASTEXITCODE -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+              }
+              echo "$($pkg.Name) signed successfully"
             }
-            echo "$($pkg.Name) signed successfully"
+          } finally {
+            Pop-Location
           }
 
       - name: Verify signatures
