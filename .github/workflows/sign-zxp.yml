@@ -455,12 +455,12 @@ jobs:
             }
           }
           
-          # Define all packages to sign - Input points to parent directory containing panel subdirectory (matches old working version exactly)
+          # Define all packages to sign - Input points directly to panel directory (ZXPSignCmd expects CSXS/manifest.xml at input root)
           $packages = @(
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-windows-signed.zxp"; Name="AE Windows"; PanelDir="com.sync.extension.ae.panel"},
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-windows-signed.zxp"; Name="Premiere Windows"; PanelDir="com.sync.extension.ppro.panel"},
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-mac"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-mac-signed.zxp"; Name="AE macOS"; PanelDir="com.sync.extension.ae.panel"},
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-mac"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-mac-signed.zxp"; Name="Premiere macOS"; PanelDir="com.sync.extension.ppro.panel"}
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-win\com.sync.extension.ae.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-windows-signed.zxp"; Name="AE Windows"},
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-win\com.sync.extension.ppro.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-windows-signed.zxp"; Name="Premiere Windows"},
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-mac\com.sync.extension.ae.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-mac-signed.zxp"; Name="AE macOS"},
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-mac\com.sync.extension.ppro.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-mac-signed.zxp"; Name="Premiere macOS"}
           )
           
           # Sign each package
@@ -474,9 +474,7 @@ jobs:
               
               # Validate all required arguments are present
               if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
-              if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)")) { throw "Panel directory not found: $($pkg.Input)\$($pkg.PanelDir)" }
-              if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml")) { throw "Manifest not found: $($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml" }
-              if (-not (Test-Path "$($pkg.Input)\mimetype")) { throw "Mimetype file not found: $($pkg.Input)\mimetype" }
+              if (-not (Test-Path "$($pkg.Input)\CSXS\manifest.xml")) { throw "Manifest not found: $($pkg.Input)\CSXS\manifest.xml" }
               if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
               if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
               
@@ -493,6 +491,7 @@ jobs:
               }
               
               # Change to input directory and use relative paths (ZXPSignCmd may need this)
+              # Input now points directly to panel directory where CSXS/manifest.xml exists
               $originalLocation = Get-Location
               Set-Location $pkg.Input
               try {
