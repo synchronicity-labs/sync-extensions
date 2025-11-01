@@ -491,18 +491,27 @@ jobs:
               if (Test-Path $pkg.Output) { Remove-Item $pkg.Output -Force }
               
               # Try signing with timestamp first (restore old working approach)
-              # Use absolute paths - ZXPSignCmd may need full paths
+              # Normalize all paths using Resolve-Path to ensure they're properly formatted
               $tsaUrl = "${{ github.event.inputs.tsa_url }}"
               if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
                 $tsaUrl = "http://timestamp.digicert.com"
               }
               
-              # Use absolute paths directly without changing directories
-              # Input points to panel directory where CSXS/manifest.xml exists
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+              # Resolve all paths to ensure they're absolute and properly formatted
+              $resolvedInput = (Resolve-Path $pkg.Input).Path
+              $resolvedOutput = (Resolve-Path (Split-Path $pkg.Output -Parent)).Path + "\" + (Split-Path $pkg.Output -Leaf)
+              $resolvedCert = (Resolve-Path $certPath).Path
+              
+              echo "Resolved paths:"
+              echo "  Input: $resolvedInput"
+              echo "  Output: $resolvedOutput"
+              echo "  Certificate: $resolvedCert"
+              
+              # Use resolved paths - ZXPSignCmd may need normalized paths
+              & $Exe -sign $resolvedInput $resolvedOutput $resolvedCert $password -tsa $tsaUrl
               if ($LASTEXITCODE -ne 0) { 
                 echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+                & $Exe -sign $resolvedInput $resolvedOutput $resolvedCert $password
                 if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               }
               echo "$($pkg.Name) signed successfully"
