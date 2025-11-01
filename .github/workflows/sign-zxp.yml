@@ -435,21 +435,12 @@ jobs:
           Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel" "build\zxp-ae-mac\" -Force
           Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" "build\zxp-ppro-mac\" -Force
           
-          # Create mimetype file (must be first file in ZXP)
-          # Copy mimetype into each panel directory as ZXPSignCmd needs it in the input directory
+          # Create mimetype file at root of each ZXP directory (must be first file in ZXP)
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
-          $panelDirs = @(
-            "build\zxp-ae-win\com.sync.extension.ae.panel",
-            "build\zxp-ppro-win\com.sync.extension.ppro.panel",
-            "build\zxp-ae-mac\com.sync.extension.ae.panel",
-            "build\zxp-ppro-mac\com.sync.extension.ppro.panel"
-          )
-          foreach ($panelDir in $panelDirs) {
-            if (Test-Path $panelDir) {
-              $mimetypePath = Join-Path $panelDir "mimetype"
-              [IO.File]::WriteAllText($mimetypePath, $mimetypeContent)
-              echo "Created mimetype file: $mimetypePath"
-            }
+          foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
+            $mimetypePath = Join-Path $zxpDir "mimetype"
+            [IO.File]::WriteAllText($mimetypePath, $mimetypeContent)
+            echo "Created mimetype file: $mimetypePath"
           }
           
           # Set execute permissions on Node.js binaries (macOS only)
@@ -464,12 +455,13 @@ jobs:
             }
           }
           
-          # Define all packages to sign - Input points directly to panel directory (ZXPSignCmd expects CSXS/manifest.xml at input root)
+          # Define all packages to sign - Input points to parent directory containing panel subdirectory and mimetype
+          # ZXPSignCmd expects input directory to contain: mimetype (at root) + panel subdirectory (with CSXS/manifest.xml inside)
           $packages = @(
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-win\com.sync.extension.ae.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-windows-signed.zxp"; Name="AE Windows"},
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-win\com.sync.extension.ppro.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-windows-signed.zxp"; Name="Premiere Windows"},
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-mac\com.sync.extension.ae.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-mac-signed.zxp"; Name="AE macOS"},
-            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-mac\com.sync.extension.ppro.panel"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-mac-signed.zxp"; Name="Premiere macOS"}
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-windows-signed.zxp"; Name="AE Windows"; PanelDir="com.sync.extension.ae.panel"},
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-windows-signed.zxp"; Name="Premiere Windows"; PanelDir="com.sync.extension.ppro.panel"},
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-mac"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-mac-signed.zxp"; Name="AE macOS"; PanelDir="com.sync.extension.ae.panel"},
+            @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-mac"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-mac-signed.zxp"; Name="Premiere macOS"; PanelDir="com.sync.extension.ppro.panel"}
           )
           
           # Sign each package
@@ -483,9 +475,15 @@ jobs:
               
               # Validate all required arguments are present
               if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
-              if (-not (Test-Path "$($pkg.Input)\CSXS\manifest.xml")) { throw "Manifest not found: $($pkg.Input)\CSXS\manifest.xml" }
+              if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)")) { throw "Panel directory not found: $($pkg.Input)\$($pkg.PanelDir)" }
+              if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml")) { throw "Manifest not found: $($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml" }
+              if (-not (Test-Path "$($pkg.Input)\mimetype")) { throw "Mimetype file not found: $($pkg.Input)\mimetype" }
               if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
               if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
+              
+              # Debug: List contents of input directory
+              echo "Contents of input directory:"
+              Get-ChildItem $pkg.Input -Recurse | Select-Object FullName | ForEach-Object { echo "  $($_.FullName)" }
               
               echo "All required arguments validated successfully for $($pkg.Name)"
               
