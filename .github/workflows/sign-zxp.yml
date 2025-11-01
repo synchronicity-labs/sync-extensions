@@ -475,6 +475,12 @@ jobs:
             if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
             if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
             
+            # Debug: List contents of input directory
+            echo "Contents of input directory:"
+            Get-ChildItem $pkg.Input -Recurse -File | Select-Object FullName -First 10 | ForEach-Object { echo "  $($_.FullName)" }
+            echo "Manifest path: $($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml"
+            echo "Manifest exists: $(Test-Path "$($pkg.Input)\$($pkg.PanelDir)\CSXS\manifest.xml")"
+            
             echo "All required arguments validated successfully for $($pkg.Name)"
             
             # Try signing with timestamp first (restore old working approach)
