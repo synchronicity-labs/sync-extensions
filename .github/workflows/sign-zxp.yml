@@ -429,11 +429,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path "build\zxp-ae-mac" | Out-Null
           New-Item -ItemType Directory -Force -Path "build\zxp-ppro-mac" | Out-Null
           
-          # Move each panel to its own ZXP directory (restore old working structure)
-          Move-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ae.panel" "build\zxp-ae-win\" -Force
-          Move-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ppro.panel" "build\zxp-ppro-win\" -Force
-          Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel" "build\zxp-ae-mac\" -Force
-          Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" "build\zxp-ppro-mac\" -Force
+          # Copy panel contents to ZXP root (not in subdirectory) - ZXPSignCmd expects CSXS/manifest.xml at root
+          Copy-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ae.panel\*" "build\zxp-ae-win\" -Recurse -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ppro.panel\*" "build\zxp-ppro-win\" -Recurse -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\*" "build\zxp-ae-mac\" -Recurse -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\*" "build\zxp-ppro-mac\" -Recurse -Force
           
           # Create mimetype file (must be first file in ZXP)
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
@@ -471,7 +471,8 @@ jobs:
             
             # Validate all required arguments are present
             if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
-            if (-not (Test-Path "$($pkg.Input)\$($pkg.PanelDir)")) { throw "Panel directory not found: $($pkg.Input)\$($pkg.PanelDir)" }
+            # Check that CSXS/manifest.xml exists at root (files were copied, not moved, so no panel subdirectory)
+            if (-not (Test-Path "$($pkg.Input)\CSXS\manifest.xml")) { throw "Manifest not found at root: $($pkg.Input)\CSXS\manifest.xml" }
             if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
             if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
             
