@@ -479,11 +479,20 @@ jobs:
             echo "All required arguments validated successfully for $($pkg.Name)"
             
             # Try signing with timestamp first (exact v0.8.34 working version)
-            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
-            if ($LASTEXITCODE -ne 0) { 
-              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+            # For tag pushes, TSA URL will be empty - skip -tsa flag entirely
+            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+            if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
+              # Tag push - sign without timestamp (empty TSA URL causes "Could not locate file" error)
               & $Exe -sign $pkg.Input $pkg.Output $certPath $password
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+            } else {
+              # Workflow dispatch - try with timestamp first
+              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+              if ($LASTEXITCODE -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+              }
             }
             echo "$($pkg.Name) signed successfully"
           }
