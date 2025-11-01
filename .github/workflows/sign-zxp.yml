@@ -487,18 +487,25 @@ jobs:
               
               # Try signing with timestamp first (restore old working approach)
               # Use exact same approach as old working version - no path resolution, simple variable expansion
-              # Quote paths to handle any spaces or special characters
               $tsaUrl = "${{ github.event.inputs.tsa_url }}"
               if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
                 $tsaUrl = "http://timestamp.digicert.com"
               }
               
-              # Use quoted paths for ZXPSignCmd
-              & $Exe -sign "`"$($pkg.Input)`"" "`"$($pkg.Output)`"" "`"$certPath`"" $password -tsa $tsaUrl
-              if ($LASTEXITCODE -ne 0) { 
-                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                & $Exe -sign "`"$($pkg.Input)`"" "`"$($pkg.Output)`"" "`"$certPath`"" $password
-                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+              # Change to input directory and use relative paths (ZXPSignCmd may need this)
+              $originalLocation = Get-Location
+              Set-Location $pkg.Input
+              try {
+                $relativeOutput = [System.IO.Path]::GetRelativePath($pkg.Input, $pkg.Output)
+                $relativeCert = [System.IO.Path]::GetRelativePath($pkg.Input, $certPath)
+                & $Exe -sign . $relativeOutput $relativeCert $password -tsa $tsaUrl
+                if ($LASTEXITCODE -ne 0) { 
+                  echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                  & $Exe -sign . $relativeOutput $relativeCert $password
+                  if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+                }
+              } finally {
+                Set-Location $originalLocation
               }
               echo "$($pkg.Name) signed successfully"
             }
