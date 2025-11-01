@@ -497,11 +497,11 @@ jobs:
               Set-Location $pkg.Input
               try {
                 $relativeOutput = [System.IO.Path]::GetRelativePath($pkg.Input, $pkg.Output)
-                $relativeCert = [System.IO.Path]::GetRelativePath($pkg.Input, $certPath)
-                & $Exe -sign . $relativeOutput $relativeCert $password -tsa $tsaUrl
+                # Keep certificate path absolute - ZXPSignCmd may need this
+                & $Exe -sign . $relativeOutput $certPath $password -tsa $tsaUrl
                 if ($LASTEXITCODE -ne 0) { 
                   echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                  & $Exe -sign . $relativeOutput $relativeCert $password
+                  & $Exe -sign . $relativeOutput $certPath $password
                   if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
                 }
               } finally {
