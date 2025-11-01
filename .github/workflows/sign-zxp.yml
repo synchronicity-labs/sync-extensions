@@ -435,7 +435,7 @@ jobs:
           Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel" "build\zxp-ae-mac\" -Force
           Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" "build\zxp-ppro-mac\" -Force
           
-          # Create mimetype file at root of each ZXP directory (must be first file in ZXP)
+          # Create mimetype file (must be first file in ZXP)
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
           foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
             $mimetypePath = Join-Path $zxpDir "mimetype"
@@ -455,8 +455,7 @@ jobs:
             }
           }
           
-          # Define all packages to sign - Input points to parent directory containing panel subdirectory and mimetype
-          # ZXPSignCmd expects input directory to contain: mimetype (at root) + panel subdirectory (with CSXS/manifest.xml inside)
+          # Define all packages to sign
           $packages = @(
             @{Input="$env:GITHUB_WORKSPACE\build\zxp-ae-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-ae-windows-signed.zxp"; Name="AE Windows"; PanelDir="com.sync.extension.ae.panel"},
             @{Input="$env:GITHUB_WORKSPACE\build\zxp-ppro-win"; Output="$env:GITHUB_WORKSPACE\sync-extension-premiere-windows-signed.zxp"; Name="Premiere Windows"; PanelDir="com.sync.extension.ppro.panel"},
@@ -478,27 +477,11 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing with timestamp first
-            # Use TSA URL from workflow_dispatch input, or default for tag pushes
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
-              $tsaUrl = "http://timestamp.digicert.com"
-            }
-            # Use cmd.exe to invoke ZXPSignCmd (may handle paths better)
-            # Only pass -tsa flag if URL is not empty
-            if (-not [string]::IsNullOrWhiteSpace($tsaUrl)) {
-              $signCmd = "& `"$Exe`" -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" $password -tsa `"$tsaUrl`""
-              cmd /c "powershell -Command $signCmd"
-              if ($LASTEXITCODE -ne 0) { 
-                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                $signCmd = "& `"$Exe`" -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" $password"
-                cmd /c "powershell -Command $signCmd"
-                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-              }
-            } else {
-              # No TSA URL provided, sign without timestamp
-              $signCmd = "& `"$Exe`" -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" $password"
-              cmd /c "powershell -Command $signCmd"
+            # Try signing with timestamp first (restore old working approach)
+            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
+            if ($LASTEXITCODE -ne 0) { 
+              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             echo "$($pkg.Name) signed successfully"
