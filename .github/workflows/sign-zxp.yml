@@ -497,17 +497,26 @@ jobs:
                 $tsaUrl = "http://timestamp.digicert.com"
               }
               
-              # Resolve all paths to ensure they're absolute and properly formatted
+              # Resolve all paths and ensure output directory exists
               $resolvedInput = (Resolve-Path $pkg.Input).Path
-              $resolvedOutput = (Resolve-Path (Split-Path $pkg.Output -Parent)).Path + "\" + (Split-Path $pkg.Output -Leaf)
+              $outputDir = Split-Path $pkg.Output -Parent
+              if (-not (Test-Path $outputDir)) {
+                New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+              }
+              $resolvedOutput = $pkg.Output
               $resolvedCert = (Resolve-Path $certPath).Path
               
-              echo "Resolved paths:"
+              # Convert paths to forward slashes (ZXPSignCmd might prefer this)
+              $resolvedInput = $resolvedInput -replace '\\', '/'
+              $resolvedOutput = $resolvedOutput -replace '\\', '/'
+              $resolvedCert = $resolvedCert -replace '\\', '/'
+              
+              echo "Resolved paths (forward slashes):"
               echo "  Input: $resolvedInput"
               echo "  Output: $resolvedOutput"
               echo "  Certificate: $resolvedCert"
               
-              # Use resolved paths - ZXPSignCmd may need normalized paths
+              # Use resolved paths with forward slashes
               & $Exe -sign $resolvedInput $resolvedOutput $resolvedCert $password -tsa $tsaUrl
               if ($LASTEXITCODE -ne 0) { 
                 echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
