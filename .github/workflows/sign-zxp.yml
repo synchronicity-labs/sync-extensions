@@ -436,11 +436,20 @@ jobs:
           Move-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" "build\zxp-ppro-mac\" -Force
           
           # Create mimetype file (must be first file in ZXP)
+          # Copy mimetype into each panel directory as ZXPSignCmd needs it in the input directory
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
-          foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
-            $mimetypePath = Join-Path $zxpDir "mimetype"
-            [IO.File]::WriteAllText($mimetypePath, $mimetypeContent)
-            echo "Created mimetype file: $mimetypePath"
+          $panelDirs = @(
+            "build\zxp-ae-win\com.sync.extension.ae.panel",
+            "build\zxp-ppro-win\com.sync.extension.ppro.panel",
+            "build\zxp-ae-mac\com.sync.extension.ae.panel",
+            "build\zxp-ppro-mac\com.sync.extension.ppro.panel"
+          )
+          foreach ($panelDir in $panelDirs) {
+            if (Test-Path $panelDir) {
+              $mimetypePath = Join-Path $panelDir "mimetype"
+              [IO.File]::WriteAllText($mimetypePath, $mimetypeContent)
+              echo "Created mimetype file: $mimetypePath"
+            }
           }
           
           # Set execute permissions on Node.js binaries (macOS only)
