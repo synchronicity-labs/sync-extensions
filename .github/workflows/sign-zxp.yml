@@ -484,17 +484,21 @@ jobs:
             if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
               $tsaUrl = "http://timestamp.digicert.com"
             }
-            # Only pass -tsa flag if URL is not empty (ZXPSignCmd may fail with empty string)
+            # Use cmd.exe to invoke ZXPSignCmd (may handle paths better)
+            # Only pass -tsa flag if URL is not empty
             if (-not [string]::IsNullOrWhiteSpace($tsaUrl)) {
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+              $signCmd = "& `"$Exe`" -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" $password -tsa `"$tsaUrl`""
+              cmd /c "powershell -Command $signCmd"
               if ($LASTEXITCODE -ne 0) { 
                 echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+                $signCmd = "& `"$Exe`" -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" $password"
+                cmd /c "powershell -Command $signCmd"
                 if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               }
             } else {
               # No TSA URL provided, sign without timestamp
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+              $signCmd = "& `"$Exe`" -sign `"$($pkg.Input)`" `"$($pkg.Output)`" `"$certPath`" $password"
+              cmd /c "powershell -Command $signCmd"
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
             }
             echo "$($pkg.Name) signed successfully"
