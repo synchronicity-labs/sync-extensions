@@ -493,27 +493,19 @@ jobs:
               if (Test-Path $pkg.Output) { Remove-Item $pkg.Output -Force }
               
               # Try signing with timestamp first (restore old working approach)
-              # Use exact same approach as old working version - no path resolution, simple variable expansion
+              # Use absolute paths - ZXPSignCmd may need full paths
               $tsaUrl = "${{ github.event.inputs.tsa_url }}"
               if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
                 $tsaUrl = "http://timestamp.digicert.com"
               }
               
-              # Change to input directory and use relative paths (ZXPSignCmd may need this)
-              # Input now points directly to panel directory where CSXS/manifest.xml exists
-              $originalLocation = Get-Location
-              Set-Location $pkg.Input
-              try {
-                $relativeOutput = [System.IO.Path]::GetRelativePath($pkg.Input, $pkg.Output)
-                # Keep certificate path absolute - ZXPSignCmd may need this
-                & $Exe -sign . $relativeOutput $certPath $password -tsa $tsaUrl
-                if ($LASTEXITCODE -ne 0) { 
-                  echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                  & $Exe -sign . $relativeOutput $certPath $password
-                  if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-                }
-              } finally {
-                Set-Location $originalLocation
+              # Use absolute paths directly without changing directories
+              # Input points to panel directory where CSXS/manifest.xml exists
+              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+              if ($LASTEXITCODE -ne 0) { 
+                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               }
               echo "$($pkg.Name) signed successfully"
             }
