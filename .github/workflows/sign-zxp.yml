@@ -36,7 +36,6 @@ jobs:
       - name: Create .env file from secrets
         shell: bash
         run: |
-          set -euo pipefail
           cat > .env << EOF
           # R2 Configuration
           R2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}
@@ -44,9 +43,6 @@ jobs:
           R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
           R2_BUCKET=${{ secrets.R2_BUCKET }}
           R2_PREFIX=${{ secrets.R2_PREFIX }}
-          # PostHog Configuration
-          POSTHOG_KEY=${{ secrets.POSTHOG_KEY }}
-          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
           EOF
           echo "Created .env file:"
           ls -la .env
@@ -72,16 +68,6 @@ jobs:
           fi
           
           echo "✅ .env file validation passed"
-          
-          # Move .env to server/.env before copying server directory
-          # Server runs with cwd=server/, so .env must be in server/.env
-          mkdir -p server || { echo "ERROR: Failed to create server directory"; exit 1; }
-          cp .env server/.env || { echo "ERROR: Failed to copy .env to server/.env"; exit 1; }
-          if [ ! -f server/.env ]; then
-            echo "ERROR: server/.env file was not created"
-            exit 1
-          fi
-          echo "✅ Moved .env to server/.env"
 
       - name: Build CEP folders for macOS
         shell: bash
@@ -104,8 +90,7 @@ jobs:
             cp -a bin "$dest/bin"
             cp -a index.html "$dest/"
             cp -a host "$dest/host"
-            # Note: .env is copied as part of server/ directory copy above
-            # Server runs with cwd=server/, so .env must be in server/.env
+            cp -a .env "$dest/.env" || { echo "ERROR: .env file copy failed for $dest"; exit 1; }
             mkdir -p "$dest/ui"
             # Copy shared UI but do NOT overwrite per-extension host-detection.js
             if command -v rsync >/dev/null 2>&1; then
@@ -126,19 +111,19 @@ jobs:
           # Strip Windows bins from mac packages
           rm -rf "$ae_mac/bin/win32-x64" "$pp_mac/bin/win32-x64" || true
           
-          # Verify .env files were copied correctly (server runs with cwd=server/, so .env must be in server/.env)
+          # Verify .env files were copied correctly
           echo "Verifying .env files in built packages..."
           for pkg in "$ae_mac" "$pp_mac"; do
-            echo "Checking $pkg/server/.env..."
-            if [ ! -f "$pkg/server/.env" ]; then
-              echo "ERROR: .env file missing in $pkg/server/"
+            echo "Checking $pkg/.env..."
+            if [ ! -f "$pkg/.env" ]; then
+              echo "ERROR: .env file missing in $pkg"
               exit 1
             fi
-            if ! grep -q "R2_ACCESS_KEY=" "$pkg/server/.env" || ! grep -q "R2_SECRET_KEY=" "$pkg/server/.env"; then
-              echo "ERROR: .env file missing R2 credentials in $pkg/server/"
+            if ! grep -q "R2_ACCESS_KEY=" "$pkg/.env" || ! grep -q "R2_SECRET_KEY=" "$pkg/.env"; then
+              echo "ERROR: .env file missing R2 credentials in $pkg"
               exit 1
             fi
-            echo "✅ $pkg/server/.env verified"
+            echo "✅ $pkg/.env verified"
           done
 
       - name: Upload mac build
@@ -171,7 +156,6 @@ jobs:
       - name: Create .env file from secrets
         shell: bash
         run: |
-          set -euo pipefail
           cat > .env << EOF
           # R2 Configuration
           R2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}
@@ -179,9 +163,6 @@ jobs:
           R2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}
           R2_BUCKET=${{ secrets.R2_BUCKET }}
           R2_PREFIX=${{ secrets.R2_PREFIX }}
-          # PostHog Configuration
-          POSTHOG_KEY=${{ secrets.POSTHOG_KEY }}
-          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
           EOF
           echo "Created .env file:"
           ls -la .env
@@ -207,16 +188,6 @@ jobs:
           fi
           
           echo "✅ .env file validation passed"
-          
-          # Move .env to server/.env before copying server directory
-          # Server runs with cwd=server/, so .env must be in server/.env
-          mkdir -p server || { echo "ERROR: Failed to create server directory"; exit 1; }
-          cp .env server/.env || { echo "ERROR: Failed to copy .env to server/.env"; exit 1; }
-          if [ ! -f server/.env ]; then
-            echo "ERROR: server/.env file was not created"
-            exit 1
-          fi
-          echo "✅ Moved .env to server/.env"
 
       - name: Build CEP folders for Windows
         shell: pwsh
@@ -247,9 +218,7 @@ jobs:
             Copy-Item "bin" "$dest/bin" -Recurse
             Copy-Item "index.html" "$dest/"
             Copy-Item "host" "$dest/host" -Recurse
-            # Note: .env is copied as part of server/ directory copy above
-            # Server runs with cwd=server/, so .env must be in server/.env
-            if (-not (Test-Path "$dest/server/.env")) { throw ".env file not found in server/ directory for $dest" }
+            Copy-Item ".env" "$dest/.env" -ErrorAction Stop; if (-not (Test-Path "$dest/.env")) { throw ".env file not found or copy failed for $dest" }
             # Copy main UI files to the existing ui directory (merge, don't replace)
             Copy-Item "ui/*" "$dest/ui/" -Recurse -Force
             # Restore per-extension host-detection.js after shared UI copy
@@ -268,18 +237,18 @@ jobs:
 
           echo "Created CEP folders (Windows): $ae_win, $pp_win"
           
-          # Verify .env files were copied correctly (server runs with cwd=server/, so .env must be in server/.env)
+          # Verify .env files were copied correctly
           echo "Verifying .env files in Windows packages..."
           foreach ($pkg in @($ae_win, $pp_win)) {
-            echo "Checking $pkg\server\.env..."
-            if (-not (Test-Path "$pkg\server\.env")) {
-              throw ".env file missing in $pkg\server\"
+            echo "Checking $pkg\.env..."
+            if (-not (Test-Path "$pkg\.env")) {
+              throw ".env file missing in $pkg"
             }
-            $envContent = Get-Content "$pkg\server\.env" -Raw
+            $envContent = Get-Content "$pkg\.env" -Raw
             if (-not ($envContent -match "R2_ACCESS_KEY=") -or -not ($envContent -match "R2_SECRET_KEY=")) {
-              throw ".env file missing R2 credentials in $pkg\server\"
+              throw ".env file missing R2 credentials in $pkg"
             }
-            echo "✅ $pkg\server\.env verified"
+            echo "✅ $pkg\.env verified"
           }
 
       - name: Download mac build
@@ -333,22 +302,16 @@ jobs:
           echo "AE macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ae.panel\.env")"
           echo "Premiere macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ppro.panel\.env")"
           
-          # Since .env files are missing from the artifact, recreate them in server/.env
-          echo "Recreating .env files for macOS packages in server/.env..."
-          $envContent = "# R2 Configuration`nR2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}`nR2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}`nR2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}`nR2_BUCKET=${{ secrets.R2_BUCKET }}`nR2_PREFIX=${{ secrets.R2_PREFIX }}`n# PostHog Configuration`nPOSTHOG_KEY=${{ secrets.POSTHOG_KEY }}`nPOSTHOG_HOST=${{ secrets.POSTHOG_HOST }}"
+          # Since .env files are missing from the artifact, recreate them
+          echo "Recreating .env files for macOS packages..."
+          $envContent = "# R2 Configuration`nR2_ENDPOINT_URL=${{ secrets.R2_ENDPOINT_URL }}`nR2_ACCESS_KEY=${{ secrets.R2_ACCESS_KEY }}`nR2_SECRET_KEY=${{ secrets.R2_SECRET_KEY }}`nR2_BUCKET=${{ secrets.R2_BUCKET }}`nR2_PREFIX=${{ secrets.R2_PREFIX }}"
           
-          # Create server directory if it doesn't exist and write .env file there
-          $aeServerDir = "build\mac\com.sync.extension.ae.panel\server"
-          $ppServerDir = "build\mac\com.sync.extension.ppro.panel\server"
-          New-Item -ItemType Directory -Force -Path $aeServerDir | Out-Null
-          New-Item -ItemType Directory -Force -Path $ppServerDir | Out-Null
+          $envContent | Out-File -FilePath "build\mac\com.sync.extension.ae.panel\.env" -Encoding UTF8
+          $envContent | Out-File -FilePath "build\mac\com.sync.extension.ppro.panel\.env" -Encoding UTF8
           
-          $envContent | Out-File -FilePath "$aeServerDir\.env" -Encoding UTF8
-          $envContent | Out-File -FilePath "$ppServerDir\.env" -Encoding UTF8
-          
-          echo "Recreated .env files for both macOS packages in server/.env"
-          echo "AE macOS server/.env exists: $(Test-Path "$aeServerDir\.env")"
-          echo "Premiere macOS server/.env exists: $(Test-Path "$ppServerDir\.env")"
+          echo "Recreated .env files for both macOS packages"
+          echo "AE macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ae.panel\.env")"
+          echo "Premiere macOS .env exists: $(Test-Path "build\mac\com.sync.extension.ppro.panel\.env")"
 
       - name: Fetch ZXPSignCmd
         shell: pwsh
@@ -429,11 +392,41 @@ jobs:
           New-Item -ItemType Directory -Force -Path "build\zxp-ae-mac" | Out-Null
           New-Item -ItemType Directory -Force -Path "build\zxp-ppro-mac" | Out-Null
           
-          # Copy panel contents to ZXP root (not in subdirectory) - ZXPSignCmd expects CSXS/manifest.xml at root
+          # Move panel contents to ZXP root (not in subdirectory)
           Copy-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ae.panel\*" "build\zxp-ae-win\" -Recurse -Force
           Copy-Item "$env:GITHUB_WORKSPACE\build\win\com.sync.extension.ppro.panel\*" "build\zxp-ppro-win\" -Recurse -Force
+          
+          # Debug macOS source directories
+          echo "Checking macOS source directories..."
+          echo "AE macOS source exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel")"
+          echo "Premiere macOS source exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel")"
+          echo "AE macOS .env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\.env")"
+          echo "Premiere macOS .env exists: $(Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\.env")"
+          
+          # List contents of macOS directories
+          echo "Contents of AE macOS directory:"
+          Get-ChildItem "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel" | Select-Object Name, Length
+          echo "Contents of Premiere macOS directory:"
+          Get-ChildItem "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel" | Select-Object Name, Length
+          
+          # Copy macOS packages with explicit .env handling
           Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\*" "build\zxp-ae-mac\" -Recurse -Force
           Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\*" "build\zxp-ppro-mac\" -Recurse -Force
+          
+          # Ensure .env files are copied (explicit copy as backup)
+          if (Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\.env") {
+            Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ae.panel\.env" "build\zxp-ae-mac\.env" -Force
+            echo "Explicitly copied .env to AE macOS ZXP"
+          } else {
+            echo "WARNING: .env not found in AE macOS source"
+          }
+          
+          if (Test-Path "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\.env") {
+            Copy-Item "$env:GITHUB_WORKSPACE\build\mac\com.sync.extension.ppro.panel\.env" "build\zxp-ppro-mac\.env" -Force
+            echo "Explicitly copied .env to Premiere macOS ZXP"
+          } else {
+            echo "WARNING: .env not found in Premiere macOS source"
+          }
           
           # Create mimetype file (must be first file in ZXP)
           $mimetypeContent = "application/vnd.adobe.air-ucf-package+zip"
@@ -443,16 +436,67 @@ jobs:
             echo "Created mimetype file: $mimetypePath"
           }
           
-          # Set execute permissions on Node.js binaries (macOS only)
-          foreach ($zxpDir in @("build\zxp-ae-mac", "build\zxp-ppro-mac")) {
-            $nodeBinaries = Get-ChildItem -Path $zxpDir -Recurse -Name "node" -File
-            foreach ($nodeBin in $nodeBinaries) {
-              $fullPath = Join-Path $zxpDir $nodeBin
-              echo "Setting execute permissions on: $fullPath"
-              attrib +A "$fullPath"
-              $fileInfo = Get-Item $fullPath
-              $fileInfo.Attributes = $fileInfo.Attributes -bor [System.IO.FileAttributes]::Archive
+          # Note: ZXPSignCmd will include the mimetype file in the ZXP
+          # The mimetype file is created and will be included in the final ZXP
+          echo "Mimetype files created in all ZXP directories"
+          
+          # Validate required files and set permissions
+          foreach ($zxpDir in @("build\zxp-ae-win", "build\zxp-ppro-win", "build\zxp-ae-mac", "build\zxp-ppro-mac")) {
+            echo "Validating $zxpDir..."
+            
+            # Check required files exist
+            $mimetypePath = Join-Path $zxpDir "mimetype"
+            if (-not (Test-Path $mimetypePath)) { 
+              throw "Required file missing: $mimetypePath" 
             }
+            
+            # Check manifest.xml and index.html exist at ZXP root
+            $manifestPath = Join-Path $zxpDir "CSXS\manifest.xml"
+            $indexPath = Join-Path $zxpDir "index.html"
+            $envPath = Join-Path $zxpDir ".env"
+            if (-not (Test-Path $manifestPath)) {
+              throw "Required manifest.xml missing: $manifestPath"
+            }
+            if (-not (Test-Path $indexPath)) {
+              throw "Required index.html missing: $indexPath"
+            }
+            if (-not (Test-Path $envPath)) {
+              throw "Required .env file missing: $envPath"
+            }
+            echo "Found manifest.xml at: $manifestPath"
+            echo "Found index.html at: $indexPath"
+            echo "Found .env at: $envPath"
+            
+            # Validate .env contains required R2 variables
+            $envContent = Get-Content $envPath -Raw
+            if (-not ($envContent -match "R2_ENDPOINT_URL=") -or -not ($envContent -match "R2_ACCESS_KEY=") -or -not ($envContent -match "R2_SECRET_KEY=")) {
+              throw ".env file missing required R2 configuration variables in $zxpDir"
+            }
+            if ($envContent -match "R2_ACCESS_KEY=$" -or $envContent -match "R2_SECRET_KEY=$") {
+              throw ".env file contains empty R2 credentials in $zxpDir"
+            }
+            echo "✅ .env validation passed for $zxpDir"
+            
+            # Check Node.js binaries exist and set permissions (macOS only)
+            if ($zxpDir -like "*mac*") {
+              $nodeBinaries = Get-ChildItem -Path $zxpDir -Recurse -Name "node" -File
+              if ($nodeBinaries.Count -eq 0) {
+                throw "No Node.js binaries found in macOS package: $zxpDir"
+              }
+              foreach ($nodeBin in $nodeBinaries) {
+                $fullPath = Join-Path $zxpDir $nodeBin
+                echo "Setting execute permissions on: $fullPath"
+                
+                # Use attrib command to set archive bit (Windows equivalent of execute permission)
+                attrib +A "$fullPath"
+                
+                # Also try setting via PowerShell file attributes
+                $fileInfo = Get-Item $fullPath
+                $fileInfo.Attributes = $fileInfo.Attributes -bor [System.IO.FileAttributes]::Archive
+              }
+            }
+            
+            echo "Validation completed for: $zxpDir"
           }
           
           # Define all packages to sign
@@ -471,28 +515,17 @@ jobs:
             
             # Validate all required arguments are present
             if (-not (Test-Path $pkg.Input)) { throw "Input directory not found: $($pkg.Input)" }
-            # Check that CSXS/manifest.xml exists at root (files were copied, not moved, so no panel subdirectory)
-            if (-not (Test-Path "$($pkg.Input)\CSXS\manifest.xml")) { throw "Manifest not found at root: $($pkg.Input)\CSXS\manifest.xml" }
             if (-not (Test-Path $certPath)) { throw "Certificate file not found: $certPath" }
             if ([string]::IsNullOrEmpty($password)) { throw "Password is empty" }
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing with timestamp first (exact v0.8.34 working version)
-            # For tag pushes, TSA URL will be empty - skip -tsa flag entirely
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if ([string]::IsNullOrWhiteSpace($tsaUrl)) {
-              # Tag push - sign without timestamp (empty TSA URL causes "Could not locate file" error)
+            # Try signing with timestamp first
+            & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa "${{ github.event.inputs.tsa_url }}"
+            if ($LASTEXITCODE -ne 0) { 
+              echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
               & $Exe -sign $pkg.Input $pkg.Output $certPath $password
               if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-            } else {
-              # Workflow dispatch - try with timestamp first
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
-              if ($LASTEXITCODE -ne 0) { 
-                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
-                & $Exe -sign $pkg.Input $pkg.Output $certPath $password
-                if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
-              }
             }
             echo "$($pkg.Name) signed successfully"
           }
