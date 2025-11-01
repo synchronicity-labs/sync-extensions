@@ -532,22 +532,29 @@ jobs:
             
             echo "All required arguments validated successfully for $($pkg.Name)"
             
-            # Try signing with timestamp first if TSA URL is provided
-            # NOTE: Newer Windows runners/ZXPSignCmd versions treat empty -tsa as file path, causing "Could not locate file" error
-            # So we must only include -tsa flag when URL is actually provided
-            $tsaUrl = "${{ github.event.inputs.tsa_url }}"
-            if (-not [string]::IsNullOrWhiteSpace($tsaUrl)) {
-              echo "Attempting signing with timestamp server: $tsaUrl"
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
-              if ($LASTEXITCODE -ne 0) { 
-                echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+            # Ensure we're in the workspace root when running ZXPSignCmd
+            # This matches the v0.8.34 behavior where the command was executed from workspace root
+            Push-Location $env:GITHUB_WORKSPACE
+            try {
+              # Try signing with timestamp first if TSA URL is provided
+              # NOTE: Newer Windows runners/ZXPSignCmd versions treat empty -tsa as file path, causing "Could not locate file" error
+              # So we must only include -tsa flag when URL is actually provided
+              $tsaUrl = "${{ github.event.inputs.tsa_url }}"
+              if (-not [string]::IsNullOrWhiteSpace($tsaUrl)) {
+                echo "Attempting signing with timestamp server: $tsaUrl"
+                & $Exe -sign $pkg.Input $pkg.Output $certPath $password -tsa $tsaUrl
+                if ($LASTEXITCODE -ne 0) { 
+                  echo "$($pkg.Name) signing with timestamp failed (exit $LASTEXITCODE), trying without timestamp..."
+                  & $Exe -sign $pkg.Input $pkg.Output $certPath $password
+                  if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+                }
+              } else {
+                echo "No TSA URL provided, signing without timestamp"
                 & $Exe -sign $pkg.Input $pkg.Output $certPath $password
                 if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
               }
-            } else {
-              echo "No TSA URL provided, signing without timestamp"
-              & $Exe -sign $pkg.Input $pkg.Output $certPath $password
-              if ($LASTEXITCODE -ne 0) { throw "ZXPSignCmd failed for $($pkg.Name) with exit $LASTEXITCODE" }
+            } finally {
+              Pop-Location
             }
             echo "$($pkg.Name) signed successfully"
           }
