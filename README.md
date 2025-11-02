@@ -1,100 +1,202 @@
-# sync. extension for Adobe Premiere Pro & After Effects
+# sync. Extensions
 
-A Premiere Pro and After Effects panel for lipsyncing using the sync. API, with a local helper server.
+Adobe CEP extensions for After Effects and Premiere Pro, built with React, TypeScript, and Vite using the `bolt-cep` boilerplate.
 
-## Features
+## Project Structure
 
-- **One-click lipsync**: Instantly generate and insert lipsynced audio/video into your Premiere Pro or After Effects project using the sync. API.
-- **Drag-and-drop UI**: Effortlessly add video and audio sources via a modern, minimal panel interface.
-- **In/Out point selection**: Choose specific segments of your video for lipsyncing, with support for custom in/out points.
-- **Automatic output management**: Output files are saved directly to your project folder or Documents, with host-aware directory detection.
-- **After Effects & Premiere Pro support**: Works natively in both AE and PPro, with host-specific import and bin management.
-- **Batch job history**: Save and insert previous jobs from the built-in history tab directly into your project.
-- **Automatic backend management**: Local Node.js server auto-starts and handles all file operations, transcoding, and API communication.
- - **Automatic backend management (bundled Node)**: A private Node.js runtime is bundled per-OS and started by the panel. No system Node or npm install required.
+```
+sync-extensions/
+├── src/
+│   ├── js/
+│   │   ├── panels/           # Panel-specific code
+│   │   │   ├── ae/           # After Effects panel
+│   │   │   └── ppro/         # Premiere Pro panel
+│   │   ├── shared/            # Shared code
+│   │   │   ├── components/   # React components
+│   │   │   ├── hooks/         # React hooks
+│   │   │   ├── styles/        # Sass stylesheets
+│   │   │   └── utils/         # Utility functions
+│   │   ├── assets/            # Static assets (icons)
+│   │   └── lib/              # Third-party libraries
+├── server/                    # Node.js backend server
+├── bin/                       # Bundled Node.js binaries
+├── host/                      # Compiled ExtendScript files
+├── cep.config.ts             # CEP configuration
+├── vite.config.ts            # Vite configuration
+└── vite.es.config.ts         # ExtendScript build config
+```
 
-## System Requirements
+## Prerequisites
 
-### Operating Systems
-- **macOS**: 10.15 (Catalina) or later
-- **Windows**: Windows 10 or later
+- Node.js 18+ (for development)
+- Adobe After Effects 2024+ or Premiere Pro 2024+
+- CEP extension installation permissions
 
-### Adobe Applications
-- **Premiere Pro**: 2024 (24.0) or later
-- **After Effects**: 2024 (24.0) or later
+## Development
 
-### Dependencies
-- **Bundled Node runtime**: Included in the extension (`bin/`) for macOS (arm64, x64) and Windows (x64). The panel spawns this runtime; no system Node is required.
-- **CEP Runtime**: 11.0+
+### Install Dependencies
 
-### Network
-- Local server runs on port 3000 (auto-starts with extension)
-- Internet connection required for sync API and updates
+```bash
+npm install
+```
+
+### Development Mode
+
+Start the development server with hot reload:
+
+```bash
+npm run dev
+```
+
+The extension will be available at `http://localhost:3001` for testing.
+
+### Build
+
+Build both the UI and ExtendScript files:
+
+```bash
+npm run build:all
+```
+
+This will:
+- Build React components to `dist/`
+- Compile ExtendScript files to `host/`
+- Copy assets, server, and binaries to output directories
+
+### Build ExtendScript Only
+
+```bash
+npm run build:es
+```
+
+### Preview
+
+Preview the production build:
+
+```bash
+npm run preview
+```
 
 ## Installation
 
-### Recommended (signed ZXP)
-1. Download the platform/app ZXP from the latest [Release](https://github.com/mhadifilms/sync-extensions/releases):
-   - `sync-extension-ae-windows-signed.zxp`
-   - `sync-extension-premiere-windows-signed.zxp`
-   - `sync-extension-ae-mac-signed.zxp`
-   - `sync-extension-premiere-mac-signed.zxp`
-2. Install with a ZXP installer (e.g., aescripts ZXP Installer or Anastasiy’s Extension Manager).
-3. Restart Adobe app and open the panel from Window → Extensions.
+### Development Installation
 
-### Developer install (unzipped folder)
-1. Extract the ZXP (it's a ZIP) and copy `com.sync.extension.*` to CEP extensions:
-   - macOS: `~/Library/Application Support/Adobe/CEP/extensions/`
-   - Windows: `%APPDATA%\Adobe\CEP\extensions\`
-2. If needed for dev builds, enable PlayerDebugMode:
-   - macOS: `defaults write com.adobe.CSXS.11 PlayerDebugMode 1`
-   - Windows: `HKEY_CURRENT_USER\Software\Adobe\CSXS.11\PlayerDebugMode = 1`
-3. Restart the host app.
+1. Build the extensions:
+   ```bash
+   npm run build:all
+   ```
 
-## Local Server
-The panel communicates with a local Node.js server on port 3000. The server entry is `server/dist/server.js` (falls back to `server/src/server.js`) and is started by the bundled Node runtime under `bin/`.
+2. Copy the built extension folders to Adobe CEP extensions directory:
+   - **macOS**: `~/Library/Application Support/Adobe/CEP/extensions/`
+   - **Windows**: `C:\Users\<username>\AppData\Roaming\Adobe\CEP\extensions\`
 
-**Auto-start**: The panel spawns the bundled Node per‑OS and starts the server automatically.  
-**No npm install**: All runtime dependencies are shipped; users never run npm.
+3. Enable CEP debugging (if needed):
+   - Create file: `~/Library/Application Support/Adobe/CEP/extensions/.debug` (macOS)
+   - Or: `C:\Users\<username>\AppData\Roaming\Adobe\CEP\extensions\debug` (Windows)
+   - Add: `{"debug":["*"]}`
 
-## Settings supported
-- Model selection
-- Sync mode: loop, bounce, cut_off, remap, silence
-- Temperature
-- Active speaker detection
-- Occlusion detection
+4. Restart Adobe application
 
-## Features
-- **Model Selection**: Choose from available sync models
-- **Sync Modes**: loop, bounce, cut_off, remap, silence
-- **Temperature Control**: Adjust sync sensitivity
-- **Active Speaker Detection**: Automatic speaker identification
-- **Occlusion Detection**: Handle visual obstructions
-- **Auto Updates**: Built-in update system via GitHub releases
+### Production Installation
+
+Production builds are packaged as ZXP files and signed via GitHub Actions. See `.github/workflows/sign-zxp.yml` for the build and signing process.
+
+## Configuration
+
+### Extension Configuration
+
+Edit `cep.config.ts` to modify:
+- Extension IDs and versions
+- Panel display names and dimensions
+- Host application requirements
+- Build settings
+
+### Server Configuration
+
+The `server/` directory contains a Node.js backend that handles:
+- File uploads and processing
+- API communication
+- Job management
+- Telemetry
+
+Server configuration is in `server/src/config.js`.
+
+## Project Structure Details
+
+### React Components
+
+- **Header.tsx**: Main navigation header with tab switcher
+- **SourcesTab.tsx**: Video/audio upload and selection interface
+- **HistoryTab.tsx**: Job history and status display
+- **SettingsTab.tsx**: Extension settings and API key management
+- **BottomBar.tsx**: Model selector and lipsync button
+- **ModelSelector.tsx**: Model selection modal
+- **URLInputModal.tsx**: URL input modal for remote media
+- **TTSVoiceSelector.tsx**: Text-to-speech voice selection
+
+### React Hooks
+
+- **useCore.ts**: Core functionality (auth, server status, offline checking)
+- **useNLE.ts**: Host application integration (AE/PPRO communication)
+- **useMedia.ts**: Media selection and upload management
+- **useHistory.ts**: Job history management
+- **useSettings.ts**: Settings persistence
+- **useJobs.ts**: Job creation and status tracking
+- **useCost.ts**: Cost estimation
+- **useRecording.ts**: Video/audio recording
+- **useTTS.ts**: Text-to-speech functionality
+- **useServerAutoStart.ts**: Server auto-start logic
+
+### ExtendScript
+
+Host scripts are located in `host/` and compiled to JSXBIN format. These scripts handle:
+- Communication with Adobe host applications
+- File system operations
+- Timeline manipulation
+- Export functions
+
+## Build System
+
+### Vite Configuration
+
+- **vite.config.ts**: Main build config for React UI
+- **vite.es.config.ts**: ExtendScript compilation config
+
+### Bolt-CEP Plugin
+
+The `vite-cep-plugin` handles:
+- CEP manifest generation
+- Asset copying
+- JSXBIN compilation
 
 ## Troubleshooting
 
-### Installation Issues
-- **ZXP installer rejects extension** → Remove quarantine attributes: `xattr -d com.apple.provenance *.zxp`
-- **macOS Gatekeeper blocks installation** → Remove quarantine attributes: `xattr -d com.apple.provenance *.zxp`
+### Extension Not Loading
 
-### Extension Issues
-- **Extension not visible** → For dev builds, ensure PlayerDebugMode is enabled. Restart Adobe app.
-- **Backend not responding** → Port 3000 may be blocked by another process. Restart the Adobe app.
-- **Version shows "unknown"** → Server may not be running. Check extension logs (Help → Developer Tools).
+1. Check CEP debugging is enabled
+2. Verify extension paths are correct
+3. Check Adobe application console for errors
+4. Ensure Node.js binaries are present in `bin/` directory
 
-### Media Issues
-- **ProRes preview shows black** → Chromium won't decode ProRes; preview uses H.264.
-- **Export preset missing** → Check files in `extensions/premiere-extension/epr/` match names in the UI.
-- **Audio conversion failed** → Check Node.js installation and server status
+### Server Not Starting
 
-### System Issues
-- **ZXP installation failed** → Use a modern ZXP installer and ensure the ZXP is signed.
-- **macOS Gatekeeper** → If blocked, allow the installer in System Settings → Privacy & Security.
-- **Windows compatibility** → Windows 10 1903+ and Adobe 2024+ recommended.
+1. Verify server dependencies are installed: `cd server && npm install`
+2. Check server logs in extension debug console
+3. Ensure port 3000 is available
 
-## Updates
-The extension includes an automatic update system:
-- Click "Check updates" in the panel settings.
-- The server downloads the appropriate ZXP asset based on OS (mac/windows) and app (AE/PPro).
-- After the download, the panel installs the new version and prompts for restart.
+### Build Errors
+
+1. Clear `dist/` and `node_modules/`
+2. Reinstall dependencies: `npm ci`
+3. Check TypeScript errors: `npm run lint`
+
+## Contributing
+
+1. Create a feature branch
+2. Make changes
+3. Test thoroughly in both After Effects and Premiere Pro
+4. Submit a pull request
+
+## License
+
+See LICENSE file for details.

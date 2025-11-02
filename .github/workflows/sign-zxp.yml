@@ -69,47 +69,22 @@ jobs:
           
           echo "✅ .env file validation passed"
 
-      - name: Build CEP folders for macOS
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extensions with bolt-cep
         shell: bash
         run: |
-          set -euo pipefail
-          macRoot="build/mac"
+          npm run build:all
+          
+          # Copy .env to build outputs
+          macRoot="dist"
           ae_mac="$macRoot/com.sync.extension.ae.panel"
           pp_mac="$macRoot/com.sync.extension.ppro.panel"
 
-          rm -rf "$macRoot"
-          mkdir -p "$ae_mac" "$pp_mac"
-
-          copy_panel() {
-            dest="$1"; src="$2"
-            mkdir -p "$dest"
-            cp -a "$src/." "$dest/"
-            cp -a server "$dest/server"
-            cp -a icons "$dest/icons"
-            cp -a lib "$dest/lib"
-            cp -a bin "$dest/bin"
-            cp -a index.html "$dest/"
-            cp -a host "$dest/host"
-            cp -a .env "$dest/.env" || { echo "ERROR: .env file copy failed for $dest"; exit 1; }
-            mkdir -p "$dest/ui"
-            # Copy shared UI but do NOT overwrite per-extension host-detection.js
-            if command -v rsync >/dev/null 2>&1; then
-              rsync -a --exclude 'host-detection.js' ui/ "$dest/ui/"
-            else
-              # Fallback if rsync is unavailable
-              find ui -type f ! -name 'host-detection.js' -print0 | while IFS= read -r -d '' f; do
-                rel="${f#ui/}"; mkdir -p "$(dirname "$dest/ui/$rel")"; cp -a "$f" "$dest/ui/$rel";
-              done
-            fi
-            # Ensure the extension's own host-detection.js remains
-            if [ -f "$src/ui/host-detection.js" ]; then cp -a "$src/ui/host-detection.js" "$dest/ui/host-detection.js"; fi
-          }
-
-          copy_panel "$ae_mac"  "extensions/ae-extension"
-          copy_panel "$pp_mac"  "extensions/premiere-extension"
-
-          # Strip Windows bins from mac packages
-          rm -rf "$ae_mac/bin/win32-x64" "$pp_mac/bin/win32-x64" || true
+          # Copy .env to each panel
+          cp .env "$ae_mac/.env" || { echo "ERROR: .env file copy failed for $ae_mac"; exit 1; }
+          cp .env "$pp_mac/.env" || { echo "ERROR: .env file copy failed for $pp_mac"; exit 1; }
           
           # Verify .env files were copied correctly
           echo "Verifying .env files in built packages..."
@@ -125,6 +100,14 @@ jobs:
             fi
             echo "✅ $pkg/.env verified"
           done
+          
+          # Create build/mac structure for compatibility
+          mkdir -p build/mac
+          cp -r "$ae_mac" build/mac/
+          cp -r "$pp_mac" build/mac/
+          
+          # Strip Windows bins from mac packages
+          rm -rf "build/mac/com.sync.extension.ae.panel/bin/win32-x64" "build/mac/com.sync.extension.ppro.panel/bin/win32-x64" || true
 
       - name: Upload mac build
         uses: actions/upload-artifact@v4
@@ -189,58 +172,27 @@ jobs:
           
           echo "✅ .env file validation passed"
 
-      - name: Build CEP folders for Windows
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extensions with bolt-cep
         shell: pwsh
         run: |
-          # Create build root for windows packages
-          $winRoot = "build/win"
-          $ae_win  = Join-Path $winRoot "com.sync.extension.ae.panel"
-          $pp_win  = Join-Path $winRoot "com.sync.extension.ppro.panel"
+          npm run build:all
           
-          # Clean existing folders
-          foreach ($p in @($winRoot,$ae_win,$pp_win)) {
-            if (Test-Path $p) { Remove-Item $p -Recurse -Force }
-          }
+          # Copy .env to build outputs
+          $macRoot = "dist"
+          $ae_win = Join-Path $macRoot "com.sync.extension.ae.panel"
+          $pp_win = Join-Path $macRoot "com.sync.extension.ppro.panel"
           
-          # Create build directories
-          New-Item -ItemType Directory -Force -Path $winRoot | Out-Null
-          
-          # Helper to copy a panel skeleton
-          function Copy-Panel($dest, $extSrc) {
-            # Create destination directory
-            New-Item -ItemType Directory -Force -Path $dest | Out-Null
-            # Copy extension contents into destination
-            Copy-Item "$extSrc/*" $dest -Recurse
-            # Then add shared files (don't copy ui since extensions already have their own)
-            Copy-Item "server" "$dest/server" -Recurse
-            Copy-Item "icons" "$dest/icons" -Recurse
-            Copy-Item "lib" "$dest/lib" -Recurse
-            Copy-Item "bin" "$dest/bin" -Recurse
-            Copy-Item "index.html" "$dest/"
-            Copy-Item "host" "$dest/host" -Recurse
-            Copy-Item ".env" "$dest/.env" -ErrorAction Stop; if (-not (Test-Path "$dest/.env")) { throw ".env file not found or copy failed for $dest" }
-            # Copy main UI files to the existing ui directory (merge, don't replace)
-            Copy-Item "ui/*" "$dest/ui/" -Recurse -Force
-            # Restore per-extension host-detection.js after shared UI copy
-            $extHost = Join-Path $extSrc "ui/host-detection.js"
-            $destHost = Join-Path $dest "ui/host-detection.js"
-            if (Test-Path $extHost) { Copy-Item $extHost $destHost -Force }
-          }
-          
-          # Build Windows variants (strip darwin bins)
-          Copy-Panel $ae_win  "extensions/ae-extension"
-          Copy-Panel $pp_win  "extensions/premiere-extension"
-          foreach ($dest in @($ae_win,$pp_win)) {
-            Remove-Item "$dest/bin/darwin-arm64" -Recurse -Force -ErrorAction SilentlyContinue
-            Remove-Item "$dest/bin/darwin-x64" -Recurse -Force -ErrorAction SilentlyContinue
-          }
-
-          echo "Created CEP folders (Windows): $ae_win, $pp_win"
+          # Copy .env to each panel
+          Copy-Item ".env" "$ae_win\.env" -Force
+          Copy-Item ".env" "$pp_win\.env" -Force
           
           # Verify .env files were copied correctly
-          echo "Verifying .env files in Windows packages..."
+          Write-Host "Verifying .env files in built packages..."
           foreach ($pkg in @($ae_win, $pp_win)) {
-            echo "Checking $pkg\.env..."
+            Write-Host "Checking $pkg\.env..."
             if (-not (Test-Path "$pkg\.env")) {
               throw ".env file missing in $pkg"
             }
@@ -248,8 +200,20 @@ jobs:
             if (-not ($envContent -match "R2_ACCESS_KEY=") -or -not ($envContent -match "R2_SECRET_KEY=")) {
               throw ".env file missing R2 credentials in $pkg"
             }
-            echo "✅ $pkg\.env verified"
+            Write-Host "✅ $pkg\.env verified"
           }
+          
+          # Create build/win structure for compatibility
+          $winRoot = "build/win"
+          New-Item -ItemType Directory -Force -Path $winRoot | Out-Null
+          Copy-Item "$ae_win" "$winRoot\" -Recurse -Force
+          Copy-Item "$pp_win" "$winRoot\" -Recurse -Force
+          
+          # Strip darwin bins from Windows packages
+          Remove-Item "$winRoot\com.sync.extension.ae.panel\bin\darwin-arm64" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$winRoot\com.sync.extension.ae.panel\bin\darwin-x64" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$winRoot\com.sync.extension.ppro.panel\bin\darwin-arm64" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$winRoot\com.sync.extension.ppro.panel\bin\darwin-x64" -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Download mac build
         uses: actions/download-artifact@v4
