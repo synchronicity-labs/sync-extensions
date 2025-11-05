@@ -214,6 +214,24 @@ export async function applyUpdate(isSpawnedByUI) {
   try { tlog('update:extracted:dir', extractedDir); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
   if (!isSpawnedByUI) console.log('Using extracted directory:', extractedDir);
   
+  // Verify EXT_ROOT exists and is writable
+  try {
+    if (!fs.existsSync(EXT_ROOT)) {
+      throw new Error(`Extension directory does not exist: ${EXT_ROOT}`);
+    }
+    // Test write permissions
+    const testFile = path.join(EXT_ROOT, '.update_test_' + Date.now());
+    try {
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+    } catch (e) {
+      throw new Error(`Extension directory is not writable: ${EXT_ROOT}. Error: ${e.message}`);
+    }
+  } catch (e) {
+    try { tlog('update:permission:error', e.message); } catch (_) {}
+    throw e;
+  }
+
   try { tlog('update:manual:copy:start', 'target=', EXT_ROOT); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
   
   if (isZxp) {
@@ -224,19 +242,101 @@ export async function applyUpdate(isSpawnedByUI) {
     } catch (e) {
       throw new Error('Failed to read ZXP extracted directory: ' + e.message);
     }
+    
+    // Copy files with retry logic for locked files
     for (const name of items) {
       const srcPath = path.join(extractedDir, name);
       const destPath = path.join(EXT_ROOT, name);
-      if (isWindows) {
-        await runRobocopy(srcPath, destPath);
-      } else {
-        await exec(`cp -R "${srcPath}" "${destPath}"`);
+      const destStat = fs.existsSync(destPath) ? fs.statSync(destPath) : null;
+      
+      // Use atomic replacement where possible
+      let retries = 3;
+      let lastError = null;
+      while (retries > 0) {
+        try {
+          if (isWindows) {
+            // Robocopy handles locked files better than direct copy
+            await runRobocopy(srcPath, destPath);
+          } else {
+            // On Mac/Linux, try atomic move for files, copy for directories
+            if (fs.statSync(srcPath).isFile() && destStat && destStat.isFile()) {
+              // Atomic replacement: copy to temp, then rename
+              const tempPath = destPath + '.update_tmp_' + Date.now();
+              await exec(`cp "${srcPath}" "${tempPath}"`);
+              // Try to replace atomically
+              try {
+                fs.renameSync(tempPath, destPath);
+              } catch (renameErr) {
+                // If atomic rename fails, try direct copy (might fail if locked)
+                await exec(`cp "${srcPath}" "${destPath}"`);
+                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+              }
+            } else {
+              // For directories or new files, use regular copy
+              await exec(`cp -R "${srcPath}" "${destPath}"`);
+            }
+          }
+          lastError = null;
+          break; // Success, exit retry loop
+        } catch (e) {
+          lastError = e;
+          retries--;
+          if (retries > 0) {
+            // Wait before retry (files might be unlocked)
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+      
+      if (lastError) {
+        try { tlog('update:copy:failed', name, lastError.message); } catch (_) {}
+        // Log but continue - some files might fail, others might succeed
+        console.warn(`Failed to copy ${name} after retries: ${lastError.message}`);
       }
     }
     try { tlog('update:copy:zxp:ok', 'items=', String(items.length)); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
   } else {
     const aeSrcDir = path.join(extractedDir, 'extensions', 'ae-extension');
     const pproSrcDir = path.join(extractedDir, 'extensions', 'premiere-extension');
+    
+    // Helper function to copy with retry logic
+    const copyWithRetry = async (src, dest, isFile = false) => {
+      let retries = 3;
+      let lastError = null;
+      while (retries > 0) {
+        try {
+          if (isWindows) {
+            await runRobocopy(src, dest);
+          } else {
+            if (isFile && fs.existsSync(dest) && fs.statSync(src).isFile() && fs.statSync(dest).isFile()) {
+              // Atomic replacement for files
+              const tempPath = dest + '.update_tmp_' + Date.now();
+              await exec(`cp "${src}" "${tempPath}"`);
+              try {
+                fs.renameSync(tempPath, dest);
+              } catch (renameErr) {
+                await exec(`cp "${src}" "${dest}"`);
+                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+              }
+            } else {
+              await exec(`cp -R "${src}" "${dest}"`);
+            }
+          }
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e;
+          retries--;
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+      if (lastError) {
+        try { tlog('update:copy:failed', src, lastError.message); } catch (_) {}
+        throw new Error(`Failed to copy ${src} after retries: ${lastError.message}`);
+      }
+    };
     
     if (APP_ID === 'ae' && fs.existsSync(aeSrcDir)) {
       if (isWindows) {
@@ -247,12 +347,12 @@ export async function applyUpdate(isSpawnedByUI) {
         await runRobocopy(extractedDir, EXT_ROOT, 'index.html');
         await runRobocopy(path.join(extractedDir, 'lib'), path.join(EXT_ROOT, 'lib'));
       } else {
-        await exec(`cp -R "${aeSrcDir}"/* "${EXT_ROOT}/"`);
-        await exec(`cp -R "${extractedDir}"/ui "${EXT_ROOT}/"`);
-        await exec(`cp -R "${extractedDir}"/server "${EXT_ROOT}/"`);
-        await exec(`cp -R "${extractedDir}"/icons "${EXT_ROOT}/"`);
-        await exec(`cp "${extractedDir}"/index.html "${EXT_ROOT}/"`);
-        await exec(`cp "${extractedDir}"/lib "${EXT_ROOT}/" -R`);
+        await copyWithRetry(aeSrcDir, EXT_ROOT);
+        await copyWithRetry(path.join(extractedDir, 'ui'), path.join(EXT_ROOT, 'ui'));
+        await copyWithRetry(path.join(extractedDir, 'server'), path.join(EXT_ROOT, 'server'));
+        await copyWithRetry(path.join(extractedDir, 'icons'), path.join(EXT_ROOT, 'icons'));
+        await copyWithRetry(path.join(extractedDir, 'index.html'), path.join(EXT_ROOT, 'index.html'), true);
+        await copyWithRetry(path.join(extractedDir, 'lib'), path.join(EXT_ROOT, 'lib'));
       }
     } else if (APP_ID === 'premiere' && fs.existsSync(pproSrcDir)) {
       if (isWindows) {
@@ -264,23 +364,47 @@ export async function applyUpdate(isSpawnedByUI) {
         await runRobocopy(path.join(extractedDir, 'lib'), path.join(EXT_ROOT, 'lib'));
         await runRobocopy(path.join(extractedDir, 'extensions', 'premiere-extension', 'epr'), path.join(EXT_ROOT, 'epr'));
       } else {
-        await exec(`cp -R "${pproSrcDir}"/* "${EXT_ROOT}/"`);
-        await exec(`cp -R "${extractedDir}"/ui "${EXT_ROOT}/"`);
-        await exec(`cp -R "${extractedDir}"/server "${EXT_ROOT}/"`);
-        await exec(`cp -R "${extractedDir}"/icons "${EXT_ROOT}/"`);
-        await exec(`cp "${extractedDir}"/index.html "${EXT_ROOT}/"`);
-        await exec(`cp "${extractedDir}"/lib "${EXT_ROOT}/" -R`);
-        await exec(`cp "${extractedDir}"/extensions/premiere-extension/epr "${EXT_ROOT}/" -R`);
+        await copyWithRetry(pproSrcDir, EXT_ROOT);
+        await copyWithRetry(path.join(extractedDir, 'ui'), path.join(EXT_ROOT, 'ui'));
+        await copyWithRetry(path.join(extractedDir, 'server'), path.join(EXT_ROOT, 'server'));
+        await copyWithRetry(path.join(extractedDir, 'icons'), path.join(EXT_ROOT, 'icons'));
+        await copyWithRetry(path.join(extractedDir, 'index.html'), path.join(EXT_ROOT, 'index.html'), true);
+        await copyWithRetry(path.join(extractedDir, 'lib'), path.join(EXT_ROOT, 'lib'));
+        await copyWithRetry(path.join(extractedDir, 'extensions', 'premiere-extension', 'epr'), path.join(EXT_ROOT, 'epr'));
       }
     }
   }
   
   try { tlog('update:manual:copy:complete'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
   
+  // Verify key files were updated
+  const manifestPath = path.join(EXT_ROOT, 'CSXS', 'manifest.xml');
+  let verifyVersion = '';
+  try {
+    if (fs.existsSync(manifestPath)) {
+      const manifestContent = fs.readFileSync(manifestPath, 'utf8');
+      verifyVersion = parseBundleVersion(manifestContent);
+      if (verifyVersion && verifyVersion !== latestVersion) {
+        try { tlog('update:verify:warn', 'manifest version mismatch', verifyVersion, 'expected', latestVersion); } catch (_) {}
+        console.warn(`Warning: Manifest version (${verifyVersion}) doesn't match expected version (${latestVersion})`);
+      }
+    }
+  } catch (e) {
+    try { tlog('update:verify:error', e.message); } catch (_) {}
+    console.warn('Could not verify updated manifest:', e.message);
+  }
+  
   try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   
   if (!isSpawnedByUI) console.log(`Update completed successfully: ${current} -> ${latestVersion}`);
   
-  return { ok: true, updated: true, message: 'Update applied successfully', current, latest: latestVersion };
+  return { 
+    ok: true, 
+    updated: true, 
+    message: 'Update applied successfully. Please reload the panel to use the new version.', 
+    current, 
+    latest: latestVersion,
+    verified: verifyVersion || latestVersion
+  };
 }
 

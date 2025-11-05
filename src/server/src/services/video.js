@@ -29,8 +29,11 @@ const DEBUG_LOG = path.join(LOGS_DIR, 'sync_server_debug.log');
 function debugLog() {
   if (!DEBUG) return;
   try {
-    const line = `[${new Date().toISOString()}] [video.js] ` + Array.from(arguments).map(a => String(a)).join(' ') + '\n';
-    fs.appendFileSync(DEBUG_LOG, line);
+    const timestamp = new Date().toISOString();
+    const args = Array.from(arguments).map(a => String(a));
+    const message = args.join(' ');
+    const logLine = `[${timestamp}] [video.js] ${message}\n`;
+    fs.appendFileSync(DEBUG_LOG, logLine);
   } catch (_) {}
 }
 

@@ -208,6 +208,7 @@ router.post('/jobs/:id/save', async (req, res) => {
       job = { id: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
     }
 
+    // Use location parameter directly (frontend should pass 'project' or 'documents')
     const outDir = (location === 'documents') ? DOCS_DEFAULT_DIR : (targetDir || job.outputDir || TEMP_DEFAULT_DIR);
     try {
       await fs.promises.access(outDir);

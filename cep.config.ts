@@ -1,7 +1,11 @@
-import type { CEPConfig } from "vite-cep-plugin";
+import type { CEP_Config } from "vite-cep-plugin";
 import { version } from "./package.json";
 
-const config: CEPConfig = {
+// Load environment variables - dotenv is loaded in vite.config.ts before this file is imported
+// Password from environment variable to avoid committing secrets to git
+// Set ZXP_PASSWORD in src/server/.env file (already in .gitignore)
+
+const config: CEP_Config = {
   id: "com.sync.extension",
   displayName: "sync.",
   version,
@@ -59,18 +63,25 @@ const config: CEPConfig = {
     country: "US",
     province: "CA",
     org: "sync.",
-    password: "",
+    // Password from environment variable to avoid committing secrets to git
+    // Set ZXP_PASSWORD in .env file (already in .gitignore)
+    password: process.env.ZXP_PASSWORD || "",
+    // TSA URLs: vite-cep-plugin tries each URL in order until one succeeds
+    // Order matters: put platform-specific TSA first for faster builds
+    // macOS: http://timestamp.apple.com/ts01
+    // Windows: http://timestamp.digicert.com/
+    // Both will work on either platform, but ordering optimizes build time
     tsa: [
-      "http://timestamp.digicert.com/", // Windows Only
-      "http://timestamp.apple.com/ts01", // MacOS Only
+      "http://timestamp.apple.com/ts01", // macOS - works on both platforms
+      "http://timestamp.digicert.com/", // Windows - works on both platforms
     ],
     allowSkipTSA: false,
     sourceMap: false,
     jsxBin: "replace",
   },
   installModules: [],
-  copyAssets: ["js/assets/icons", "js/lib", "server"],
-  copyFolders: ["js/panels/ppro/epr"],
+  copyAssets: ["js/assets/icons", "js/lib", "server/src", "server/package.json"],
+  copyFolders: ["js/panels/ppro/epr", "bin", "server/node_modules"],
   copyZipAssets: [],
 };
 

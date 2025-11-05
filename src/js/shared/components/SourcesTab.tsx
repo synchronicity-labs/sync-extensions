@@ -4,6 +4,8 @@ import { useMedia } from "../hooks/useMedia";
 import { useRecording } from "../hooks/useRecording";
 import { useNLE } from "../hooks/useNLE";
 import { useTabs } from "../hooks/useTabs";
+import { useSettings } from "../hooks/useSettings";
+import { getApiUrl } from "../utils/serverConfig";
 import URLInputModal from "./URLInputModal";
 import TTSVoiceSelector from "./TTSVoiceSelector";
 
@@ -11,7 +13,8 @@ const SourcesTab: React.FC = () => {
   const { selection, selectVideo, selectAudio, clearVideo, clearAudio } = useMedia();
   const { isRecording, recordingType, startRecording, stopRecording } = useRecording();
   const { nle } = useNLE();
-  const { activeTab } = useTabs();
+  const { activeTab, setActiveTab } = useTabs();
+  const { settings } = useSettings();
   const [urlModalOpen, setUrlModalOpen] = useState(false);
   const [urlModalType, setUrlModalType] = useState<"video" | "audio">("video");
   const [ttsModalOpen, setTtsModalOpen] = useState(false);
@@ -25,6 +28,11 @@ const SourcesTab: React.FC = () => {
         const result = await nle.exportInOutVideo({ codec: "h264" });
         if (result?.ok && result?.path) {
           await selectVideo();
+        } else if (result?.error) {
+          // Show error toast
+          if ((window as any).showToast) {
+            (window as any).showToast(result.error, "error");
+          }
         }
       }
     };
@@ -33,11 +41,11 @@ const SourcesTab: React.FC = () => {
       setUrlModalOpen(true);
     };
     (window as any).startVideoRecording = async () => {
-      if (isRecording && recordingType === "video") {
-        stopRecording();
-      } else {
-        await startRecording("video");
-      }
+        if (isRecording && recordingType === "video") {
+          stopRecording();
+        } else {
+          await startRecording("video");
+        }
     };
 
     // Audio functions
@@ -47,19 +55,24 @@ const SourcesTab: React.FC = () => {
         const result = await nle.exportInOutAudio({ format: "wav" });
         if (result?.ok && result?.path) {
           await selectAudio();
+        } else if (result?.error) {
+          // Show error toast
+          if ((window as any).showToast) {
+            (window as any).showToast(result.error, "error");
+          }
         }
       }
     };
     (window as any).selectAudioUrl = () => {
       setUrlModalType("audio");
-      setUrlModalOpen(true);
-    };
+        setUrlModalOpen(true);
+  };
     (window as any).startAudioRecording = async () => {
-      if (isRecording && recordingType === "audio") {
-        stopRecording();
-      } else {
-        await startRecording("audio");
-      }
+        if (isRecording && recordingType === "audio") {
+          stopRecording();
+        } else {
+          await startRecording("audio");
+        }
     };
     (window as any).selectAudioFromVideo = async () => {
       if (!selection.video && !selection.videoUrl) return;
@@ -68,7 +81,7 @@ const SourcesTab: React.FC = () => {
         const videoPath = selection.video || selection.videoUrl;
         if (!videoPath) return;
 
-        const response = await fetch("http://127.0.0.1:3000/audio/extract", {
+        const response = await fetch(getApiUrl("/audio/extract"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ videoPath, format: "wav" }),
@@ -87,53 +100,19 @@ const SourcesTab: React.FC = () => {
         setTtsModalOpen(true);
       },
     };
+  }, [selectVideo, selectAudio, nle, isRecording, recordingType, startRecording, stopRecording, selection, setUrlModalOpen, setUrlModalType, setTtsModalOpen]);
 
-    // Wire up buttons using the original pattern
-    const wireButtons = () => {
-      if ((window as any).__sourcesButtonsWired) return;
-      (window as any).__sourcesButtonsWired = true;
-
-      function on(selector: string, handler: (e?: Event) => void) {
-        try {
-          const el = document.querySelector(selector);
-          if (el) {
-            const existingHandler = (el as any).__clickHandler;
-            if (existingHandler) {
-              el.removeEventListener("click", existingHandler);
-            }
-            (el as any).__clickHandler = handler;
-            el.addEventListener("click", handler);
-          }
-        } catch (e) {
-          // Error attaching handler - silently fail
+  // Re-initialize Lucide icons when tab becomes active
+  useEffect(() => {
+    if (activeTab === "sources") {
+      const timer = setTimeout(() => {
+        if ((window as any).lucide && (window as any).lucide.createIcons) {
+          (window as any).lucide.createIcons();
         }
-      }
-
-      // Video buttons
-      on('.video-upload .action-btn[data-action="video-upload"]', function() { try { (window as any).selectVideo(); } catch(_) {} });
-      on('.video-upload .action-btn[data-action="video-inout"]', function() { try { (window as any).selectVideoInOut(); } catch(_) {} });
-      on('.video-upload .action-btn[data-action="video-record"]', function() { try { (window as any).startVideoRecording(); } catch(_) {} });
-      on('.video-upload .action-btn[data-action="video-link"]', function() { try { (window as any).selectVideoUrl(); } catch(_) {} });
-
-      // Audio buttons
-      on('.audio-upload .action-btn[data-action="audio-upload"]', function() { try { (window as any).selectAudio(); } catch(_) {} });
-      on('.audio-upload .action-btn[data-action="audio-inout"]', function() { try { (window as any).selectAudioInOut(); } catch(_) {} });
-      on('.audio-upload .action-btn[data-action="audio-record"]', function() { try { (window as any).startAudioRecording(); } catch(_) {} });
-      on('.audio-upload .action-btn[data-action="audio-link"]', function() { try { (window as any).selectAudioUrl(); } catch(_) {} });
-      on('.audio-upload .action-btn[data-action="audio-from-video"]', async function() { try { await (window as any).selectAudioFromVideo(); } catch(_) {} });
-      on('.audio-upload .action-btn[data-action="audio-tts"]', function() { try { if ((window as any).TTSInterface && (window as any).TTSInterface.show) { (window as any).TTSInterface.show(); } } catch(_) {} });
-    };
-
-    // Wire buttons after a short delay to ensure DOM is ready
-    const timer = setTimeout(() => {
-      wireButtons();
-    }, 100);
-
-    return () => {
-      clearTimeout(timer);
-      (window as any).__sourcesButtonsWired = false;
-    };
-  }, [selectVideo, selectAudio, nle, isRecording, recordingType, startRecording, stopRecording, selection]);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]);
 
   return (
     <>
@@ -161,21 +140,21 @@ const SourcesTab: React.FC = () => {
               </div>
               <div className="upload-actions" id="videoUploadActions">
                 <div className="action-row">
-                  <button className="action-btn" data-action="video-upload">
+                  <button className="action-btn" data-action="video-upload" onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectVideo(); }}>
                     <Upload size={16} />
                     <span>upload</span>
                   </button>
-                  <button className="action-btn" data-action="video-inout">
+                  <button className="action-btn" data-action="video-inout" onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if (nle?.exportInOutVideo) { const result = await nle.exportInOutVideo({ codec: "h264" }); if (result?.ok && result?.path) { await selectVideo(); } else if (result?.error && (window as any).showToast) { (window as any).showToast(result.error, "error"); } } }}>
                     <MousePointerSquareDashed size={16} />
                     <span>use in/out</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button className={`action-btn ${isRecording && recordingType === "video" ? "recording" : ""}`} data-action="video-record">
+                  <button className={`action-btn ${isRecording && recordingType === "video" ? "recording" : ""}`} data-action="video-record" onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if (isRecording && recordingType === "video") { stopRecording(); } else { await startRecording("video"); } }}>
                     <Webcam size={16} />
                     <span>{isRecording && recordingType === "video" ? "stop" : "record"}</span>
                   </button>
-                  <button className="action-btn" data-action="video-link">
+                  <button className="action-btn" data-action="video-link" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setUrlModalType("video"); setUrlModalOpen(true); }}>
                     <Link size={16} />
                     <span>link url</span>
                   </button>
@@ -216,31 +195,78 @@ const SourcesTab: React.FC = () => {
               </div>
               <div className="upload-actions" id="audioUploadActions">
                 <div className="action-row">
-                  <button className="action-btn" data-action="audio-upload">
+                  <button className="action-btn" data-action="audio-upload" onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectAudio(); }}>
                     <Upload size={16} />
                     <span>upload</span>
                   </button>
-                  <button className="action-btn" data-action="audio-inout">
+                  <button className="action-btn" data-action="audio-inout" onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if (nle?.exportInOutAudio) { const result = await nle.exportInOutAudio({ format: "wav" }); if (result?.ok && result?.path) { await selectAudio(); } else if (result?.error && (window as any).showToast) { (window as any).showToast(result.error, "error"); } } }}>
                     <MousePointerSquareDashed size={16} />
                     <span>use in/out</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button className={`action-btn ${isRecording && recordingType === "audio" ? "recording" : ""}`} data-action="audio-record">
+                  <button className={`action-btn ${isRecording && recordingType === "audio" ? "recording" : ""}`} data-action="audio-record" onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if (isRecording && recordingType === "audio") { stopRecording(); } else { await startRecording("audio"); } }}>
                     <Mic size={16} />
                     <span>{isRecording && recordingType === "audio" ? "stop" : "record"}</span>
                   </button>
-                  <button className="action-btn" data-action="audio-link">
+                  <button className="action-btn" data-action="audio-link" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setUrlModalType("audio"); setUrlModalOpen(true); }}>
                     <Link size={16} />
                     <span>link url</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button className="action-btn" data-action="audio-from-video">
+                  <button className="action-btn" data-action="audio-from-video" onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if (!selection.video && !selection.videoUrl) return; try { const videoPath = selection.video || selection.videoUrl; if (!videoPath) return; const response = await fetch("http://127.0.0.1:3000/audio/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath, format: "wav" }), }); const data = await response.json().catch(() => null); if (response.ok && data?.ok && data?.path) { await selectAudio(); } } catch (error) { console.error("Error extracting audio from video:", error); } }}>
                     <MousePointerClick size={16} />
                     <span>from video</span>
                   </button>
-                  <button className="action-btn" data-action="audio-tts">
+                  <button className="action-btn" data-action="audio-tts" onClick={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
+                    if (!settings.elevenlabsApiKey || !settings.elevenlabsApiKey.trim()) {
+                      // Show toast with link to settings
+                      if ((window as any).showToast) {
+                        const toast = document.createElement("div");
+                        toast.style.cssText = `
+                          position: fixed;
+                          top: 20px;
+                          right: 20px;
+                          padding: 12px 24px;
+                          background: #222225;
+                          color: white;
+                          border-radius: 6px;
+                          z-index: 10000;
+                          font-family: var(--font-family);
+                          font-size: 14px;
+                          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+                        `;
+                        toast.innerHTML = 'please set your elevenlabs api key <a href="#" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">here</a>';
+                        const link = toast.querySelector('a');
+                        if (link) {
+                          link.addEventListener('click', (ev) => {
+                            ev.preventDefault();
+                            setActiveTab('settings');
+                            setTimeout(() => {
+                              if (toast.parentNode) {
+                                toast.parentNode.removeChild(toast);
+                              }
+                            }, 100);
+                          });
+                        }
+                        document.body.appendChild(toast);
+                        setTimeout(() => {
+                          toast.style.opacity = "0";
+                          toast.style.transition = "opacity 0.3s";
+                          setTimeout(() => {
+                            if (toast.parentNode) {
+                              toast.parentNode.removeChild(toast);
+                            }
+                          }, 300);
+                        }, 5000);
+                      }
+                      return;
+                    }
+                    setTtsModalOpen(true); 
+                  }}>
                     <TextSelect size={16} />
                     <span>generate</span>
                   </button>

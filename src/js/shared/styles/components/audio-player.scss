@@ -133,6 +133,44 @@
   color: var(--text-tertiary);
 }
 
+/* Change dubbing icon from globe to languages - replace any globe icons in dubbing contexts */
+.dubbing-dropdown-header i[data-lucide="globe"],
+.dubbing-dropdown-header i[data-lucide="Globe"],
+.audio-dubbing-btn i[data-lucide="globe"],
+.audio-dubbing-btn i[data-lucide="Globe"],
+.audio-dubbing-submit-btn i[data-lucide="globe"],
+.audio-dubbing-submit-btn i[data-lucide="Globe"] {
+  /* Hide globe icon and replace with languages icon via CSS */
+  position: relative;
+}
+
+.dubbing-dropdown-header i[data-lucide="globe"] svg,
+.dubbing-dropdown-header i[data-lucide="Globe"] svg,
+.audio-dubbing-btn i[data-lucide="globe"] svg,
+.audio-dubbing-btn i[data-lucide="Globe"] svg,
+.audio-dubbing-submit-btn i[data-lucide="globe"] svg,
+.audio-dubbing-submit-btn i[data-lucide="Globe"] svg {
+  display: none;
+}
+
+/* Replace with languages icon */
+.dubbing-dropdown-header i[data-lucide="globe"]::before,
+.dubbing-dropdown-header i[data-lucide="Globe"]::before,
+.audio-dubbing-btn i[data-lucide="globe"]::before,
+.audio-dubbing-btn i[data-lucide="Globe"]::before,
+.audio-dubbing-submit-btn i[data-lucide="globe"]::before,
+.audio-dubbing-submit-btn i[data-lucide="Globe"]::before {
+  content: '';
+  display: inline-block;
+  width: 19px;
+  height: 19px;
+  /* Use languages icon SVG */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 6 6'/%3E%3Cpath d='m4 14 6-6 2-3'/%3E%3Cpath d='M2 5h12'/%3E%3Cpath d='M7 2h1'/%3E%3Cpath d='m22 22-5-10-5 10'/%3E%3Cpath d='M14 18h6'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 .dubbing-search-input {
   flex: 1;
   background: transparent;

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNLE } from "./useNLE";
+import { getApiUrl } from "../utils/serverConfig";
 
 interface AuthState {
   token: string;
@@ -49,14 +50,16 @@ export const useCore = () => {
       ];
       
       if (importantEvents.includes(type)) {
+        const hostConfig = (window as any).HOST_CONFIG || {};
         const logData = {
           type,
           timestamp,
           host,
+          hostConfig,
           ...payload,
         };
         
-        fetch("http://127.0.0.1:3000/debug", {
+        fetch(getApiUrl("/debug"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(logData),
@@ -110,7 +113,7 @@ export const useCore = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       
-      const response = await fetch("http://127.0.0.1:3000/health", {
+      const response = await fetch(getApiUrl("/health"), {
         signal: controller.signal,
       });
       
@@ -157,7 +160,7 @@ export const useCore = () => {
     
     try {
       const r = await fetchWithTimeout(
-        "http://127.0.0.1:3000/auth/token",
+        getApiUrl("/auth/token"),
         {
           headers: { "X-CEP-Panel": "sync" },
         },
@@ -179,7 +182,7 @@ export const useCore = () => {
       const h = { ...(extra || {}) };
       h["X-CEP-Panel"] = "sync";
       if (authState.token) {
-        h["Authorization"] = "Bearer " + authState.token;
+        h["x-auth-token"] = authState.token;
       }
       return h;
     },
@@ -231,7 +234,10 @@ export const useCore = () => {
     (window as any).updateBottomBarModelDisplay = updateModelDisplay;
     (window as any).ensureAuthToken = ensureAuthToken;
     (window as any).authHeaders = authHeaders;
-    (window as any).getServerPort = () => (window as any).__syncServerPort || 3000;
+    (window as any).getServerPort = () => {
+      const { getServerPort } = require("../utils/serverConfig");
+      return getServerPort();
+    };
     (window as any).isOffline = serverState.isOffline;
     
     // Start offline checking

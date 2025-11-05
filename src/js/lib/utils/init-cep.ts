@@ -36,7 +36,17 @@ const buildFlyoutMenu = () => {
     } else if (menuId === "info") {
       // openLinkInBrowser(productPage);
     } else if (menuId === "refresh") {
-      location.reload();
+      // Reload panel - ensure we stay on localhost in dev mode
+      if (typeof window !== "undefined" && (window as any).location) {
+        const currentUrl = (window as any).location.href;
+        if (currentUrl.includes('localhost:3001')) {
+          // Already on localhost - just reload
+          (window as any).location.reload();
+        } else {
+          // Not on localhost - redirect to localhost first
+          (window as any).location.href = 'http://localhost:3001/main/index.html';
+        }
+      }
     }
   };
 
@@ -58,7 +68,17 @@ const buildContextMenu = () => {
         checkable: false,
         id: "c-0",
         callback: () => {
-          location.reload();
+          // Reload panel - ensure we stay on localhost in dev mode
+          if (typeof window !== "undefined" && (window as any).location) {
+            const currentUrl = (window as any).location.href;
+            if (currentUrl.includes('localhost:3001')) {
+              // Already on localhost - just reload
+              (window as any).location.reload();
+            } else {
+              // Not on localhost - redirect to localhost first
+              (window as any).location.href = 'http://localhost:3001/main/index.html';
+            }
+          }
         },
       },
       {

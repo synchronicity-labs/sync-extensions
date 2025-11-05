@@ -1,9 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { cep, runAction } from "vite-cep-plugin";
-import cepConfig from "./cep.config";
 import path from "path";
 import { extendscriptConfig } from "./vite.es.config";
+import dotenv from "dotenv";
+
+// Load environment variables from src/server/.env file (shared with server config)
+// MUST load before importing cep.config.ts to ensure ZXP_PASSWORD is available
+dotenv.config({ path: path.resolve(process.cwd(), "src/server/.env") });
+
+import cepConfig from "./cep.config";
 
 const src = path.resolve(__dirname, "src");
 const root = path.resolve(src, "js");
@@ -40,6 +46,15 @@ export default defineConfig({
   ],
   resolve: {
     alias: [{ find: "@esTypes", replacement: path.resolve(__dirname, "src") }],
+    extensions: [".tsx", ".ts", ".jsx", ".js", ".json"],
+  },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        api: 'modern-compiler', // Use modern Sass API to avoid deprecation warnings
+        silenceDeprecations: ['legacy-js-api'], // Fallback: silence if modern API not fully supported
+      },
+    },
   },
   root,
   clearScreen: false,
@@ -48,6 +63,8 @@ export default defineConfig({
     strictPort: true,
     hmr: {
       port: cepConfig.port || 3001,
+      protocol: 'ws',
+      host: 'localhost',
     },
   },
   preview: {
@@ -55,7 +72,7 @@ export default defineConfig({
   },
   build: {
     sourcemap: isPackage ? cepConfig.zxp.sourceMap : cepConfig.build?.sourceMap,
-    watch: {
+    watch: isPackage ? null : {
       include: "src/jsx/**",
     },
     rollupOptions: {

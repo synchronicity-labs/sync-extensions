@@ -11,6 +11,32 @@ import FormData from 'form-data';
 import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
 
+// Server log file - always write to sync_server_debug.log per debug.md
+// Define early so we can log immediately, but use same logic as config.js
+let SERVER_LOG = '';
+try {
+  // Use same logic as platformAppData in config.js to ensure consistency
+  const home = os.homedir();
+  let BASE_DIR;
+  if (process.platform === 'win32') {
+    BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'AppData', 'Roaming', 'sync. extensions');
+  } else if (process.platform === 'darwin') {
+    BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'Library', 'Application Support', 'sync. extensions');
+  } else {
+    BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, '.config', 'sync. extensions');
+  }
+  const LOGS_DIR = path.join(BASE_DIR, 'logs');
+  fs.mkdirSync(LOGS_DIR, { recursive: true });
+  SERVER_LOG = path.join(LOGS_DIR, 'sync_server_debug.log');
+  
+  // Log server.js execution start
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(SERVER_LOG, `[${timestamp}] [server] server.js executed\n`);
+} catch (e) {
+  // If we can't log, at least try console
+  try { console.error('Failed to initialize server log:', e); } catch (_) {}
+}
+
 // Load .env file BEFORE importing modules that depend on it
 const envPath = path.join(process.cwd(), '.env');
 console.log('Looking for .env at:', envPath);
@@ -164,11 +190,68 @@ getOrCreateToken().then(token => {
 });
 
 function initializeJobs() {
-  jobs = jobs || [];
+  try {
+    // Always log initialization attempt to sync_server_debug.log per debug.md
+    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+    try {
+      const timestamp = new Date().toISOString();
+      const logLine = `[${timestamp}] [server] initializing jobs from ${jobsFile}\n`;
+      fs.appendFileSync(logFile, logLine);
+    } catch (_) {}
+    
+    if (fs.existsSync(jobsFile)) {
+      const data = fs.readFileSync(jobsFile, 'utf8');
+      if (data && data.trim()) {
+        const parsed = JSON.parse(data);
+        jobs = Array.isArray(parsed) ? parsed : [];
+        
+        // Log loaded jobs count
+        const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+        try {
+          const timestamp = new Date().toISOString();
+          const logLine = `[${timestamp}] [server] loaded ${jobs.length} jobs from ${jobsFile}\n`;
+          fs.appendFileSync(logFile, logLine);
+        } catch (_) {}
+      } else {
+        jobs = [];
+      }
+    } else {
+      jobs = [];
+      // Log that jobs file doesn't exist yet
+      const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+      try {
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] [server] jobs file not found at ${jobsFile}, starting with empty array\n`;
+        fs.appendFileSync(logFile, logLine);
+      } catch (_) {}
+    }
+  } catch (e) {
+    tlog('initializeJobs error:', e && e.message ? e.message : String(e));
+    // Always log initialization errors to sync_server_debug.log
+    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+    try {
+      const timestamp = new Date().toISOString();
+      const logLine = `[${timestamp}] [server] initializeJobs error: ${e && e.message ? e.message : String(e)}\n`;
+      fs.appendFileSync(logFile, logLine);
+    } catch (_) {}
+    jobs = [];
+  }
   // No need to initialize jobCounter - using Sync API IDs directly
 }
 
 function saveJobs() {
+  try {
+    fs.writeFileSync(jobsFile, JSON.stringify(jobs || [], null, 2), 'utf8');
+  } catch (e) {
+    tlog('saveJobs error:', e && e.message ? e.message : String(e));
+    // Always log save errors to sync_server_debug.log
+    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+    try {
+      const timestamp = new Date().toISOString();
+      const logLine = `[${timestamp}] [server] saveJobs error: ${e && e.message ? e.message : String(e)}\n`;
+      fs.appendFileSync(logFile, logLine);
+    } catch (_) {}
+  }
 }
 
 initializeJobs();
@@ -490,10 +573,30 @@ async function startServer() {
     } catch (_) { 
       // Health check failed - server not running, proceed to start
     }
+    
+    // Use global SERVER_LOG, fallback to DIRS.logs if not set
+    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+    
+    // Log startup attempt
+    try {
+      const timestamp = new Date().toISOString();
+      fs.appendFileSync(logFile, `[${timestamp}] [server] attempting to start server on ${HOST}:${PORT}\n`);
+    } catch (_) {}
+    
     const srv = app.listen(PORT, HOST, () => {
       console.log(`Sync Extension server running on http://${HOST}:${PORT}`);
       console.log(`Jobs file: ${jobsFile}`);
       try { tlog('server started on', `${HOST}:${PORT}`); } catch (_){ }
+      
+      // Always write server startup log to sync_server_debug.log per debug.md
+      try {
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] [server] server started on ${HOST}:${PORT}\n`;
+        fs.appendFileSync(logFile, logLine);
+      } catch (e) {
+        try { console.error('Failed to write startup log:', e); } catch (_) {}
+      }
+      
       // Start cleanup scheduling
       scheduleCleanup();
     });
@@ -529,8 +632,33 @@ async function startServer() {
   }
 }
 
-startServer();
+// Start server with error handling
+startServer().catch((err) => {
+  const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+  try {
+    const timestamp = new Date().toISOString();
+    const logLine = `[${timestamp}] [server] startServer failed: ${err && err.message ? err.message : String(err)}\n`;
+    fs.appendFileSync(logFile, logLine);
+  } catch (_) {}
+  try { console.error('startServer failed:', err); } catch (_) {}
+});
 
-// Crash safety
-process.on('uncaughtException', (err)=>{ try { console.error('uncaughtException', err && err.stack || err); tlog('uncaughtException', err && err.stack || err); } catch (_) {} });
-process.on('unhandledRejection', (reason)=>{ try { console.error('unhandledRejection', reason); tlog('unhandledRejection', String(reason)); } catch (_) {} });
+// Crash safety - also log to server log
+process.on('uncaughtException', (err)=>{ 
+  try { 
+    console.error('uncaughtException', err && err.stack || err); 
+    tlog('uncaughtException', err && err.stack || err);
+    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${timestamp}] [server] uncaughtException: ${err && err.stack ? err.stack : String(err)}\n`);
+  } catch (_) {} 
+});
+process.on('unhandledRejection', (reason)=>{ 
+  try { 
+    console.error('unhandledRejection', reason); 
+    tlog('unhandledRejection', String(reason));
+    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${timestamp}] [server] unhandledRejection: ${String(reason)}\n`);
+  } catch (_) {} 
+});

@@ -271,6 +271,26 @@
   height: 18px;
 }
 
+/* Set API key icon in history tab - outline style with stroke-width 3 */
+.history-btn-icon i[data-lucide="key"],
+.history-btn-icon i[data-lucide="key-round"] {
+  stroke-width: 3 !important;
+}
+
+.history-btn-icon i[data-lucide="key"] svg,
+.history-btn-icon i[data-lucide="key-round"] svg {
+  stroke-width: 3 !important;
+  fill: none !important;
+}
+
+.history-btn-icon i[data-lucide="key"] svg path,
+.history-btn-icon i[data-lucide="key-round"] svg path,
+.history-btn-icon i[data-lucide="key"] svg circle,
+.history-btn-icon i[data-lucide="key-round"] svg circle {
+  stroke-width: 3 !important;
+  fill: none !important;
+}
+
 .history-job-id {
   font-family: var(--font-family-mono);
   font-size: 14px;

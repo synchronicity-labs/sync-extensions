@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useCore } from "./useCore";
 import { useSettings } from "./useSettings";
+import { getApiUrl } from "../utils/serverConfig";
 
 interface TTSVoice {
   id: string;
@@ -18,7 +19,7 @@ export const useTTS = () => {
   const loadVoices = useCallback(async () => {
     try {
       await ensureAuthToken();
-      const response = await fetch("http://127.0.0.1:3000/tts/voices", {
+      const response = await fetch(getApiUrl("/tts/voices"), {
         headers: authHeaders(),
       });
 
@@ -40,7 +41,7 @@ export const useTTS = () => {
       setIsGenerating(true);
       try {
         await ensureAuthToken();
-        const response = await fetch("http://127.0.0.1:3000/tts/generate", {
+        const response = await fetch(getApiUrl("/tts/generate"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({

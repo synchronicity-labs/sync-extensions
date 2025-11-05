@@ -69,10 +69,97 @@ export const textCepPatch = (e: KeyboardEvent) => {
 
 /**
  * Prevents the user from dropping files or URLs onto the panel and navigating away
+ * Also handles fake drag-and-drop by calling getCurrentProjectViewSelection (Premiere) or getting activeItem (After Effects)
+ * Only triggers when dragging from the app itself (no files in dataTransfer), not from Finder/File Explorer
  */
 
 export const dropDisable = () => {
   window.addEventListener("dragover", (e) => e.preventDefault(), false);
-  window.addEventListener("drop", (e) => e.preventDefault(), false);
+  window.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    
+    // Check if this is a drag from the app itself vs from Finder/File Explorer
+    const dataTransfer = e.dataTransfer;
+    const hasFiles = dataTransfer?.files && dataTransfer.files.length > 0;
+    const hasFileTypes = dataTransfer?.types?.some((type: string) => 
+      type === 'Files' || type === 'application/x-moz-file' || type.startsWith('application/x-ns-file')
+    );
+    
+    // Only call selection function if NO files are being dragged (i.e., drag from app itself)
+    if (hasFiles || hasFileTypes) {
+      // This is a drag from Finder/File Explorer - just prevent default, don't call selection
+      return;
+    }
+    
+    // This appears to be a drag from within the app - call selection function
+    try {
+      if ((window as any).CSInterface) {
+        const cs = new (window as any).CSInterface();
+        // Detect host application
+        const appId = cs.getApplicationID();
+        const isAE = appId && (appId.includes('AEFT') || appId.includes('AfterEffects'));
+        const isPPRO = appId && (appId.includes('PPRO') || appId.includes('Premiere'));
+        
+        // Call host-specific function via evalScript
+        await new Promise<void>((resolve) => {
+          let script = '';
+          if (isPPRO) {
+            // Premiere Pro: use getCurrentProjectViewSelection
+            script = `
+              try {
+                if (typeof app !== 'undefined' && app.getCurrentProjectViewSelection) {
+                  var selection = app.getCurrentProjectViewSelection();
+                  'ok';
+                } else {
+                  'not available';
+                }
+              } catch(e) {
+                'error';
+              }
+            `;
+          } else if (isAE) {
+            // After Effects: get active composition/item
+            script = `
+              try {
+                if (typeof app !== 'undefined' && app.project && app.project.activeItem) {
+                  var activeItem = app.project.activeItem;
+                  'ok';
+                } else {
+                  'not available';
+                }
+              } catch(e) {
+                'error';
+              }
+            `;
+          } else {
+            // Unknown host - try both
+            script = `
+              try {
+                if (typeof app !== 'undefined') {
+                  if (app.getCurrentProjectViewSelection) {
+                    var selection = app.getCurrentProjectViewSelection();
+                    'ppro';
+                  } else if (app.project && app.project.activeItem) {
+                    var activeItem = app.project.activeItem;
+                    'ae';
+                  } else {
+                    'not available';
+                  }
+                } else {
+                  'not available';
+                }
+              } catch(e) {
+                'error';
+              }
+            `;
+          }
+          
+          cs.evalScript(script, () => resolve());
+        });
+      }
+    } catch (_) {
+      // Ignore errors
+    }
+  }, false);
 };
 

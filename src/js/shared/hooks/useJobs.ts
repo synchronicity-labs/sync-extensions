@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useCore } from "./useCore";
 import { useMedia } from "./useMedia";
 import { useSettings } from "./useSettings";
+import { getApiUrl } from "../utils/serverConfig";
 
 interface JobStatus {
   id: string;
@@ -34,7 +35,7 @@ export const useJobs = () => {
         apiKey: settings.syncApiKey,
       };
 
-      const response = await fetch("http://127.0.0.1:3000/jobs", {
+      const response = await fetch(getApiUrl("/jobs"), {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
@@ -56,7 +57,7 @@ export const useJobs = () => {
   const checkJobStatus = useCallback(async (jobId: string) => {
     try {
       await ensureAuthToken();
-      const response = await fetch(`http://127.0.0.1:3000/jobs/${jobId}`, {
+      const response = await fetch(getApiUrl(`/jobs/${jobId}`), {
         headers: authHeaders(),
       });
 

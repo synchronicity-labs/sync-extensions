@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, DownloadCloud } from "lucide-react";
 import { useMedia } from "../hooks/useMedia";
+import { getApiUrl } from "../utils/serverConfig";
 
 interface URLInputModalProps {
   isOpen: boolean;
@@ -25,7 +26,7 @@ const URLInputModal: React.FC<URLInputModalProps> = ({ isOpen, onClose, type }) 
     setIsLoading(true);
     try {
       // Download and set URL
-      const response = await fetch("http://127.0.0.1:3000/download", {
+      const response = await fetch(getApiUrl("/download"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, type }),

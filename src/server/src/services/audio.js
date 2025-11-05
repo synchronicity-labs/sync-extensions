@@ -26,8 +26,9 @@ const DEBUG = (function() {
 function debugLog() {
   if (!DEBUG) return;
   try {
-    const args = Array.from(arguments).map(a => String(a)).join(' ');
-    tlog('[audio.js]', args);
+    const args = Array.from(arguments).map(a => String(a));
+    const message = args.join(' ');
+    tlog('[audio.js]', message);
   } catch (_) {}
 }
 

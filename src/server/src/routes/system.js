@@ -574,7 +574,16 @@ router.post('/update/apply', async (req, res) => {
   try {
     const result = await applyUpdate(isSpawnedByUI);
     res.json(result);
-    setTimeout(() => { try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } if (!isSpawnedByUI && isDebugEnabled()) console.log('Exiting server after successful update'); process.exit(0); }, 800);
+    // Don't exit immediately - let the panel reload first
+    // The server will restart when the panel reloads, which will load the new code
+    // Only exit if not spawned by UI (standalone mode)
+    if (!isSpawnedByUI) {
+      setTimeout(() => { 
+        try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } 
+        if (isDebugEnabled()) console.log('Exiting server after successful update - panel should reload to use new version'); 
+        process.exit(0); 
+      }, 2000); // Give time for response to be sent
+    }
   } catch (e) {
     if (!isSpawnedByUI && isDebugEnabled()) {
       console.error('Update failed:', e.message);

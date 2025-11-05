@@ -117,18 +117,37 @@
   margin: 0;
   flex: 0 0 auto;
   width: 100%;
+  margin-bottom: 24px; /* 24px below audio preview (before bottom bar) */
 }
 
 /* When audio follows video (default - not has-both) */
 .video-upload.has-media + .audio-upload.has-media {
-  margin-top: 24px;
-  margin-bottom: 0;
+  margin-top: 16px; /* 16px above audio preview (after video preview) */
+  margin-bottom: 24px; /* 24px below audio preview (before bottom bar) */
 }
 
-/* When has-both is active, remove ALL margins from audio since gap handles spacing */
+/* When has-both is active, audio should stick to bottom */
+.sources-container.has-both {
+  position: relative;
+}
+
 .sources-container.has-both .audio-upload.has-media {
-  margin-top: 0;
-  margin-bottom: 0;
+  margin-top: 16px; /* 16px above audio preview */
+  margin-bottom: 24px; /* 24px below audio preview (before bottom bar) */
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+}
+
+/* Post-lipsync actions should stick to bottom with audio preview */
+.sources-container.has-both .post-lipsync-actions {
+  margin-top: 16px; /* 16px above actions */
+  margin-bottom: 24px; /* 24px below actions (before bottom bar) */
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  background: var(--bg-primary);
+  padding: 0;
 }
 
 .audio-upload {
@@ -575,10 +594,14 @@
 
 /* Buttons section spacing - fixed height, never shrink */
 .sources-container.has-both .post-lipsync-actions {
-  margin: 0;
+  margin-top: 16px; /* 16px above actions */
+  margin-bottom: 24px; /* 24px below actions (before bottom bar) */
   padding: 0;
   flex: 0 0 auto;
   background: transparent;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 .post-lipsync-actions-left {

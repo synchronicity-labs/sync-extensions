@@ -33,7 +33,8 @@ router.post('/debug', async (req, res) => {
       logFile = path.join(DIRS.logs, 'sync_ppro_debug.log');
     }
     
-    const logMsg = `[${timestamp}] ${body.message || JSON.stringify(body)}\n`;
+    const message = body.message || JSON.stringify(body);
+    const logMsg = `[${timestamp}] ${message}\n`;
     
     try {
       fs.appendFileSync(logFile, logMsg);

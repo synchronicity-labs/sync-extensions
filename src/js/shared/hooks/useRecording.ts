@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { getApiUrl } from "../utils/serverConfig";
 
 export const useRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -31,7 +32,7 @@ export const useRecording = () => {
           const formData = new FormData();
           formData.append("file", blob, `recording.${type === "video" ? "webm" : "webm"}`);
           
-          const response = await fetch("http://127.0.0.1:3000/upload", {
+          const response = await fetch(getApiUrl("/upload"), {
             method: "POST",
             body: formData,
           });

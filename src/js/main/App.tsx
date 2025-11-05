@@ -1,12 +1,13 @@
 import React, { useEffect } from "react";
 import { useCore } from "../shared/hooks/useCore";
-import { useTabs } from "../shared/hooks/useTabs";
+import { useTabs, TabsProvider } from "../shared/hooks/useTabs";
 import { useServerAutoStart } from "../shared/hooks/useServerAutoStart";
 import { useNLE } from "../shared/hooks/useNLE";
 import { useMedia } from "../shared/hooks/useMedia";
 import { useJobs } from "../shared/hooks/useJobs";
 import { useHistory } from "../shared/hooks/useHistory";
 import { setupWindowGlobals } from "../shared/utils/windowGlobals";
+import { getApiUrl } from "../shared/utils/serverConfig";
 import Header from "../shared/components/Header";
 import SourcesTab from "../shared/components/SourcesTab";
 import HistoryTab from "../shared/components/HistoryTab";
@@ -14,20 +15,19 @@ import SettingsTab from "../shared/components/SettingsTab";
 import BottomBar from "../shared/components/BottomBar";
 import "../shared/styles/main.scss";
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const { activeTab, setActiveTab } = useTabs();
-  const { startOfflineChecking, nle } = useCore();
   const core = useCore();
+  const { startOfflineChecking, nle } = core;
   const media = useMedia();
   const jobs = useJobs();
-  const tabs = useTabs();
   const history = useHistory();
   useServerAutoStart();
 
   // Setup window globals for backward compatibility
   useEffect(() => {
-    setupWindowGlobals(media, jobs, tabs, core, history);
-  }, [media, jobs, tabs, core, history]);
+    setupWindowGlobals(media, jobs, { setActiveTab, activeTab }, core, history);
+  }, [media, jobs, setActiveTab, activeTab, core, history]);
 
   useEffect(() => {
     // Initialize app
@@ -41,7 +41,7 @@ const App: React.FC = () => {
             if (typeof url === "string" && url.includes("posthog.com") && 
                 options?.method === "POST" &&
                 (url.includes("/e/") || url.includes("/s/"))) {
-              const proxyUrl = "http://127.0.0.1:3000/telemetry/session-replay";
+              const proxyUrl = getApiUrl("/telemetry/session-replay");
               const proxyOptions = {
                 ...options,
                 headers: {
@@ -95,6 +95,8 @@ const App: React.FC = () => {
       // Check if lucide is already loaded
       if ((window as any).lucide && (window as any).lucide.createIcons) {
         (window as any).lucide.createIcons();
+        // Replace globe icons with languages icons in dubbing contexts
+        replaceGlobeWithLanguages();
         return;
       }
 
@@ -104,33 +106,91 @@ const App: React.FC = () => {
       script.onload = () => {
         if ((window as any).lucide && (window as any).lucide.createIcons) {
           (window as any).lucide.createIcons();
+          // Replace globe icons with languages icons in dubbing contexts
+          replaceGlobeWithLanguages();
         }
       };
       document.head.appendChild(script);
     };
 
+    // Helper function to replace globe icons with languages icons
+    const replaceGlobeWithLanguages = () => {
+      try {
+        // Find all globe icons in dubbing contexts
+        const selectors = [
+          '.dubbing-dropdown-header i[data-lucide="globe"]',
+          '.dubbing-dropdown-header i[data-lucide="Globe"]',
+          '.audio-dubbing-btn i[data-lucide="globe"]',
+          '.audio-dubbing-btn i[data-lucide="Globe"]',
+          '.audio-dubbing-submit-btn i[data-lucide="globe"]',
+          '.audio-dubbing-submit-btn i[data-lucide="Globe"]',
+        ];
+        
+        selectors.forEach(selector => {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach(el => {
+            el.setAttribute('data-lucide', 'languages');
+          });
+        });
+        
+        // Re-initialize icons after replacement
+        if ((window as any).lucide && (window as any).lucide.createIcons) {
+          (window as any).lucide.createIcons();
+        }
+      } catch (e) {
+        // Silently fail
+      }
+    };
+
     initLucideIcons();
 
     // Re-initialize icons when tab changes (for dynamically rendered content)
+    // Use double RAF to ensure React has finished all DOM operations
+    let rafId1: number;
+    let rafId2: number;
     const timer = setTimeout(() => {
-      if ((window as any).lucide && (window as any).lucide.createIcons) {
-        (window as any).lucide.createIcons();
+      rafId1 = requestAnimationFrame(() => {
+        rafId2 = requestAnimationFrame(() => {
+          try {
+            // Only initialize icons on currently visible tab content
+            const activePane = document.querySelector('.tab-pane.active');
+            if (activePane && (window as any).lucide && (window as any).lucide.createIcons) {
+              // Scope to active pane only to avoid conflicts with unmounting components
+              (window as any).lucide.createIcons({ root: activePane });
+        replaceGlobeWithLanguages();
       }
-    }, 300);
+          } catch (e) {
+            // Silently ignore DOM errors
+          }
+        });
+      });
+    }, 100);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (rafId1) cancelAnimationFrame(rafId1);
+      if (rafId2) cancelAnimationFrame(rafId2);
+    };
   }, [activeTab]);
 
   return (
     <div className="app-container">
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
       <div className="content">
-        {activeTab === "sources" && <SourcesTab />}
-        {activeTab === "history" && <HistoryTab />}
-        {activeTab === "settings" && <SettingsTab />}
+        <SourcesTab />
+        <HistoryTab />
+        <SettingsTab />
       </div>
       <BottomBar />
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <TabsProvider>
+      <AppContent />
+    </TabsProvider>
   );
 };
 

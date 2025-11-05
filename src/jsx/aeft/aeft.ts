@@ -36,14 +36,167 @@ try {
   }
   if (typeof JSON.parse !== 'function') {
     JSON.parse = function(text){
-      // Constrained eval for trusted UI payloads - add length check for safety
-      var s = String(text || '');
+      // Safe recursive JSON parser - no eval required
+      var s = String(text || '').trim();
       if (s.length > 1048576) { // 1MB limit
         try { var log = _syncDebugLogFile(); log.open('a'); log.writeln('[JSON.parse] rejected oversized input: ' + s.length + ' bytes'); log.close(); } catch(_){}
         throw new Error('JSON input too large');
       }
+      
+      var pos = 0;
+      var len = s.length;
+      
+      function skipWhitespace() {
+        while (pos < len && (s.charAt(pos) === ' ' || s.charAt(pos) === '\t' || s.charAt(pos) === '\n' || s.charAt(pos) === '\r')) {
+          pos++;
+        }
+      }
+      
+      function parseValue() {
+        skipWhitespace();
+        if (pos >= len) throw new Error('Unexpected end of input');
+        
+        var ch = s.charAt(pos);
+        if (ch === '{') return parseObject();
+        if (ch === '[') return parseArray();
+        if (ch === '"') return parseString();
+        if (ch === '-' || (ch >= '0' && ch <= '9')) return parseNumber();
+        if (s.substr(pos, 4) === 'true') { pos += 4; return true; }
+        if (s.substr(pos, 5) === 'false') { pos += 5; return false; }
+        if (s.substr(pos, 4) === 'null') { pos += 4; return null; }
+        throw new Error('Unexpected character: ' + ch);
+      }
+      
+      function parseObject() {
+        var obj = {};
+        pos++; // skip '{'
+        skipWhitespace();
+        
+        if (s.charAt(pos) === '}') {
+          pos++;
+          return obj;
+        }
+        
+        while (pos < len) {
+          skipWhitespace();
+          var key = parseString();
+          skipWhitespace();
+          if (s.charAt(pos) !== ':') throw new Error('Expected colon');
+          pos++;
+          var value = parseValue();
+          obj[key] = value;
+          skipWhitespace();
+          if (s.charAt(pos) === '}') {
+            pos++;
+            return obj;
+          }
+          if (s.charAt(pos) !== ',') throw new Error('Expected comma or closing brace');
+          pos++;
+        }
+        throw new Error('Unclosed object');
+      }
+      
+      function parseArray() {
+        var arr = [];
+        pos++; // skip '['
+        skipWhitespace();
+        
+        if (s.charAt(pos) === ']') {
+          pos++;
+          return arr;
+        }
+        
+        while (pos < len) {
+          arr.push(parseValue());
+          skipWhitespace();
+          if (s.charAt(pos) === ']') {
+            pos++;
+            return arr;
+          }
+          if (s.charAt(pos) !== ',') throw new Error('Expected comma or closing bracket');
+          pos++;
+        }
+        throw new Error('Unclosed array');
+      }
+      
+      function parseString() {
+        if (s.charAt(pos) !== '"') throw new Error('Expected string');
+        pos++;
+        var result = '';
+        
+        while (pos < len) {
+          var ch = s.charAt(pos);
+          if (ch === '"') {
+            pos++;
+            return result;
+          }
+          if (ch === '\\') {
+            pos++;
+            if (pos >= len) throw new Error('Unterminated escape sequence');
+            var esc = s.charAt(pos);
+            if (esc === '"') { result += '"'; pos++; }
+            else if (esc === '\\') { result += '\\'; pos++; }
+            else if (esc === '/') { result += '/'; pos++; }
+            else if (esc === 'b') { result += '\b'; pos++; }
+            else if (esc === 'f') { result += '\f'; pos++; }
+            else if (esc === 'n') { result += '\n'; pos++; }
+            else if (esc === 'r') { result += '\r'; pos++; }
+            else if (esc === 't') { result += '\t'; pos++; }
+            else if (esc === 'u') {
+              // Unicode escape - 4 hex digits
+              pos++;
+              if (pos + 3 >= len) throw new Error('Invalid unicode escape');
+              var hex = s.substr(pos, 4);
+              var code = parseInt(hex, 16);
+              if (isNaN(code)) throw new Error('Invalid unicode escape');
+              result += String.fromCharCode(code);
+              pos += 4;
+            } else {
+              result += esc; // Unknown escape, include as-is
+              pos++;
+            }
+          } else {
+            result += ch;
+            pos++;
+          }
+        }
+        throw new Error('Unterminated string');
+      }
+      
+      function parseNumber() {
+        var start = pos;
+        if (s.charAt(pos) === '-') pos++;
+        if (pos >= len) throw new Error('Invalid number');
+        if (s.charAt(pos) === '0') {
+          pos++;
+        } else if (s.charAt(pos) >= '1' && s.charAt(pos) <= '9') {
+          pos++;
+          while (pos < len && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;
+        } else {
+          throw new Error('Invalid number');
+        }
+        if (pos < len && s.charAt(pos) === '.') {
+          pos++;
+          if (pos >= len || s.charAt(pos) < '0' || s.charAt(pos) > '9') throw new Error('Invalid number');
+          while (pos < len && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;
+        }
+        if (pos < len && (s.charAt(pos) === 'e' || s.charAt(pos) === 'E')) {
+          pos++;
+          if (pos < len && (s.charAt(pos) === '+' || s.charAt(pos) === '-')) pos++;
+          if (pos >= len || s.charAt(pos) < '0' || s.charAt(pos) > '9') throw new Error('Invalid number');
+          while (pos < len && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;
+        }
+        var numStr = s.substr(start, pos - start);
+        var num = parseFloat(numStr);
+        if (isNaN(num)) throw new Error('Invalid number');
+        return num;
+      }
+      
       try {
-        return eval('(' + s + ')');
+        var result = parseValue();
+        skipWhitespace();
+        if (pos < len) throw new Error('Unexpected trailing characters');
+        return result;
       } catch(e) {
         try { var log = _syncDebugLogFile(); log.open('a'); log.writeln('[JSON.parse] parse error: ' + String(e)); log.close(); } catch(_){}
         throw e;
@@ -60,7 +213,7 @@ function _hostLog(msg){
   try{
     var s = String(msg||'');
     var timestamp = new Date().toISOString();
-    var logLine = '[' + timestamp + '] ' + s + '\n';
+    var logLine = `[${timestamp}] [aeft] ${s}\n`;
     
     // Write to central debug log
     try {
@@ -396,6 +549,15 @@ export function AEFT_exportInOutVideo(payloadJson) {
       try { rq.render(); } catch (eRender) { return _respond({ ok:false, error:'Render failed: '+String(eRender) }); }
       var waited=0; while(waited<180000){ try{ if(mp4 && mp4.exists) break; }catch(_){ } $.sleep(200); waited+=200; }
       if (!mp4 || !mp4.exists) return _respond({ ok:false, error:'Render timeout' });
+      
+      // Check file size - reject if over 1GB
+      var fileSize = 0;
+      try { fileSize = mp4.length; } catch(e){ }
+      if (fileSize > 1024 * 1024 * 1024) {
+        try { mp4.remove(); } catch(_){ }
+        return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+      }
+      
       return _respond({ ok:true, path: mp4.fsName, note: 'AE H.264 direct' });
     }
 
@@ -406,10 +568,18 @@ export function AEFT_exportInOutVideo(payloadJson) {
     var srcMov = new File(SYNC_getUploadsDir() + '/sync_inout_' + (new Date().getTime()) + '.mov');
     try { om.file = srcMov; } catch(_){ }
     try { rq.render(); } catch (eRender2) { return _respond({ ok:false, error:'Render failed: '+String(eRender2) }); }
-    var waited2=0; while(waited2<180000){ try{ if(srcMov && srcMov.exists) break; }catch(_){ } $.sleep(200); waited2+=200; }
-    if (!srcMov || !srcMov.exists) return _respond({ ok:false, error:'Render timeout (src)' });
-
-    return _respond({ ok:true, path: srcMov.fsName, note:'prores render completed' });
+      var waited2=0; while(waited2<180000){ try{ if(srcMov && srcMov.exists) break; }catch(_){ } $.sleep(200); waited2+=200; }
+      if (!srcMov || !srcMov.exists) return _respond({ ok:false, error:'Render timeout (src)' });
+      
+      // Check file size - reject if over 1GB
+      var fileSize = 0;
+      try { fileSize = srcMov.length; } catch(e){ }
+      if (fileSize > 1024 * 1024 * 1024) {
+        try { srcMov.remove(); } catch(_){ }
+        return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+      }
+      
+      return _respond({ ok:true, path: srcMov.fsName, note:'prores render completed' });
   } catch (e) {
     try {
       var logFile = _syncDebugLogFile();
@@ -654,7 +824,16 @@ export function AEFT_exportInOutAudio(payloadJson) {
         } catch(_){ }
         
         if (outputFile && outputFile.exists && outputFile.length > 0) { 
-          try { aif.remove(); } catch(_){ } 
+          try { aif.remove(); } catch(_){ }
+          
+          // Check file size - reject if over 1GB
+          var fileSize = 0;
+          try { fileSize = outputFile.length; } catch(e){ }
+          if (fileSize > 1024 * 1024 * 1024) {
+            try { outputFile.remove(); } catch(_){ }
+            return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+          }
+          
           return _respond({ ok:true, path: outputFile.fsName, note:'server convert mp3' }); 
         }
       } catch(e){ 
@@ -772,7 +951,16 @@ export function AEFT_exportInOutAudio(payloadJson) {
         } catch(_){ }
         
         if (outputFile && outputFile.exists && outputFile.length > 0) { 
-          try { aif.remove(); } catch(_){ } 
+          try { aif.remove(); } catch(_){ }
+          
+          // Check file size - reject if over 1GB
+          var fileSize = 0;
+          try { fileSize = outputFile.length; } catch(e){ }
+          if (fileSize > 1024 * 1024 * 1024) {
+            try { outputFile.remove(); } catch(_){ }
+            return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+          }
+          
           return _respond({ ok:true, path: outputFile.fsName, note:'server convert wav' }); 
         }
       } catch(e){ 
@@ -886,7 +1074,16 @@ export function AEFT_exportInOutAudio(payloadJson) {
         } catch(_){ }
         
         if (outputFile && outputFile.exists && outputFile.length > 0) { 
-          try { aif.remove(); } catch(_){ } 
+          try { aif.remove(); } catch(_){ }
+          
+          // Check file size - reject if over 1GB
+          var fileSize = 0;
+          try { fileSize = outputFile.length; } catch(e){ }
+          if (fileSize > 1024 * 1024 * 1024) {
+            try { outputFile.remove(); } catch(_){ }
+            return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+          }
+          
           return _respond({ ok:true, path: outputFile.fsName, note:'server convert mp3' }); 
         }
       } catch(e){ 
@@ -1373,9 +1570,96 @@ export function AEFT_startBackend() {
       }
     } catch(e) {}
 
-    // Server not running, but auto-start is handled by ui/nle.js
-    // This function just confirms the status
-    return _respond({ ok: true, message: "Backend auto-start handled by UI" });
+    // Server not running - spawn it
+    try {
+      var extPath = _extensionRoot();
+      if (!extPath) {
+        return _respond({ ok: false, error: "Could not determine extension path" });
+      }
+      
+      var serverPath = extPath + (isWindows ? "\\server\\src\\server.js" : "/server/src/server.js");
+      var serverFile = new File(serverPath);
+      if (!serverFile.exists) {
+        // Try dist/server path
+        serverPath = extPath + (isWindows ? "\\dist\\server\\src\\server.js" : "/dist/server/src/server.js");
+        serverFile = new File(serverPath);
+        if (!serverFile.exists) {
+          return _respond({ ok: false, error: "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\src\\server.js" : "/server/src/server.js") });
+        }
+      }
+      
+      // Determine bundled Node binary path
+      var nodeBin = "";
+      if (isWindows) {
+        nodeBin = extPath + "\\bin\\win32-x64\\node.exe";
+      } else {
+        // macOS: detect architecture (arm64 or x64)
+        try {
+          var archFile = new File(extPath + "/bin/darwin-arm64/node");
+          var isArm64 = archFile.exists;
+          if (isArm64) {
+            nodeBin = extPath + "/bin/darwin-arm64/node";
+          } else {
+            nodeBin = extPath + "/bin/darwin-x64/node";
+          }
+        } catch(e) {
+          // Fallback to x64 if detection fails
+          nodeBin = extPath + "/bin/darwin-x64/node";
+        }
+      }
+      
+      var nodeBinFile = new File(nodeBin);
+      if (!nodeBinFile.exists) {
+        return _respond({ ok: false, error: "Node binary not found at: " + nodeBin });
+      }
+      
+      // Spawn server process in background using bundled Node binary
+      var spawnCmd;
+      if (isWindows) {
+        // Windows: use start with /B to run in background
+        spawnCmd = 'cmd.exe /c start /B "' + nodeBin.replace(/\\/g, '\\\\') + '" "' + serverPath.replace(/\\/g, '\\\\') + '"';
+      } else {
+        // macOS: use nohup to run in background and redirect output
+        // Determine server directory from serverPath
+        var serverDir = serverPath;
+        if (serverDir.indexOf("/server/src/server.js") !== -1) {
+          serverDir = serverDir.replace("/server/src/server.js", "/server");
+        } else if (serverDir.indexOf("/dist/server/src/server.js") !== -1) {
+          serverDir = serverDir.replace("/dist/server/src/server.js", "/dist/server");
+        } else {
+          // Fallback: just use extPath + "/server"
+          serverDir = extPath + "/server";
+        }
+        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" src/server.js >/dev/null 2>&1 &'";
+      }
+      
+      system.callSystem(spawnCmd);
+      
+      // Wait a moment for server to start
+      var waitStart = new Date().getTime();
+      while (new Date().getTime() - waitStart < 2000) {
+        try {
+          var checkUrl = "http://127.0.0.1:3000/health";
+          var checkCmd;
+          if (isWindows) {
+            checkCmd = 'cmd.exe /c curl -s -m 1 "' + checkUrl + '" >NUL 2>&1';
+          } else {
+            checkCmd = "/bin/bash -lc 'curl -s -m 1 \"" + checkUrl + "\" >/dev/null 2>&1'";
+          }
+          var checkResult = system.callSystem(checkCmd);
+          if (checkResult === 0) {
+            return _respond({ ok: true, message: "Backend started successfully" });
+          }
+        } catch(_) {}
+        // Small delay before checking again
+        var delayStart = new Date().getTime();
+        while (new Date().getTime() - delayStart < 100) { /* wait 100ms */ }
+      }
+      
+      return _respond({ ok: true, message: "Backend start command executed (may still be starting)" });
+    } catch(e) {
+      return _respond({ ok: false, error: "Failed to start backend: " + String(e) });
+    }
   } catch(e) {
     return _respond({ ok: false, error: String(e) });
   }

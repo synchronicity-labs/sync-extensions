@@ -5,21 +5,21 @@
 /* ============================================
    COMPONENT STYLES - Must be imported first
    ============================================ */
-@import 'components/buttons';
-@import 'components/header';
-@import 'components/sources';
-@import 'components/video-player';
-@import 'components/audio-player';
-@import 'components/history';
-@import 'components/history-modern';
-@import 'components/bottom-bar';
-@import 'components/settings';
-@import 'components/modals';
-@import 'components/model-selector';
-@import 'components/tts';
-@import 'components/recording';
-@import 'components/loader';
-@import 'components/responsive';
+@use 'components/buttons' as *;
+@use 'components/header' as *;
+@use 'components/sources' as *;
+@use 'components/video-player' as *;
+@use 'components/audio-player' as *;
+@use 'components/history' as *;
+@use 'components/history-modern' as *;
+@use 'components/bottom-bar' as *;
+@use 'components/settings' as *;
+@use 'components/modals' as *;
+@use 'components/model-selector' as *;
+@use 'components/tts' as *;
+@use 'components/recording' as *;
+@use 'components/loader' as *;
+@use 'components/responsive' as *;
 
 /* ============================================
    CSS VARIABLES - Color System
@@ -188,16 +188,6 @@ body {
   gap: 8px;
   min-width: 0;
   overflow: hidden;
-}
-
-.content-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-primary);
-  min-width: 0;
-  min-height: 0;
 }
 
 .content {

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useCore } from "./useCore";
+import { getApiUrl } from "../utils/serverConfig";
 
 export const useCost = () => {
   const { authHeaders, ensureAuthToken, fetchWithTimeout } = useCore();
@@ -19,7 +20,7 @@ export const useCost = () => {
         const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
         
         const response = await fetchWithTimeout(
-          "http://127.0.0.1:3000/cost/estimate",
+          getApiUrl("/cost/estimate"),
           {
             method: "POST",
             headers: authHeaders({ "Content-Type": "application/json" }),

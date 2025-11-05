@@ -37,7 +37,7 @@ const SettingsTab: React.FC = () => {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  // Ensure renderVideo defaults to mp4 if not set
+  // Ensure renderVideo defaults to mp4 if not set, and default to 422hq when mov is selected
   useEffect(() => {
     if (!settings.renderVideo || (settings.renderVideo !== "mp4" && settings.renderVideo !== "prores_422" && settings.renderVideo !== "prores_422hq" && settings.renderVideo !== "h264")) {
       setRenderVideo("mp4");
@@ -46,6 +46,16 @@ const SettingsTab: React.FC = () => {
       setRenderVideo("mp4");
     }
   }, [settings.renderVideo, setRenderVideo]);
+
+  // Helper to check if mov/prores is selected
+  const isMovSelected = settings.renderVideo === "prores_422" || settings.renderVideo === "prores_422hq";
+  
+  // When switching to mov, default to 422hq
+  const handleMovClick = () => {
+    if (!isMovSelected) {
+      setRenderVideo("prores_422hq");
+    }
+  };
 
   return (
     <div id="settings" className={`tab-pane ${activeTab === "settings" ? "active" : ""}`}>
@@ -149,20 +159,20 @@ const SettingsTab: React.FC = () => {
                   <span className="render-format-name">mp4</span>
                   <span className="render-format-desc">h.264</span>
                 </button>
-                <div className="render-option video-option prores-container">
+                <div className={`render-option video-option prores-container ${isMovSelected ? "active" : ""}`} onClick={handleMovClick}>
                   <div className="prores-header">
-                    <span className="render-format-name">prores</span>
+                    <span className="render-format-name">mov</span>
                   </div>
                   <div className="prores-options">
                     <button 
                       className={`prores-option ${settings.renderVideo === "prores_422" ? "active" : ""}`} 
-                      onClick={() => setRenderVideo("prores_422")}
+                      onClick={(e) => { e.stopPropagation(); setRenderVideo("prores_422"); }}
                     >
                       422
                     </button>
                     <button 
                       className={`prores-option ${settings.renderVideo === "prores_422hq" ? "active" : ""}`} 
-                      onClick={() => setRenderVideo("prores_422hq")}
+                      onClick={(e) => { e.stopPropagation(); setRenderVideo("prores_422hq"); }}
                     >
                       422 hq
                     </button>

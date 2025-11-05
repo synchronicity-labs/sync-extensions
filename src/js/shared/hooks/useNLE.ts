@@ -16,7 +16,6 @@ interface NLEMethods {
 
 export const useNLE = () => {
   const { hostConfig } = useHostDetection();
-  const [serverPort, setServerPort] = useState<number>(3000);
   const [nle, setNLE] = useState<NLEMethods | null>(null);
 
   useEffect(() => {
@@ -113,5 +112,5 @@ export const useNLE = () => {
     initNLE();
   }, [hostConfig]);
 
-  return { nle, serverPort };
+  return { nle };
 };

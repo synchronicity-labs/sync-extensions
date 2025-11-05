@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useCore } from "./useCore";
 import { useNLE } from "./useNLE";
+import { getApiUrl } from "../utils/serverConfig";
 
 interface MediaSelection {
   video: string | null;
@@ -36,7 +37,7 @@ export const useMedia = () => {
         
         const cs = new (window as any).CSInterface();
         const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
-        const hostId = nle.getHostId();
+      const hostId = nle.getHostId();
         const isAE = hostId === "AEFT";
         const hostFile = isAE ? "/host/ae.jsx" : "/host/ppro.jsx";
         const fn = isAE ? "AEFT_showFileDialog" : "PPRO_showFileDialog";
@@ -50,8 +51,8 @@ export const useMedia = () => {
         // Call the host-specific function
         const k = kind === "video" ? "video" : "audio";
         const payload = JSON.stringify({ kind: k }).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        
-        return new Promise((resolve) => {
+      
+      return new Promise((resolve) => {
           cs.evalScript(`${fn}("${payload}")`, (r: string) => {
             try {
               const result = JSON.parse(r || "{}");
@@ -65,14 +66,14 @@ export const useMedia = () => {
               if (r && typeof r === "string" && r.indexOf("/") !== -1) {
                 resolve(r);
               } else {
-                resolve(null);
+              resolve(null);
               }
             }
           });
-        });
-      } catch (_) {
+          });
+        } catch (_) {
         return null;
-      }
+        }
     },
     [nle]
   );
@@ -105,7 +106,7 @@ export const useMedia = () => {
       try {
         await ensureAuthToken();
         const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
-        const response = await fetch("http://127.0.0.1:3000/upload", {
+        const response = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ path, apiKey: settings.syncApiKey || "" }),
@@ -141,7 +142,7 @@ export const useMedia = () => {
       try {
         await ensureAuthToken();
         const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
-        const response = await fetch("http://127.0.0.1:3000/upload", {
+        const response = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ path, apiKey: settings.syncApiKey || "" }),

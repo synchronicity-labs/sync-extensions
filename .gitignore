@@ -7,45 +7,72 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+server/node_modules
+dist/**/node_modules
+
+# Build outputs
 dist
 dist-ssr
+build/
 *.local
+
+# ZXP packages and archives
+*.zxp
+*.zxp.zip
+dist/zxp/
+dist/zip/
+
+# CEP build artifacts
+CSXS/
+*.jsxbin
+host/*.jsxbin
+host/
+
+# Code signing certificates (NEVER commit these!)
+*.p12
+*.pfx
+*.cer
+*.key
+*.cert
+*.crt
+certificates/
+certs/
+
+# Environment variables
+# src/server/.env contains server config (R2, PostHog) and ZXP signing password
+.env
+.env.local
+.env.production.local
+.env.*.local
+src/server/.env
+
+# Debug
+debug.enabled
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-# Build outputs
-build/
-*.zxp
-*.zxp.zip
-
-# CEP
-CSXS/
-*.jsxbin
-host/*.jsxbin
-
-# Environment
-.env
-.env.local
-.env.production.local
-
-# Debug
-debug.enabled
-
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
 
 # Bolt-CEP specific
 .bolt-cep/
-dist/
 vite.config.ts.timestamp-*
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+.env.zxp

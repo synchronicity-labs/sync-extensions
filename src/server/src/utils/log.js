@@ -10,12 +10,21 @@ export const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === 'premiere') ? 'sync_pp
 export async function tlog(){
   if (!DEBUG) return;
   try { 
-    const logLine = `[${new Date().toISOString()}] [server] ` + Array.from(arguments).map(a=>String(a)).join(' ') + "\n";
-    await fs.promises.appendFile(DEBUG_LOG, logLine).catch (() => {});
+    const timestamp = new Date().toISOString();
+    const args = Array.from(arguments).map(a => String(a));
+    const message = args.join(' ');
+    const logLine = `[${timestamp}] [server] ${message}\n`;
+    await fs.promises.appendFile(DEBUG_LOG, logLine).catch(() => {});
   } catch (e){ }
 }
 
 export function tlogSync(){
   if (!DEBUG) return;
-  try { fs.appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] [server] ` + Array.from(arguments).map(a=>String(a)).join(' ') + "\n"); } catch (e){}
+  try { 
+    const timestamp = new Date().toISOString();
+    const args = Array.from(arguments).map(a => String(a));
+    const message = args.join(' ');
+    const logLine = `[${timestamp}] [server] ${message}\n`;
+    fs.appendFileSync(DEBUG_LOG, logLine);
+  } catch (e){}
 }
