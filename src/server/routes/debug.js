@@ -1,17 +1,20 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { DEBUG_LOG, DEBUG_FLAG_FILE } from '../utils/log.js';
+import { DEBUG_LOG, DEBUG_FLAG_FILE, rotateLogIfNeeded } from '../utils/log.js';
 import { DIRS } from '../config.js';
 
 const router = express.Router();
 
 // Check if debug logging is enabled
+// In dev mode, always enable logging; otherwise check debug.enabled flag
 function isDebugEnabled() {
   try {
-    return fs.existsSync(DEBUG_FLAG_FILE);
+    const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+    return isDevMode || fs.existsSync(DEBUG_FLAG_FILE);
   } catch {
-    return false;
+    const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+    return isDevMode; // In dev mode, default to true
   }
 }
 
@@ -37,6 +40,7 @@ router.post('/debug', async (req, res) => {
     const logMsg = `[${timestamp}] ${message}\n`;
     
     try {
+      rotateLogIfNeeded(logFile);
       fs.appendFileSync(logFile, logMsg);
     } catch (err) {
       // Silent failure - logging infrastructure issue shouldn't break the app

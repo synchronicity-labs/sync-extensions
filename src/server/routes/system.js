@@ -1,7 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import { track, distinctId } from '../telemetry.js';
-import { tlog, DEBUG_FLAG_FILE, DEBUG_LOG } from '../utils/log.js';
+import { tlog, DEBUG_FLAG_FILE, DEBUG_LOG, rotateLogIfNeeded } from '../utils/log.js';
 import { getCurrentVersion, compareSemver } from '../utils/version.js';
 import { getLatestReleaseInfo, applyUpdate } from '../services/update.js';
 import { APP_ID, isSpawnedByUI, DIRS } from '../config.js';
@@ -45,6 +45,7 @@ function logCriticalError(...args) {
   // Uses DEBUG_LOG which follows pattern: sync_ae_debug.log, sync_ppro_debug.log, sync_server_debug.log
   if (isDebugEnabled()) {
     try {
+      rotateLogIfNeeded(DEBUG_LOG);
       fs.appendFileSync(DEBUG_LOG, message);
     } catch (e) {}
   }
@@ -74,9 +75,14 @@ const captureRawBody = (req, res, next) => {
 };
 
 
-// Rate limiting for /auth/token (1 req/sec per IP)
+// Rate limiting for /auth/token (1 req/sec per IP in production, disabled in dev mode)
 const tokenRateLimit = new Map();
 function checkTokenRateLimit(ip) {
+  // In dev mode, disable rate limiting entirely (React Strict Mode causes rapid requests)
+  const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+  if (isDevMode) return true; // No rate limit in dev mode
+  
+  // Production: 1 req/sec
   const now = Date.now();
   const last = tokenRateLimit.get(ip) || 0;
   if (now - last < 1000) return false;
@@ -528,7 +534,7 @@ router.get('/auth/token', requireCEPHeader, (req, res) => {
   try {
     const ip = (req.socket && req.socket.remoteAddress) || '';
     if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) {
-      tlog('/auth/token: rejected non-localhost IP', ip);
+      tlog('/auth/token: rejected non-localhost ip', ip);
       return res.status(403).json({ error: 'forbidden' });
     }
     if (!checkTokenRateLimit(ip)) {

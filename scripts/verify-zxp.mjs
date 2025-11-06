@@ -80,7 +80,7 @@ try {
     'CSXS/manifest.xml',
     'main/index.html',
     'jsx/index.jsxbin',
-    'server/src/server.js',
+    'server/server.js',
     'server/package.json'
   ];
   

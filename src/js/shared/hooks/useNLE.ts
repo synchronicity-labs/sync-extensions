@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from "react";
 import { useHostDetection } from "./useHostDetection";
+import { getApiUrl } from "../utils/serverConfig";
 
 interface NLEMethods {
   getHostId: () => string;
@@ -59,25 +60,110 @@ export const useNLE = () => {
           const file = "/jsx/index.jsxbin"; // Single JSX entry point
           const escPath = String(extPath + file).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           
-          cs.evalScript("$.evalFile('" + escPath + "')", () => {
-            // Host script loaded
+          return new Promise((resolve) => {
+            try {
+              cs.evalScript("$.evalFile('" + escPath + "')", (result: string) => {
+                // Check for errors in result
+                if (result && (result.includes("error") || result.includes("Error") || result.includes("27"))) {
+                  const errorMsg = `[useNLE] JSX load error (CEP error code 27): ${result}`;
+                  console.error(errorMsg);
+                  console.error("[useNLE] Extension path:", extPath);
+                  console.error("[useNLE] JSX file path:", escPath);
+                  // Try to log to debug endpoint if available
+                  try {
+                    const hostConfig = (window as any).HOST_CONFIG || {};
+                    fetch(getApiUrl("/debug"), {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        message: errorMsg,
+                        extPath,
+                        file,
+                        escPath,
+                        timestamp: new Date().toISOString(),
+                        hostConfig,
+                        cepError: "Error code 27 - JSX script failed to execute",
+                      }),
+                    }).catch(() => {});
+                  } catch (_) {}
+                } else {
+                  console.log("[useNLE] JSX script loaded successfully");
+                }
+                resolve();
+              });
+            } catch (error) {
+              console.error("[useNLE] Error loading JSX:", error);
+              // Try to log to debug endpoint if available
+              try {
+                const hostConfig = (window as any).HOST_CONFIG || {};
+                fetch(getApiUrl("/debug"), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    message: `[useNLE] Error loading JSX: ${String(error)}`,
+                    extPath,
+                    file,
+                    timestamp: new Date().toISOString(),
+                    hostConfig,
+                  }),
+                }).catch(() => {});
+              } catch (_) {}
+              resolve();
+            }
           });
-        } catch (_) {}
+        } catch (error) {
+          console.error("[useNLE] ensureHostLoaded error:", error);
+        }
       };
 
       const call = async (fnTail: string, payload?: any): Promise<any> => {
         try {
           await ensureHostLoaded();
           const fn = prefix() + "_" + fnTail;
+          const ns = "com.sync.extension";
           
           return new Promise((resolve) => {
             try {
               const cs = new window.CSInterface();
               const arg = JSON.stringify(payload || {}).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-              const code = fn + "(" + JSON.stringify(arg) + ")";
+              
+              const code = [
+                "(function(){",
+                "  try {",
+                "    var host = typeof $ !== 'undefined' ? $ : window;",
+                "    var ns = '" + ns + "';",
+                "    var fnName = '" + fn + "';",
+                "    var result;",
+                "",
+                "    // Try 1: host[ns][fn]",
+                "    if (host && host[ns] && typeof host[ns][fnName] === 'function') {",
+                "      result = host[ns][fnName](" + JSON.stringify(payload || {}) + ");",
+                "      return JSON.stringify(result);",
+                "    }",
+                "",
+                "    // Try 2: Global function",
+                "    if (typeof window[fnName] === 'function') {",
+                "      result = window[fnName](" + JSON.stringify(payload || {}) + ");",
+                "      return JSON.stringify(result);",
+                "    }",
+                "",
+                "    // Try 3: Direct call",
+                "    try {",
+                "      result = eval(fnName + '(' + " + JSON.stringify(JSON.stringify(payload || {})) + " + ')');",
+                "      return JSON.stringify(result);",
+                "    } catch(e3) {}",
+                "",
+                "    return JSON.stringify({ok: false, error: 'Function ' + fnName + ' not found'});",
+                "  } catch(e) {",
+                "    return JSON.stringify({ok: false, error: String(e)});",
+                "  }",
+                "})()"
+              ].join("\n");
+              
               cs.evalScript(code, (r: string) => {
                 try {
-                  resolve(JSON.parse(r || "{}"));
+                  const parsed = typeof r === 'string' ? JSON.parse(r || "{}") : r;
+                  resolve(parsed);
                 } catch (_) {
                   resolve({ ok: false, error: String(r || "no response") });
                 }

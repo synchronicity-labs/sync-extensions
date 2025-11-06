@@ -17,7 +17,7 @@ export const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === 'premiere') ? 'sync_pp
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ROTATED_FILES = 3;
 
-function rotateLogIfNeeded(logFile) {
+export function rotateLogIfNeeded(logFile) {
   try {
     if (!fs.existsSync(logFile)) return;
     

@@ -119,7 +119,7 @@ The `server/` directory contains a Node.js backend that handles:
 - Job management
 - Telemetry
 
-Server configuration is in `server/src/config.js`.
+Server configuration is in `server/config.js`.
 
 ## Project Structure Details
 

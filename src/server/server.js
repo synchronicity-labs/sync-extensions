@@ -10,54 +10,106 @@ import { createServer } from 'net';
 import FormData from 'form-data';
 import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
+import { fileURLToPath } from 'url';
 
-// Server log file - always write to sync_server_debug.log per debug.md
-// Define early so we can log immediately, but use same logic as config.js
+// Server log file - only write when debug.enabled flag exists per debug.md
 let SERVER_LOG = '';
-try {
-  // Use same logic as platformAppData in config.js to ensure consistency
-  const home = os.homedir();
-  let BASE_DIR;
-  if (process.platform === 'win32') {
-    BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'AppData', 'Roaming', 'sync. extensions');
-  } else if (process.platform === 'darwin') {
-    BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'Library', 'Application Support', 'sync. extensions');
-  } else {
-    BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, '.config', 'sync. extensions');
+let DEBUG_ENABLED = false;
+
+// Initialize debug logging - must be robust and not fail silently
+// In development mode, always enable logging regardless of debug.enabled flag
+function initDebugLogging() {
+  try {
+    const home = os.homedir();
+    let BASE_DIR;
+    if (process.platform === 'win32') {
+      BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'AppData', 'Roaming', 'sync. extensions');
+    } else if (process.platform === 'darwin') {
+      BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'Library', 'Application Support', 'sync. extensions');
+    } else {
+      BASE_DIR = process.env.SYNC_EXTENSIONS_DIR || path.join(home, '.config', 'sync. extensions');
+    }
+    const LOGS_DIR = path.join(BASE_DIR, 'logs');
+    
+    // Ensure logs directory exists - don't fail if this fails, but try multiple times
+    try {
+      fs.mkdirSync(LOGS_DIR, { recursive: true });
+    } catch (mkdirErr) {
+      // If mkdir fails, try again after a short delay (might be a race condition)
+      try {
+        setTimeout(() => {
+          try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch (_) {}
+        }, 100);
+      } catch (_) {}
+    }
+    
+    const DEBUG_FLAG = path.join(LOGS_DIR, 'debug.enabled');
+    const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+    
+    // In dev mode, always enable logging; otherwise check debug.enabled flag
+    DEBUG_ENABLED = isDevMode || fs.existsSync(DEBUG_FLAG);
+    
+    if (DEBUG_ENABLED) {
+      SERVER_LOG = path.join(LOGS_DIR, 'sync_server_debug.log');
+      try {
+        const timestamp = new Date().toISOString();
+        const mode = isDevMode ? ' [DEV MODE]' : '';
+        fs.appendFileSync(SERVER_LOG, `[${timestamp}] [server] server.js executed${mode}\n`);
+      } catch (writeErr) {
+        // If initial write fails, try again later - don't disable logging
+        console.error('Failed to write initial debug log:', writeErr);
+      }
+    }
+  } catch (e) {
+    // Log to console if possible, but don't break the app
+    try {
+      console.error('Debug logging initialization error:', e);
+    } catch (_) {}
   }
-  const LOGS_DIR = path.join(BASE_DIR, 'logs');
-  fs.mkdirSync(LOGS_DIR, { recursive: true });
-  SERVER_LOG = path.join(LOGS_DIR, 'sync_server_debug.log');
-  
-  // Log server.js execution start
-  const timestamp = new Date().toISOString();
-  fs.appendFileSync(SERVER_LOG, `[${timestamp}] [server] server.js executed\n`);
-} catch (e) {
-  // If we can't log, at least try console
-  try { console.error('Failed to initialize server log:', e); } catch (_) {}
 }
 
+// Initialize immediately
+initDebugLogging();
+
 // Load .env file BEFORE importing modules that depend on it
-const envPath = path.join(process.cwd(), '.env');
-console.log('Looking for .env at:', envPath);
-console.log('Current working directory:', process.cwd());
-console.log('.env file exists:', fs.existsSync(envPath));
-const dotenvResult = dotenv.config({ path: envPath });
-if (dotenvResult.error) {
-  console.error('Error loading .env file:', dotenvResult.error);
+// Try multiple paths: server directory, parent directory, and root
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envPaths = [
+  path.join(__dirname, '.env'), // Same directory as server.js
+  path.join(__dirname, '..', '.env'), // Parent directory
+  path.join(process.cwd(), 'src', 'server', '.env'), // From root
+  path.join(process.cwd(), '.env'), // Root directory
+];
+
+let envPath = null;
+for (const tryPath of envPaths) {
+  if (fs.existsSync(tryPath)) {
+    envPath = tryPath;
+    break;
+  }
+}
+
+if (envPath) {
+  const dotenvResult = dotenv.config({ path: envPath });
+  if (dotenvResult.error) {
+    console.error('Error loading .env file:', dotenvResult.error);
+  } else {
+    console.log('.env file loaded successfully from:', envPath);
+    console.log('R2_ACCESS_KEY present:', !!process.env.R2_ACCESS_KEY);
+    console.log('R2_SECRET_KEY present:', !!process.env.R2_SECRET_KEY);
+    console.log('POSTHOG_KEY present:', !!process.env.POSTHOG_KEY);
+    console.log('POSTHOG_KEY valid:', !!(process.env.POSTHOG_KEY && process.env.POSTHOG_KEY !== '<your_project_api_key>'));
+  }
 } else {
-  console.log('.env file loaded successfully');
-  console.log('R2_ACCESS_KEY present:', !!process.env.R2_ACCESS_KEY);
-  console.log('R2_SECRET_KEY present:', !!process.env.R2_SECRET_KEY);
-console.log('POSTHOG_KEY present:', !!process.env.POSTHOG_KEY);
-console.log('POSTHOG_KEY valid:', !!(process.env.POSTHOG_KEY && process.env.POSTHOG_KEY !== '<your_project_api_key>'));
+  console.warn('Warning: .env file not found. Tried paths:', envPaths.join(', '));
 }
 
 import { track, identify, setUserProperties, distinctId } from './telemetry.js';
 
 // Modular imports
 import { APP_ID, EXT_ROOT, MANIFEST_PATH, EXTENSION_LOCATION, UPDATES_REPO, UPDATES_CHANNEL, GH_TOKEN, GH_UA, BASE_DIR, DIRS, HOST, DEFAULT_PORT, PORT_RANGE, isSpawnedByUI } from './config.js';
-import { tlog, tlogSync, DEBUG_LOG } from './utils/log.js';
+import { tlog, tlogSync, DEBUG_LOG, rotateLogIfNeeded } from './utils/log.js';
 import { safeStat, safeStatSync, safeExists, safeText, pipeToFile } from './utils/files.js';
 import { toReadableLocalPath, resolveSafeLocalPath, normalizePaths, normalizeOutputDir, guessMime } from './utils/paths.js';
 import { parseBundleVersion, normalizeVersion, compareSemver, getCurrentVersion } from './utils/version.js';
@@ -191,49 +243,23 @@ getOrCreateToken().then(token => {
 
 function initializeJobs() {
   try {
-    // Always log initialization attempt to sync_server_debug.log per debug.md
-    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-    try {
-      const timestamp = new Date().toISOString();
-      const logLine = `[${timestamp}] [server] initializing jobs from ${jobsFile}\n`;
-      fs.appendFileSync(logFile, logLine);
-    } catch (_) {}
-    
+    tlog('initializeJobs: checking file:', jobsFile);
     if (fs.existsSync(jobsFile)) {
       const data = fs.readFileSync(jobsFile, 'utf8');
       if (data && data.trim()) {
         const parsed = JSON.parse(data);
         jobs = Array.isArray(parsed) ? parsed : [];
-        
-        // Log loaded jobs count
-        const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-        try {
-          const timestamp = new Date().toISOString();
-          const logLine = `[${timestamp}] [server] loaded ${jobs.length} jobs from ${jobsFile}\n`;
-          fs.appendFileSync(logFile, logLine);
-        } catch (_) {}
+        tlog(`initializeJobs: loaded ${jobs.length} jobs from file`);
       } else {
+        tlog('initializeJobs: file exists but is empty');
         jobs = [];
       }
     } else {
+      tlog('initializeJobs: file does not exist, creating empty array');
       jobs = [];
-      // Log that jobs file doesn't exist yet
-      const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-      try {
-        const timestamp = new Date().toISOString();
-        const logLine = `[${timestamp}] [server] jobs file not found at ${jobsFile}, starting with empty array\n`;
-        fs.appendFileSync(logFile, logLine);
-      } catch (_) {}
     }
   } catch (e) {
     tlog('initializeJobs error:', e && e.message ? e.message : String(e));
-    // Always log initialization errors to sync_server_debug.log
-    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-    try {
-      const timestamp = new Date().toISOString();
-      const logLine = `[${timestamp}] [server] initializeJobs error: ${e && e.message ? e.message : String(e)}\n`;
-      fs.appendFileSync(logFile, logLine);
-    } catch (_) {}
     jobs = [];
   }
   // No need to initialize jobCounter - using Sync API IDs directly
@@ -244,13 +270,6 @@ function saveJobs() {
     fs.writeFileSync(jobsFile, JSON.stringify(jobs || [], null, 2), 'utf8');
   } catch (e) {
     tlog('saveJobs error:', e && e.message ? e.message : String(e));
-    // Always log save errors to sync_server_debug.log
-    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-    try {
-      const timestamp = new Date().toISOString();
-      const logLine = `[${timestamp}] [server] saveJobs error: ${e && e.message ? e.message : String(e)}\n`;
-      fs.appendFileSync(logFile, logLine);
-    } catch (_) {}
   }
 }
 
@@ -262,6 +281,11 @@ setSaveJobsCallback(saveJobs);
 const tokenRateLimit = new Map();
 
 function checkTokenRateLimit(ip) {
+  // In dev mode, disable rate limiting entirely (React Strict Mode causes rapid requests)
+  const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+  if (isDevMode) return true; // No rate limit in dev mode
+  
+  // Production: 1 req/sec
   const now = Date.now();
   const last = tokenRateLimit.get(ip) || 0;
   if (now - last < 1000) return false;
@@ -574,32 +598,82 @@ async function startServer() {
       // Health check failed - server not running, proceed to start
     }
     
-    // Use global SERVER_LOG, fallback to DIRS.logs if not set
-    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-    
-    // Log startup attempt
+    // Log debug info if enabled (but don't prevent server from starting)
+    // Re-check debug flag using DIRS from config.js to ensure consistency
+    // In dev mode, always enable logging
+    const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+    let debugEnabled = DEBUG_ENABLED;
     try {
-      const timestamp = new Date().toISOString();
-      fs.appendFileSync(logFile, `[${timestamp}] [server] attempting to start server on ${HOST}:${PORT}\n`);
-    } catch (_) {}
+      const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+      debugEnabled = isDevMode || fs.existsSync(debugFlag);
+    } catch (_) {
+      debugEnabled = isDevMode || DEBUG_ENABLED;
+    }
     
+    if (debugEnabled) {
+      const logFile = path.join(DIRS.logs, 'sync_server_debug.log');
+      try {
+        const timestamp = new Date().toISOString();
+        rotateLogIfNeeded(logFile);
+        fs.appendFileSync(logFile, `[${timestamp}] [server] attempting to start server on ${HOST}:${PORT}\n`);
+      } catch (_) {}
+    }
+    
+    let serverInstance = null;
     const srv = app.listen(PORT, HOST, () => {
+      serverInstance = srv;
       console.log(`Sync Extension server running on http://${HOST}:${PORT}`);
       console.log(`Jobs file: ${jobsFile}`);
       try { tlog('server started on', `${HOST}:${PORT}`); } catch (_){ }
       
-      // Always write server startup log to sync_server_debug.log per debug.md
+      // Re-check debug flag using DIRS from config.js
+      // In dev mode, always enable logging
+      const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
+      let debugEnabled = DEBUG_ENABLED;
       try {
-        const timestamp = new Date().toISOString();
-        const logLine = `[${timestamp}] [server] server started on ${HOST}:${PORT}\n`;
-        fs.appendFileSync(logFile, logLine);
-      } catch (e) {
-        try { console.error('Failed to write startup log:', e); } catch (_) {}
+        const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+        debugEnabled = isDevMode || fs.existsSync(debugFlag);
+      } catch (_) {
+        debugEnabled = isDevMode || DEBUG_ENABLED;
+      }
+      
+      if (debugEnabled) {
+        const logFile = path.join(DIRS.logs, 'sync_server_debug.log');
+        try {
+          const timestamp = new Date().toISOString();
+          const logLine = `[${timestamp}] [server] server started on ${HOST}:${PORT}\n`;
+          rotateLogIfNeeded(logFile);
+          fs.appendFileSync(logFile, logLine);
+        } catch (_) {}
       }
       
       // Start cleanup scheduling
       scheduleCleanup();
     });
+    
+    // Graceful shutdown handlers
+    const gracefulShutdown = (signal) => {
+      console.log(`\n${signal} received - shutting down gracefully...`);
+      try { tlog(`${signal} received - shutting down`); } catch (_) {}
+      
+      if (serverInstance) {
+        serverInstance.close(() => {
+          console.log('Server closed');
+          process.exit(0);
+        });
+        
+        // Force close after 5 seconds
+        setTimeout(() => {
+          console.error('Forced shutdown after timeout');
+          process.exit(1);
+        }, 5000);
+      } else {
+        process.exit(0);
+      }
+    };
+    
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     srv.on('error', async (err) => {
       if (err && err.code === 'EADDRINUSE') {
         // Port is in use - this shouldn't happen if shutdown worked, but handle it
@@ -634,12 +708,22 @@ async function startServer() {
 
 // Start server with error handling
 startServer().catch((err) => {
-  const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
+  // Re-check debug flag using DIRS from config.js
+  let debugEnabled = DEBUG_ENABLED;
   try {
-    const timestamp = new Date().toISOString();
-    const logLine = `[${timestamp}] [server] startServer failed: ${err && err.message ? err.message : String(err)}\n`;
-    fs.appendFileSync(logFile, logLine);
+    const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+    debugEnabled = fs.existsSync(debugFlag);
   } catch (_) {}
+  
+  if (debugEnabled) {
+      const logFile = path.join(DIRS.logs, 'sync_server_debug.log');
+      try {
+        rotateLogIfNeeded(logFile);
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] [server] startServer failed: ${err && err.message ? err.message : String(err)}\n`;
+        fs.appendFileSync(logFile, logLine);
+      } catch (_) {}
+  }
   try { console.error('startServer failed:', err); } catch (_) {}
 });
 
@@ -648,17 +732,35 @@ process.on('uncaughtException', (err)=>{
   try { 
     console.error('uncaughtException', err && err.stack || err); 
     tlog('uncaughtException', err && err.stack || err);
-    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(logFile, `[${timestamp}] [server] uncaughtException: ${err && err.stack ? err.stack : String(err)}\n`);
+    // Re-check debug flag using DIRS from config.js
+    let debugEnabled = DEBUG_ENABLED;
+    try {
+      const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+      debugEnabled = fs.existsSync(debugFlag);
+    } catch (_) {}
+    if (debugEnabled) {
+      const logFile = path.join(DIRS.logs, 'sync_server_debug.log');
+      rotateLogIfNeeded(logFile);
+      const timestamp = new Date().toISOString();
+      fs.appendFileSync(logFile, `[${timestamp}] [server] uncaughtException: ${err && err.stack ? err.stack : String(err)}\n`);
+    }
   } catch (_) {} 
 });
 process.on('unhandledRejection', (reason)=>{ 
   try { 
     console.error('unhandledRejection', reason); 
     tlog('unhandledRejection', String(reason));
-    const logFile = SERVER_LOG || path.join(DIRS.logs, 'sync_server_debug.log');
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(logFile, `[${timestamp}] [server] unhandledRejection: ${String(reason)}\n`);
+    // Re-check debug flag using DIRS from config.js
+    let debugEnabled = DEBUG_ENABLED;
+    try {
+      const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+      debugEnabled = fs.existsSync(debugFlag);
+    } catch (_) {}
+    if (debugEnabled) {
+      const logFile = path.join(DIRS.logs, 'sync_server_debug.log');
+      rotateLogIfNeeded(logFile);
+      const timestamp = new Date().toISOString();
+      fs.appendFileSync(logFile, `[${timestamp}] [server] unhandledRejection: ${String(reason)}\n`);
+    }
   } catch (_) {} 
 });

@@ -70,6 +70,8 @@ export const setupWindowGlobals = (
   // Toast notification function
   (window as any).showToast = (message: string, type: "info" | "error" | "success" = "info") => {
     // Simple toast implementation - can be enhanced later
+    // Convert UI messages to lowercase
+    const lowercaseMessage = message.toLowerCase();
     const toast = document.createElement("div");
     toast.style.cssText = `
       position: fixed;
@@ -84,7 +86,7 @@ export const setupWindowGlobals = (
       font-size: 14px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     `;
-    toast.textContent = message;
+    toast.textContent = lowercaseMessage;
     document.body.appendChild(toast);
 
     setTimeout(() => {
@@ -177,6 +179,44 @@ export const setupWindowGlobals = (
   // Update history function (already exposed by useHistory, but ensure it's here)
   (window as any).updateHistory = history.loadJobsFromServer;
   (window as any).loadJobsFromServer = history.loadJobsFromServer;
+
+  // History card functions - exposed via HistoryTab component
+  // These will be set up when HistoryTab mounts
+  (window as any).copyJobId = (jobId: string) => {
+    if ((window as any).__historyCopyJobId) {
+      (window as any).__historyCopyJobId(jobId);
+    }
+  };
+
+  (window as any).copyOutputLink = (jobId: string) => {
+    if ((window as any).__historyCopyOutputLink) {
+      (window as any).__historyCopyOutputLink(jobId);
+    }
+  };
+
+  (window as any).saveJob = async (jobId: string) => {
+    if ((window as any).__historySaveJob) {
+      return (window as any).__historySaveJob(jobId);
+    }
+  };
+
+  (window as any).insertJob = async (jobId: string) => {
+    if ((window as any).__historyInsertJob) {
+      return (window as any).__historyInsertJob(jobId);
+    }
+  };
+
+  (window as any).loadJobIntoSources = (jobId: string) => {
+    if ((window as any).__historyLoadJobIntoSources) {
+      (window as any).__historyLoadJobIntoSources(jobId);
+    }
+  };
+
+  (window as any).redoGeneration = async (jobId: string) => {
+    if ((window as any).__historyRedoGeneration) {
+      return (window as any).__historyRedoGeneration(jobId);
+    }
+  };
 
   // Expose evalExtendScript for backward compatibility (host-specific function calls)
   (window as any).evalExtendScript = async (fn: string, payload?: any) => {

@@ -13,7 +13,7 @@ function _callSystem(cmd) {
   return '';
 }
 // Central app-data directory resolver for ExtendScript (Premiere)
-// NOTE: This function is duplicated in host/ae.jsx and server/src/audio.cjs
+// NOTE: This function is duplicated in host/ae.jsx and server/audio.cjs
 // ExtendScript does not support imports, so duplication is necessary
 function SYNC_getBaseDirs(){
   try{
@@ -970,6 +970,16 @@ export function PPRO_startBackend() {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
+    // Log startup attempt to debug log (if debug flag exists)
+    try {
+      var logFile = _pproDebugLogFile();
+      if (logFile && logFile.fsName) {
+        logFile.open('a');
+        logFile.writeln('[' + new Date().toString() + '] PPRO_startBackend called');
+        logFile.close();
+      }
+    } catch(e) {}
+
     // Check if server is already running
     try {
       var url = "http://127.0.0.1:3000/health";
@@ -979,30 +989,83 @@ export function PPRO_startBackend() {
       } else {
         cmd = "/bin/bash -lc 'curl -s -m 1 \"" + url + "\" >/dev/null 2>&1'";
       }
-      var result = System.callSystem(cmd);
+      var result = system.callSystem(cmd);
       // If curl succeeds, server is already running
       if (result === 0) {
+        try {
+          var logFile = _pproDebugLogFile();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Server already running on port 3000');
+            logFile.close();
+          }
+        } catch(e) {}
         return _respond({ ok: true, message: "Backend already running on port 3000" });
       }
-    } catch(e) {}
+    } catch(e) {
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
+          logFile.close();
+        }
+      } catch(_) {}
+    }
 
     // Server not running - spawn it
     try {
       var extPath = _extensionRoot();
       if (!extPath) {
-        return _respond({ ok: false, error: "Could not determine extension path" });
+        var errorMsg = "Could not determine extension path";
+        try {
+          var logFile = _pproDebugLogFile();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+            logFile.close();
+          }
+        } catch(e) {}
+        return _respond({ ok: false, error: errorMsg });
       }
       
-      var serverPath = extPath + (isWindows ? "\\server\\src\\server.js" : "/server/src/server.js");
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+          logFile.close();
+        }
+      } catch(e) {}
+      
+      var serverPath = extPath + (isWindows ? "\\server\\server.js" : "/server/server.js");
       var serverFile = new File(serverPath);
       if (!serverFile.exists) {
         // Try dist/server path
-        serverPath = extPath + (isWindows ? "\\dist\\server\\src\\server.js" : "/dist/server/src/server.js");
+        serverPath = extPath + (isWindows ? "\\dist\\server\\server.js" : "/dist/server/server.js");
         serverFile = new File(serverPath);
         if (!serverFile.exists) {
-          return _respond({ ok: false, error: "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\src\\server.js" : "/server/src/server.js") });
+          var errorMsg = "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\server.js" : "/server/server.js") + " and " + serverPath;
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.close();
+            }
+          } catch(e) {}
+          return _respond({ ok: false, error: errorMsg });
         }
       }
+      
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Server file found: ' + serverPath);
+          logFile.close();
+        }
+      } catch(e) {}
       
       // Determine bundled Node binary path
       var nodeBin = "";
@@ -1026,10 +1089,37 @@ export function PPRO_startBackend() {
       
       var nodeBinFile = new File(nodeBin);
       if (!nodeBinFile.exists) {
-        return _respond({ ok: false, error: "Node binary not found at: " + nodeBin });
+        var errorMsg = "Node binary not found at: " + nodeBin;
+        try {
+          var logFile = _pproDebugLogFile();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+            logFile.close();
+          }
+        } catch(e) {}
+        return _respond({ ok: false, error: errorMsg });
       }
       
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Node binary found: ' + nodeBin);
+          logFile.close();
+        }
+      } catch(e) {}
+      
       // Spawn server process in background using bundled Node binary
+      // Redirect stderr to log file so we can see errors
+      var serverErrLog = '';
+      try {
+        var logDir = SYNC_getLogDir();
+        if (logDir) {
+          serverErrLog = logDir + (isWindows ? '\\' : '/') + 'server_stderr.log';
+        }
+      } catch(_) {}
+      
       var spawnCmd;
       if (isWindows) {
         // Windows: use start with /B to run in background
@@ -1038,21 +1128,55 @@ export function PPRO_startBackend() {
         // macOS: use nohup to run in background and redirect output
         // Determine server directory from serverPath
         var serverDir = serverPath;
-        if (serverDir.indexOf("/server/src/server.js") !== -1) {
-          serverDir = serverDir.replace("/server/src/server.js", "/server");
-        } else if (serverDir.indexOf("/dist/server/src/server.js") !== -1) {
-          serverDir = serverDir.replace("/dist/server/src/server.js", "/dist/server");
+        if (serverDir.indexOf("/server/server.js") !== -1) {
+          serverDir = serverDir.replace("/server/server.js", "/server");
+        } else if (serverDir.indexOf("/dist/server/server.js") !== -1) {
+          serverDir = serverDir.replace("/dist/server/server.js", "/dist/server");
         } else {
           // Fallback: just use extPath + "/server"
           serverDir = extPath + "/server";
         }
-        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" src/server.js >/dev/null 2>&1 &'";
+        // Redirect stderr to log file instead of /dev/null
+        var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
+        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" server.js >/dev/null" + redirectErr + " &'";
       }
       
-      System.callSystem(spawnCmd);
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
+          if (serverErrLog) {
+            logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
+          }
+          logFile.close();
+        }
+      } catch(e) {}
+      
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Spawn command: ' + spawnCmd);
+          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
+          logFile.close();
+        }
+      } catch(e) {}
+      
+      var spawnResult = system.callSystem(spawnCmd);
+      
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Spawn result: ' + spawnResult);
+          logFile.close();
+        }
+      } catch(e) {}
       
       // Wait a moment for server to start
       var waitStart = new Date().getTime();
+      var serverStarted = false;
       while (new Date().getTime() - waitStart < 2000) {
         try {
           var checkUrl = "http://127.0.0.1:3000/health";
@@ -1062,22 +1186,72 @@ export function PPRO_startBackend() {
           } else {
             checkCmd = "/bin/bash -lc 'curl -s -m 1 \"" + checkUrl + "\" >/dev/null 2>&1'";
           }
-          var checkResult = System.callSystem(checkCmd);
+          var checkResult = system.callSystem(checkCmd);
           if (checkResult === 0) {
+            serverStarted = true;
+            try {
+              var logFile = _pproDebugLogFile();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Server started successfully');
+                logFile.close();
+              }
+            } catch(e) {}
             return _respond({ ok: true, message: "Backend started successfully" });
           }
-        } catch(_) {}
+        } catch(e) {
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
+              logFile.close();
+            }
+          } catch(_) {}
+        }
         // Small delay before checking again
         var delayStart = new Date().getTime();
         while (new Date().getTime() - delayStart < 100) { /* wait 100ms */ }
       }
       
+      if (!serverStarted) {
+        try {
+          var logFile = _pproDebugLogFile();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] WARNING: Server start command executed but server not responding after 2 seconds');
+            if (serverErrLog) {
+              logFile.writeln('[' + new Date().toString() + '] Check server errors in: ' + serverErrLog);
+            }
+            logFile.close();
+          }
+        } catch(e) {}
+      }
+      
       return _respond({ ok: true, message: "Backend start command executed (may still be starting)" });
     } catch(e) {
-      return _respond({ ok: false, error: "Failed to start backend: " + String(e) });
+      var errorMsg = "Failed to start backend: " + String(e);
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+          logFile.close();
+        }
+      } catch(_) {}
+      return _respond({ ok: false, error: errorMsg });
     }
   } catch(e) {
-    return _respond({ ok: false, error: String(e) });
+    var errorMsg = String(e);
+    try {
+      var logFile = _pproDebugLogFile();
+      if (logFile && logFile.fsName) {
+        logFile.open('a');
+        logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+        logFile.close();
+      }
+    } catch(_) {}
+    return _respond({ ok: false, error: errorMsg });
   }
 }
 

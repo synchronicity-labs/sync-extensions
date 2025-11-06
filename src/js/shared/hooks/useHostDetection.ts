@@ -30,18 +30,25 @@ export const useHostDetection = () => {
       const nameU = String(appName).toUpperCase();
       const idU = String(appId).toUpperCase();
 
+      console.log("[host-detection] Fallback detection - appName:", appName, "appId:", appId);
+
       let config: HostConfig | null = null;
 
-      if (idU.indexOf("AEFT") !== -1 || nameU.indexOf("AFTER EFFECTS") !== -1) {
+      // Check multiple variations for After Effects
+      if (idU.indexOf("AEFT") !== -1 || nameU.indexOf("AFTER EFFECTS") !== -1 || nameU.indexOf("AFTEREFFECTS") !== -1) {
         config = { hostId: "AEFT", hostName: "After Effects", isAE: true };
-      } else if (idU.indexOf("PPRO") !== -1 || nameU.indexOf("PREMIERE") !== -1) {
+      } 
+      // Check multiple variations for Premiere Pro
+      else if (idU.indexOf("PPRO") !== -1 || nameU.indexOf("PREMIERE") !== -1 || nameU.indexOf("PREM") !== -1) {
         config = { hostId: "PPRO", hostName: "Premiere Pro", isAE: false };
       }
 
       if (config) {
         (window as any).HOST_CONFIG = config;
         setHostConfig(config);
+        console.log("[host-detection] Fallback detected host:", config.hostId);
       }
+      // Only set if detected - don't default to anything
     } catch (e) {
       console.error("[host-detection] Error detecting host:", e);
     }

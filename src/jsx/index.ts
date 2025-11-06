@@ -1,4 +1,6 @@
-import { ns } from "../shared/shared";
+// Inline ns value to avoid import issues in ExtendScript
+// const ns = "com.sync.extension"; // from cep.config.ts
+const ns = "com.sync.extension";
 
 import * as aeft from "./aeft/aeft";
 import * as ppro from "./ppro/ppro";
@@ -46,16 +48,36 @@ const getAppNameSafely = (): ApplicationName | "unknown" => {
   return "unknown";
 };
 
-switch (getAppNameSafely()) {
-  case "aftereffects":
-  case "aftereffectsbeta":
+var appName = getAppNameSafely();
+// Always set functions to ensure they're available regardless of app detection
+try {
+  // Default to ppro (Premiere Pro) - this ensures functions are always available
+  host[ns] = ppro;
+  
+  // Override with aeft if we're in After Effects
+  if (appName === "aftereffects" || appName === "aftereffectsbeta") {
     host[ns] = aeft;
-    break;
-
-  case "premierepro":
-  case "premiereprobeta":
-    host[ns] = ppro;
-    break;
+  }
+  
+  // Also ensure functions are available globally as a fallback
+  // This ensures PPRO_startBackend and AEFT_startBackend are accessible
+  try {
+    for (var key in ppro) {
+      if (Object.prototype.hasOwnProperty.call(ppro, key)) {
+        host[key] = ppro[key];
+      }
+    }
+    for (var key in aeft) {
+      if (Object.prototype.hasOwnProperty.call(aeft, key)) {
+        host[key] = aeft[key];
+      }
+    }
+  } catch(globalErr) {}
+} catch(e) {
+  // Last resort: try to set at least one
+  try {
+    host[ns] = ppro; // Always default to ppro
+  } catch(e2) {}
 }
 
 const empty = {};

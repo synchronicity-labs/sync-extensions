@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n vite,server -c blue,green \"vite\" \"npm run dev:server\"",
+    "dev:server": "NODE_ENV=development node src/server/server.js",
     "build": "vite build",
     "install": "npm run build",
     "zxp": "node scripts/build-zxp.mjs",
@@ -30,6 +31,7 @@
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "dotenv": "^17.2.3",
     "eslint": "^8.55.0",

@@ -31,7 +31,21 @@ export const useHistory = () => {
     setIsLoading(true);
     setServerError(null); // Clear previous errors
     try {
-      await ensureAuthToken();
+      // Ensure we have auth token before making request
+      let token = await ensureAuthToken();
+      if (!token) {
+        // If no token, wait a bit and retry once
+        await new Promise(resolve => setTimeout(resolve, 100));
+        token = await ensureAuthToken();
+        if (!token) {
+          setServerError("authentication failed - server may not be running");
+          setJobs([]);
+          setDisplayedCount(0);
+          setIsLoading(false);
+          return;
+        }
+      }
+      
       const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
       const apiKey = settings.syncApiKey || "";
       
@@ -44,8 +58,13 @@ export const useHistory = () => {
         return;
       }
 
-      const url = getApiUrl("/jobs");
-      const headers = authHeaders();
+      // Pass API key as query parameter to fetch from Sync API
+      const urlObj = new URL(getApiUrl("/jobs"));
+      urlObj.searchParams.set("syncApiKey", apiKey);
+      const url = urlObj.toString();
+      
+      // Pass token directly to avoid race condition with state update
+      const headers = authHeaders({}, token);
       
       // Log debug info
       try {
@@ -64,7 +83,7 @@ export const useHistory = () => {
       } catch (_) {}
 
       const response = await fetchWithTimeout(url, {
-          method: "GET",
+        method: "GET",
         headers,
       }, 10000);
 
@@ -135,6 +154,7 @@ export const useHistory = () => {
         } catch (_) {}
         
         setJobs(loadedJobs);
+        // Start with first page only (10 jobs)
         setDisplayedCount(Math.min(pageSize, loadedJobs.length));
         setServerError(null); // Clear error on success
       } else {
@@ -189,9 +209,9 @@ export const useHistory = () => {
         error?.message?.includes("fetch");
       
       if (isNetworkError) {
-        setServerError("Cannot connect to server. The server may not be running.");
+        setServerError("cannot connect to server. the server may not be running.");
       } else {
-        setServerError(`Failed to load history: ${errorMessage.substring(0, 100)}`);
+        setServerError(`failed to load history: ${errorMessage.substring(0, 100).toLowerCase()}`);
       }
       
       // Set empty array on error to prevent crashes
@@ -204,7 +224,10 @@ export const useHistory = () => {
 
   const loadMore = useCallback(() => {
     try {
-    setDisplayedCount((prev) => Math.min(prev + pageSize, jobs.length));
+      setDisplayedCount((prev) => {
+        const next = prev + pageSize;
+        return Math.min(next, jobs.length);
+      });
     } catch (error) {
       console.error("[useHistory] Error in loadMore:", error);
     }

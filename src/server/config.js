@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Resolve EXT_ROOT: server/src/config.js -> server/ -> extension root
+// Resolve EXT_ROOT: server/config.js -> server/ -> extension root
 export const EXT_ROOT = path.resolve(__dirname, '..', '..');
 const EXT_FOLDER = path.basename(EXT_ROOT);
 

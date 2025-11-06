@@ -5,6 +5,7 @@ import { useRecording } from "../hooks/useRecording";
 import { useNLE } from "../hooks/useNLE";
 import { useTabs } from "../hooks/useTabs";
 import { useSettings } from "../hooks/useSettings";
+import { useCore } from "../hooks/useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import URLInputModal from "./URLInputModal";
 import TTSVoiceSelector from "./TTSVoiceSelector";
@@ -15,9 +16,11 @@ const SourcesTab: React.FC = () => {
   const { nle } = useNLE();
   const { activeTab, setActiveTab } = useTabs();
   const { settings } = useSettings();
+  const { serverState } = useCore();
   const [urlModalOpen, setUrlModalOpen] = useState(false);
   const [urlModalType, setUrlModalType] = useState<"video" | "audio">("video");
   const [ttsModalOpen, setTtsModalOpen] = useState(false);
+  const isOffline = serverState?.isOffline || false;
 
   // Expose functions on window for backward compatibility with original code
   useEffect(() => {
@@ -102,7 +105,7 @@ const SourcesTab: React.FC = () => {
     };
   }, [selectVideo, selectAudio, nle, isRecording, recordingType, startRecording, stopRecording, selection, setUrlModalOpen, setUrlModalType, setTtsModalOpen]);
 
-  // Re-initialize Lucide icons when tab becomes active
+  // Re-initialize Lucide icons when tab becomes active or offline state changes
   useEffect(() => {
     if (activeTab === "sources") {
       const timer = setTimeout(() => {
@@ -112,11 +115,27 @@ const SourcesTab: React.FC = () => {
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [activeTab]);
+  }, [activeTab, isOffline]);
 
   return (
     <>
       <div id="sources" className={`tab-pane ${activeTab === "sources" ? "active" : ""}`}>
+        {isOffline ? (
+          <div className="offline-state">
+            <div className="offline-icon">
+              <i data-lucide="wifi-off"></i>
+            </div>
+            <div className="offline-message">
+              hmm... you might be offline, or<br />
+              the local server is down. <a onClick={() => {
+                const nle = (window as any).nle;
+                if (nle && typeof nle.startBackend === 'function') {
+                  nle.startBackend();
+                }
+              }}>fix this</a>
+            </div>
+          </div>
+        ) : (
         <div className="sources-container">
           {/* Video Upload Section */}
           <div className={`upload-box video-upload ${selection.video ? "has-media" : ""}`} id="videoSection">
@@ -293,6 +312,7 @@ const SourcesTab: React.FC = () => {
           <input type="hidden" id="activeSpeakerOnly" />
           <input type="hidden" id="detectObstructions" />
         </div>
+        )}
       </div>
       <URLInputModal isOpen={urlModalOpen} onClose={() => setUrlModalOpen(false)} type={urlModalType} />
       <TTSVoiceSelector isOpen={ttsModalOpen} onClose={() => setTtsModalOpen(false)} />

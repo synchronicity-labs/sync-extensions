@@ -28,7 +28,63 @@ async function convertIfAiff(p) {
   }
 }
 
-router.get('/jobs', (req, res) => res.json(req.jobs));
+router.get('/jobs', async (req, res) => {
+  try {
+    const { syncApiKey } = req.query;
+    
+    // Start with local jobs
+    let allJobs = [...req.jobs];
+    
+    // If syncApiKey is provided, fetch from Sync API and merge
+    if (syncApiKey && typeof syncApiKey === 'string' && syncApiKey.trim()) {
+      try {
+        const url = new URL(`${SYNC_API_BASE}/generations`);
+        const apiResponse = await fetch(url.toString(), {
+          headers: { 'x-api-key': String(syncApiKey) },
+          signal: AbortSignal.timeout(10000)
+        });
+        
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json().catch(() => null);
+          if (apiData && Array.isArray(apiData)) {
+            // Merge API jobs with local jobs, deduplicate by ID
+            const apiJobs = apiData.filter(job => job && job.id);
+            const localJobIds = new Set(allJobs.map(j => String(j.id)));
+            
+            // Add API jobs that aren't already in local jobs
+            for (const apiJob of apiJobs) {
+              if (!localJobIds.has(String(apiJob.id))) {
+                allJobs.push(apiJob);
+              }
+            }
+            
+            tlog(`[/jobs] Fetched ${apiJobs.length} jobs from Sync API, total: ${allJobs.length}`);
+          }
+        } else {
+          tlog(`[/jobs] Sync API request failed: ${apiResponse.status}`);
+        }
+      } catch (e) {
+        tlog(`[/jobs] Error fetching from Sync API: ${e?.message || String(e)}`);
+        // Continue with local jobs even if API fetch fails
+      }
+    }
+    
+    // Sort by createdAt (newest first)
+    allJobs.sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+    
+    tlog(`[/jobs] Returning ${allJobs.length} jobs (${req.jobs.length} local, ${allJobs.length - req.jobs.length} from API)`);
+    res.json(allJobs);
+  } catch (e) {
+    tlog(`[/jobs] Error: ${e?.message || String(e)}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  }
+});
 
 router.get('/jobs/:id', (req, res) => {
   const job = req.jobs.find(j => String(j.id) === String(req.params.id));

@@ -3,7 +3,7 @@ import { version } from "./package.json";
 
 // Load environment variables - dotenv is loaded in vite.config.ts before this file is imported
 // Password from environment variable to avoid committing secrets to git
-// Set ZXP_PASSWORD in src/server/.env file (already in .gitignore)
+// Set ZXP_PASSWORD in src/server/.env file (already in .gitignore) - note: .env is not copied to build
 
 const config: CEP_Config = {
   id: "com.sync.extension",
@@ -80,7 +80,7 @@ const config: CEP_Config = {
     jsxBin: "replace",
   },
   installModules: [],
-  copyAssets: ["js/assets/icons", "js/lib", "server/src", "server/package.json"],
+  copyAssets: ["js/assets/icons", "js/lib", "server/server.js", "server/config.js", "server/telemetry.js", "server/package.json", "server/routes", "server/services", "server/utils"],
   copyFolders: ["js/panels/ppro/epr", "bin", "server/node_modules"],
   copyZipAssets: [],
 };

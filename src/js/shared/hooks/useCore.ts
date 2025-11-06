@@ -176,13 +176,14 @@ export const useCore = () => {
     return "";
   }, [authState.token, fetchWithTimeout]);
 
-  // Auth headers helper
+  // Auth headers helper - can accept optional token parameter to avoid race conditions
   const authHeaders = useCallback(
-    (extra?: Record<string, string>): Record<string, string> => {
+    (extra?: Record<string, string>, tokenOverride?: string): Record<string, string> => {
       const h = { ...(extra || {}) };
       h["X-CEP-Panel"] = "sync";
-      if (authState.token) {
-        h["x-auth-token"] = authState.token;
+      const token = tokenOverride || authState.token;
+      if (token) {
+        h["x-auth-token"] = token;
       }
       return h;
     },

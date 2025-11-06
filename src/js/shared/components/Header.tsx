@@ -61,6 +61,8 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   };
 
   const showToast = (message: string, type: "info" | "success" | "error" = "info", duration: number = 3000, action?: { text: string; onClick: () => void }) => {
+    // Convert UI messages to lowercase
+    const lowercaseMessage = message.toLowerCase();
     const toast = document.createElement("div");
     toast.style.cssText = `
       position: fixed;
@@ -80,7 +82,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     if (action) {
       const messageDiv = document.createElement("div");
       messageDiv.style.marginBottom = "8px";
-      messageDiv.textContent = message;
+      messageDiv.textContent = lowercaseMessage;
       toast.appendChild(messageDiv);
       
       const button = document.createElement("button");
@@ -106,7 +108,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
       });
       toast.appendChild(button);
     } else {
-      toast.textContent = message;
+      toast.textContent = lowercaseMessage;
     }
     
     document.body.appendChild(toast);
