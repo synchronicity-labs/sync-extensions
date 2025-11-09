@@ -5,16 +5,24 @@ import { version } from "./package.json";
 // Password from environment variable to avoid committing secrets to git
 // Set ZXP_PASSWORD in src/server/.env file (already in .gitignore) - note: .env is not copied to build
 
+// Only use symlink in dev mode - in production it causes localhost redirect issues
+// Safe check for process.env - works in both Node and browser
+const isProduction = typeof process !== "undefined" && process.env?.NODE_ENV === "production";
+const isPackage = typeof process !== "undefined" && process.env?.ZXP_PACKAGE === "true";
+const isZip = typeof process !== "undefined" && process.env?.ZIP_PACKAGE === "true";
+
 const config: CEP_Config = {
   id: "com.sync.extension",
   displayName: "sync.",
   version,
-  symlink: "local",
+  // Only use symlink in dev mode - in production it creates .debug file that shouldn't be in ZXP
+  // Disable symlink for both ZXP and ZIP packages to avoid readlink errors
+  symlink: (isPackage || isZip) ? false : "local", // Use symlink for development, but not for production builds
   port: 3001,
   servePort: 5000,
   startingDebugPort: 8860,
   extensionManifestVersion: 6.0,
-  requiredRuntimeVersion: 9.0,
+  requiredRuntimeVersion: 12.0,
   hosts: [
     { name: "AEFT", version: "[24.0,99.9]" },
     { name: "PPRO", version: "[24.0,99.9]" },
@@ -36,7 +44,7 @@ const config: CEP_Config = {
   ],
   width: 480,
   height: 700,
-  minWidth: 400,
+  minWidth: 385,
   minHeight: 400,
   maxWidth: 2000,
   maxHeight: 2000,
@@ -49,7 +57,7 @@ const config: CEP_Config = {
       autoVisible: true,
       width: 480,
       height: 700,
-      minWidth: 400,
+      minWidth: 385,
       minHeight: 400,
       maxWidth: 2000,
       maxHeight: 2000,
@@ -65,7 +73,7 @@ const config: CEP_Config = {
     org: "sync.",
     // Password from environment variable to avoid committing secrets to git
     // Set ZXP_PASSWORD in .env file (already in .gitignore)
-    password: process.env.ZXP_PASSWORD || "",
+    password: (typeof process !== "undefined" && process.env?.ZXP_PASSWORD) || "",
     // TSA URLs: vite-cep-plugin tries each URL in order until one succeeds
     // Order matters: put platform-specific TSA first for faster builds
     // macOS: http://timestamp.apple.com/ts01

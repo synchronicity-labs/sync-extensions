@@ -21,3 +21,4 @@ Installed Resolve integration to:
 
 Restart Resolve to load the sync. workflow panel.
 MSG
+

@@ -50,6 +50,7 @@ kill_port_3000() {
 # Remove all known extension folder names (new & old, panels, etc.)
 remove_all_panel_variants() {
   base_dir="$1"
+  rmrf "$base_dir/com.sync.extension"
   rmrf "$base_dir/com.sync.extension.ae"
   rmrf "$base_dir/com.sync.extension.ppro"
   rmrf "$base_dir/com.sync.extension.ae.panel"
@@ -67,6 +68,7 @@ remove_all_panel_variants "$USER_CEP_DIR"
 ALLUSER_CEP_DIR="/Library/Application Support/Adobe/CEP/extensions"
 # Directly use sudo rm -rf and print manually for each instead of 'sudo rmrf'
 for dn in \
+  "com.sync.extension" \
   "com.sync.extension.ae" \
   "com.sync.extension.ppro" \
   "com.sync.extension.ae.panel" \

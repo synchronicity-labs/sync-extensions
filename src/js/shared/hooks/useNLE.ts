@@ -1,6 +1,8 @@
 import { useEffect, useCallback, useState } from "react";
 import { useHostDetection } from "./useHostDetection";
 import { getApiUrl } from "../utils/serverConfig";
+import { getHostId as detectHostId } from "../utils/host";
+import { HOST_IDS } from "../../../shared/host";
 
 interface NLEMethods {
   getHostId: () => string;
@@ -27,36 +29,30 @@ export const useNLE = () => {
 
     const initNLE = () => {
       const getHostId = (): string => {
-        try {
-          if ((window as any).__forceHostId === "AEFT" || (window as any).__forceHostId === "PPRO") {
-            return (window as any).__forceHostId;
-          }
-        } catch (_) {}
-        
+        // Use centralized host detection
         if (hostConfig?.hostId) {
           return hostConfig.hostId;
         }
         
+        // Try to detect if not already set
         try {
-          if (!window.CSInterface) return "PPRO";
-          const cs = new window.CSInterface();
-          const env = cs.getHostEnvironment?.();
-          const appName = (env?.appName || "").toUpperCase();
-          const appId = (env?.appId || "").toUpperCase();
-          if (appId.indexOf("AEFT") !== -1 || appName.indexOf("AFTER EFFECTS") !== -1) return "AEFT";
-          if (appId.indexOf("PPRO") !== -1 || appName.indexOf("PREMIERE") !== -1) return "PPRO";
-        } catch (_) {}
-        
-        return "PPRO";
+          return detectHostId();
+        } catch (error) {
+          console.error("[useNLE] Cannot determine host:", error);
+          // Don't throw - return a default to prevent blocking panel
+          // The panel should still work even if host detection fails
+          console.warn("[useNLE] Using fallback host ID - panel may not work correctly");
+          return HOST_IDS.PPRO; // Fallback to prevent blocking
+        }
       };
 
-      const prefix = () => (getHostId() === "AEFT" ? "AEFT" : "PPRO");
+      const prefix = () => (getHostId() === HOST_IDS.AEFT ? HOST_IDS.AEFT : HOST_IDS.PPRO);
 
       const ensureHostLoaded = async (): Promise<void> => {
         try {
           if (!window.CSInterface) return;
           const cs = new window.CSInterface();
-          const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
+          const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || "EXTENSION");
           const file = "/jsx/index.jsxbin"; // Single JSX entry point
           const escPath = String(extPath + file).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           
@@ -71,7 +67,7 @@ export const useNLE = () => {
                   console.error("[useNLE] JSX file path:", escPath);
                   // Try to log to debug endpoint if available
                   try {
-                    const hostConfig = (window as any).HOST_CONFIG || {};
+                    const hostConfig = window.HOST_CONFIG || {};
                     fetch(getApiUrl("/debug"), {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
@@ -95,7 +91,7 @@ export const useNLE = () => {
               console.error("[useNLE] Error loading JSX:", error);
               // Try to log to debug endpoint if available
               try {
-                const hostConfig = (window as any).HOST_CONFIG || {};
+                const hostConfig = window.HOST_CONFIG || {};
                 fetch(getApiUrl("/debug"), {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -191,12 +187,12 @@ export const useNLE = () => {
       };
 
       // Expose globally for backward compatibility
-      (window as any).nle = nleMethods;
+      window.nle = nleMethods;
       setNLE(nleMethods);
     };
 
     initNLE();
   }, [hostConfig]);
 
-  return { nle };
+  return { nle, hostConfig };
 };

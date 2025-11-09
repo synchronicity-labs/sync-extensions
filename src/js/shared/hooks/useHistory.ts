@@ -21,7 +21,7 @@ export const useHistory = () => {
   // Expose jobs globally for backward compatibility
   useEffect(() => {
     try {
-    (window as any).jobs = jobs;
+      window.jobs = jobs;
     } catch (error) {
       console.error("[useHistory] Error setting global jobs:", error);
     }
@@ -68,7 +68,7 @@ export const useHistory = () => {
       
       // Log debug info
       try {
-        const hostConfig = (window as any).HOST_CONFIG || {};
+        const hostConfig = window.HOST_CONFIG || {};
         fetch(getApiUrl("/debug"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -89,7 +89,7 @@ export const useHistory = () => {
 
       // Log response status
       try {
-        const hostConfig = (window as any).HOST_CONFIG || {};
+        const hostConfig = window.HOST_CONFIG || {};
         fetch(getApiUrl("/debug"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -108,7 +108,7 @@ export const useHistory = () => {
         
         // Log response data
         try {
-          const hostConfig = (window as any).HOST_CONFIG || {};
+          const hostConfig = window.HOST_CONFIG || {};
           fetch(getApiUrl("/debug"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -139,7 +139,7 @@ export const useHistory = () => {
         
         // Log final result
         try {
-          const hostConfig = (window as any).HOST_CONFIG || {};
+          const hostConfig = window.HOST_CONFIG || {};
           fetch(getApiUrl("/debug"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -160,7 +160,7 @@ export const useHistory = () => {
       } else {
         const errorText = await response.text().catch(() => "");
         try {
-          const hostConfig = (window as any).HOST_CONFIG || {};
+          const hostConfig = window.HOST_CONFIG || {};
           fetch(getApiUrl("/debug"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -184,7 +184,7 @@ export const useHistory = () => {
       
       // Log catch error
       try {
-        const hostConfig = (window as any).HOST_CONFIG || {};
+        const hostConfig = window.HOST_CONFIG || {};
         fetch(getApiUrl("/debug"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -238,10 +238,10 @@ export const useHistory = () => {
   // Expose global functions for backward compatibility
   useEffect(() => {
     try {
-    (window as any).updateHistory = () => {
+    window.updateHistory = () => {
       loadJobsFromServer();
     };
-    (window as any).loadJobsFromServer = loadJobsFromServer;
+    window.loadJobsFromServer = loadJobsFromServer;
     } catch (error) {
       console.error("[useHistory] Error setting global functions:", error);
     }

@@ -19,7 +19,7 @@ try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch (_) {}
 
 const DEBUG = (function() {
   try {
-    const flag = path.join(LOGS_DIR, 'debug.enabled');
+    const flag = path.join(LOGS_DIR, '.debug');
     return fs.existsSync(flag);
   } catch (_) { return false; }
 })();

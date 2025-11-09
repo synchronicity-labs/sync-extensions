@@ -1,6 +1,7 @@
 import { company, displayName, version } from "../../../shared/shared";
 import { dispatchTS, openLinkInBrowser } from "./bolt";
 import { keyRegisterOverride, dropDisable } from "./cep";
+import { reloadPanel } from "../../shared/utils/env";
 
 const buildFlyoutMenu = () => {
   const menu = `<Menu>
@@ -26,7 +27,7 @@ const buildFlyoutMenu = () => {
           event.data.replace(/\$/g, "").replace(/\=2/g, ":")
         ).menuId;
       } catch (e) {
-        console.error(e);
+        console.error("[init-cep] Error parsing flyout menu event:", e);
       }
     } else {
       menuId = event.data.menuId;
@@ -36,29 +37,25 @@ const buildFlyoutMenu = () => {
     } else if (menuId === "info") {
       // openLinkInBrowser(productPage);
     } else if (menuId === "refresh") {
-      // Reload panel - ensure we stay on localhost in dev mode
-      if (typeof window !== "undefined" && (window as any).location) {
-        const currentUrl = (window as any).location.href;
-        if (currentUrl.includes('localhost:3001')) {
-          // Already on localhost - just reload
-          (window as any).location.reload();
-        } else {
-          // Not on localhost - redirect to localhost first
-          (window as any).location.href = 'http://localhost:3001/main/index.html';
-        }
-      }
+      // Reload panel safely (handles dev vs production)
+      reloadPanel();
     }
   };
 
-  window.__adobe_cep__.invokeSync("setPanelFlyoutMenu", menu);
-  window.__adobe_cep__.addEventListener(
-    "com.adobe.csxs.events.flyoutMenuClicked",
-    flyoutHandler
-  );
+  try {
+    if (typeof window !== "undefined" && window.__adobe_cep__) {
+      window.__adobe_cep__.invokeSync("setPanelFlyoutMenu", menu);
+      window.__adobe_cep__.addEventListener(
+        "com.adobe.csxs.events.flyoutMenuClicked",
+        flyoutHandler
+      );
+    }
+  } catch (e) {
+    console.error("[init-cep] Error setting flyout menu:", e);
+  }
 };
 
 const buildContextMenu = () => {
-  console.log("buildContextMenu");
   const menuObj = {
     menu: [
       {
@@ -68,17 +65,8 @@ const buildContextMenu = () => {
         checkable: false,
         id: "c-0",
         callback: () => {
-          // Reload panel - ensure we stay on localhost in dev mode
-          if (typeof window !== "undefined" && (window as any).location) {
-            const currentUrl = (window as any).location.href;
-            if (currentUrl.includes('localhost:3001')) {
-              // Already on localhost - just reload
-              (window as any).location.reload();
-            } else {
-              // Not on localhost - redirect to localhost first
-              (window as any).location.href = 'http://localhost:3001/main/index.html';
-            }
-          }
+          // Reload panel safely (handles dev vs production)
+          reloadPanel();
         },
       },
       {
@@ -93,13 +81,19 @@ const buildContextMenu = () => {
       },
     ],
   };
-  window.__adobe_cep__.invokeAsync(
-    "setContextMenuByJSON",
-    JSON.stringify(menuObj),
-    (e: string) => {
-      menuObj.menu.find((m) => m.id === e)?.callback();
+  try {
+    if (typeof window !== "undefined" && window.__adobe_cep__) {
+      window.__adobe_cep__.invokeAsync(
+        "setContextMenuByJSON",
+        JSON.stringify(menuObj),
+        (e: string) => {
+          menuObj.menu.find((m) => m.id === e)?.callback();
+        }
+      );
     }
-  );
+  } catch (e) {
+    console.error("[init-cep] Error setting context menu:", e);
+  }
 };
 
 export const initializeCEP = () => {

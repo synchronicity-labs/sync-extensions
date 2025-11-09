@@ -29,7 +29,7 @@ export const useCore = () => {
   const debugLog = useCallback((type: string, payload?: any) => {
     try {
       const timestamp = new Date().toISOString();
-      const host = (window as any).HOST_CONFIG?.hostId || "unknown";
+      const host = window.HOST_CONFIG?.hostId || "unknown";
       
       const importantEvents = [
         "core_loaded",
@@ -50,7 +50,7 @@ export const useCore = () => {
       ];
       
       if (importantEvents.includes(type)) {
-        const hostConfig = (window as any).HOST_CONFIG || {};
+        const hostConfig = window.HOST_CONFIG || {};
         const logData = {
           type,
           timestamp,
@@ -230,16 +230,16 @@ export const useCore = () => {
     debugLog("core_loaded");
     
     // Expose functions globally for backward compatibility
-    (window as any).debugLog = debugLog;
-    (window as any).updateModelDisplay = updateModelDisplay;
-    (window as any).updateBottomBarModelDisplay = updateModelDisplay;
-    (window as any).ensureAuthToken = ensureAuthToken;
-    (window as any).authHeaders = authHeaders;
-    (window as any).getServerPort = () => {
+    window.debugLog = debugLog;
+    window.updateModelDisplay = updateModelDisplay;
+    window.updateBottomBarModelDisplay = updateModelDisplay;
+    window.ensureAuthToken = ensureAuthToken;
+    window.authHeaders = authHeaders;
+    window.getServerPort = () => {
       const { getServerPort } = require("../utils/serverConfig");
       return getServerPort();
     };
-    (window as any).isOffline = serverState.isOffline;
+    window.isOffline = serverState.isOffline;
     
     // Start offline checking
     startOfflineChecking();

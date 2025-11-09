@@ -16,9 +16,9 @@ Subfolders created on demand:
 ### Enabling debug logs (simple flag file)
 Debug logging is disabled by default. Enable it by creating a flag file:
 
-- Create an empty file `logs/debug.enabled` inside the base directory.
+- Create an empty file `logs/.debug` inside the base directory.
 
-Disable by removing `logs/debug.enabled`.
+Disable by removing `logs/.debug`.
 
 ### Log file locations
 When enabled, components write to the `logs/` directory:
@@ -31,23 +31,18 @@ Note: Without the flag file, UI and host log files are not written.
 ### Quick start (macOS)
 ```bash
 mkdir -p ~/Library/Application\ Support/sync.\ extensions/logs
-touch ~/Library/Application\ Support/sync.\ extensions/logs/debug.enabled
+touch ~/Library/Application\ Support/sync.\ extensions/logs/.debug
 ```
 
 ### Quick start (Windows / PowerShell)
 ```powershell
 New-Item -ItemType Directory -Force "$env:APPDATA\sync. extensions\logs" | Out-Null
-New-Item -ItemType File -Force "$env:APPDATA\sync. extensions\logs\debug.enabled" | Out-Null
+New-Item -ItemType File -Force "$env:APPDATA\sync. extensions\logs\.debug" | Out-Null
 ```
 ### Disable logs
-- MacOS: `rm -f ~/Library/Application\ Support/sync.\ extensions/logs/debug.enabled`
-- Windows: `Remove-Item -Force "$env:APPDATA\sync. extensions\logs\debug.enabled"`
+- MacOS: `rm -f ~/Library/Application\ Support/sync.\ extensions/logs/.debug`
+- Windows: `Remove-Item -Force "$env:APPDATA\sync. extensions\logs\.debug"`
 
 ### Uploads and temporary files
 - Transient render/transcode outputs are written under `uploads/` (automatically cleaned every 24 hours).
 - Temporary copies (e.g., of macOS `TemporaryItems`) are kept in `cache/` (automatically cleaned every 6 hours).
-
-### Troubleshooting
-- If you don’t see logs, create `logs/debug.enabled` and retry.
-- Confirm the resolved base directory exists and contains the subfolders listed above.
-

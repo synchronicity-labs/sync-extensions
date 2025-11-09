@@ -12,12 +12,12 @@ import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
 import { fileURLToPath } from 'url';
 
-// Server log file - only write when debug.enabled flag exists per debug.md
+// Server log file - only write when .debug flag exists per debug.md
 let SERVER_LOG = '';
 let DEBUG_ENABLED = false;
 
 // Initialize debug logging - must be robust and not fail silently
-// In development mode, always enable logging regardless of debug.enabled flag
+// In development mode, always enable logging regardless of .debug flag
 function initDebugLogging() {
   try {
     const home = os.homedir();
@@ -43,10 +43,10 @@ function initDebugLogging() {
       } catch (_) {}
     }
     
-    const DEBUG_FLAG = path.join(LOGS_DIR, 'debug.enabled');
+    const DEBUG_FLAG = path.join(LOGS_DIR, '.debug');
     const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
     
-    // In dev mode, always enable logging; otherwise check debug.enabled flag
+    // In dev mode, always enable logging; otherwise check .debug flag
     DEBUG_ENABLED = isDevMode || fs.existsSync(DEBUG_FLAG);
     
     if (DEBUG_ENABLED) {
@@ -604,7 +604,7 @@ async function startServer() {
     const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
     let debugEnabled = DEBUG_ENABLED;
     try {
-      const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+      const debugFlag = path.join(DIRS.logs, '.debug');
       debugEnabled = isDevMode || fs.existsSync(debugFlag);
     } catch (_) {
       debugEnabled = isDevMode || DEBUG_ENABLED;
@@ -631,7 +631,7 @@ async function startServer() {
       const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
       let debugEnabled = DEBUG_ENABLED;
       try {
-        const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+        const debugFlag = path.join(DIRS.logs, '.debug');
         debugEnabled = isDevMode || fs.existsSync(debugFlag);
       } catch (_) {
         debugEnabled = isDevMode || DEBUG_ENABLED;
@@ -711,7 +711,7 @@ startServer().catch((err) => {
   // Re-check debug flag using DIRS from config.js
   let debugEnabled = DEBUG_ENABLED;
   try {
-    const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+    const debugFlag = path.join(DIRS.logs, '.debug');
     debugEnabled = fs.existsSync(debugFlag);
   } catch (_) {}
   
@@ -735,7 +735,7 @@ process.on('uncaughtException', (err)=>{
     // Re-check debug flag using DIRS from config.js
     let debugEnabled = DEBUG_ENABLED;
     try {
-      const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+      const debugFlag = path.join(DIRS.logs, '.debug');
       debugEnabled = fs.existsSync(debugFlag);
     } catch (_) {}
     if (debugEnabled) {
@@ -753,7 +753,7 @@ process.on('unhandledRejection', (reason)=>{
     // Re-check debug flag using DIRS from config.js
     let debugEnabled = DEBUG_ENABLED;
     try {
-      const debugFlag = path.join(DIRS.logs, 'debug.enabled');
+      const debugFlag = path.join(DIRS.logs, '.debug');
       debugEnabled = fs.existsSync(debugFlag);
     } catch (_) {}
     if (debugEnabled) {

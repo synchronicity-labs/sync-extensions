@@ -93,8 +93,8 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const initLucideIcons = () => {
       // Check if lucide is already loaded
-      if ((window as any).lucide && (window as any).lucide.createIcons) {
-        (window as any).lucide.createIcons();
+      if (window.lucide && window.lucide.createIcons) {
+        window.lucide.createIcons();
         // Replace globe icons with languages icons in dubbing contexts
         replaceGlobeWithLanguages();
         return;
@@ -104,8 +104,8 @@ const AppContent: React.FC = () => {
       const script = document.createElement("script");
       script.src = "../../lib/lucide.js";
       script.onload = () => {
-        if ((window as any).lucide && (window as any).lucide.createIcons) {
-          (window as any).lucide.createIcons();
+        if (window.lucide && window.lucide.createIcons) {
+          window.lucide.createIcons();
           // Replace globe icons with languages icons in dubbing contexts
           replaceGlobeWithLanguages();
         }
@@ -134,8 +134,8 @@ const AppContent: React.FC = () => {
         });
         
         // Re-initialize icons after replacement
-        if ((window as any).lucide && (window as any).lucide.createIcons) {
-          (window as any).lucide.createIcons();
+        if (window.lucide && window.lucide.createIcons) {
+          window.lucide.createIcons();
         }
       } catch (e) {
         // Silently fail
@@ -154,9 +154,9 @@ const AppContent: React.FC = () => {
           try {
             // Only initialize icons on currently visible tab content
             const activePane = document.querySelector('.tab-pane.active');
-            if (activePane && (window as any).lucide && (window as any).lucide.createIcons) {
+            if (activePane && window.lucide && window.lucide.createIcons) {
               // Scope to active pane only to avoid conflicts with unmounting components
-              (window as any).lucide.createIcons({ root: activePane });
+              window.lucide.createIcons({ root: activePane });
         replaceGlobeWithLanguages();
       }
           } catch (e) {

@@ -97,8 +97,9 @@ export const dropDisable = () => {
         const cs = new (window as any).CSInterface();
         // Detect host application
         const appId = cs.getApplicationID();
-        const isAE = appId && (appId.includes('AEFT') || appId.includes('AfterEffects'));
-        const isPPRO = appId && (appId.includes('PPRO') || appId.includes('Premiere'));
+        const { HOST_IDS, HOST_APP_IDS } = await import("../../../shared/host");
+        const isAE = appId && (appId.includes(HOST_IDS.AEFT) || appId.includes('AfterEffects'));
+        const isPPRO = appId && (appId.includes(HOST_IDS.PPRO) || appId.includes('Premiere'));
         
         // Call host-specific function via evalScript
         await new Promise<void>((resolve) => {

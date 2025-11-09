@@ -8,6 +8,7 @@ import { useJobs } from "../hooks/useJobs";
 import { useTabs } from "../hooks/useTabs";
 import { useCore } from "../hooks/useCore";
 import { useHistory } from "../hooks/useHistory";
+import { HOST_IDS } from "../../../shared/host";
 
 export const setupWindowGlobals = (
   media: ReturnType<typeof useMedia>,
@@ -17,13 +18,13 @@ export const setupWindowGlobals = (
   history: ReturnType<typeof useHistory>
 ) => {
   // Core functions
-  (window as any).debugLog = core.debugLog;
-  (window as any).updateModelDisplay = core.updateModelDisplay;
-  (window as any).updateBottomBarModelDisplay = core.updateModelDisplay;
-  (window as any).ensureAuthToken = core.ensureAuthToken;
-  (window as any).authHeaders = core.authHeaders;
-  (window as any).getServerPort = () => (window as any).__syncServerPort || 3000;
-  (window as any).isOffline = core.serverState.isOffline;
+  window.debugLog = core.debugLog;
+  window.updateModelDisplay = core.updateModelDisplay;
+  window.updateBottomBarModelDisplay = core.updateModelDisplay;
+  window.ensureAuthToken = core.ensureAuthToken;
+  window.authHeaders = core.authHeaders;
+  window.getServerPort = () => (window as any).__syncServerPort || 3000; // Keep as any for backward compat
+  window.isOffline = core.serverState.isOffline;
 
   // Media functions
   (window as any).openFileDialog = media.openFileDialog;
@@ -101,9 +102,9 @@ export const setupWindowGlobals = (
   };
 
   // Debug log path function
-  (window as any).getDebugLogPath = () => {
+  window.getDebugLogPath = () => {
     try {
-      if (typeof window !== "undefined" && (window as any).cep) {
+      if (typeof window !== "undefined" && window.cep) {
         const fs = require("fs");
         const path = require("path");
         const os = require("os");
@@ -114,14 +115,14 @@ export const setupWindowGlobals = (
             : path.join(home, "Library", "Application Support", "sync. extensions", "logs");
 
         // Check if debug is enabled
-        const debugFlag = path.join(logsDir, "debug.enabled");
+        const debugFlag = path.join(logsDir, ".debug");
         if (!fs.existsSync(debugFlag)) {
           return null; // Debug logging disabled
         }
 
         // Determine host and return appropriate log file
-        const isAE = (window as any).HOST_CONFIG && (window as any).HOST_CONFIG.isAE;
-        const isPPRO = (window as any).HOST_CONFIG && (window as any).HOST_CONFIG.hostId === "PPRO";
+        const isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+        const isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === HOST_IDS.PPRO;
 
         if (isAE) {
           return path.join(logsDir, "sync_ae_debug.log");
@@ -136,10 +137,10 @@ export const setupWindowGlobals = (
   };
 
   // Open external URL function
-  (window as any).openExternalURL = (url: string) => {
+  window.openExternalURL = (url: string) => {
     try {
-      if (typeof window !== "undefined" && (window as any).CSInterface) {
-        const cs = new (window as any).CSInterface();
+      if (typeof window !== "undefined" && window.CSInterface) {
+        const cs = new window.CSInterface();
         cs.openURLInDefaultBrowser(url);
       } else {
         window.open(url, "_blank", "noopener,noreferrer");
@@ -182,6 +183,7 @@ export const setupWindowGlobals = (
 
   // History card functions - exposed via HistoryTab component
   // These will be set up when HistoryTab mounts
+  // History functions - these use internal functions that may not be typed
   (window as any).copyJobId = (jobId: string) => {
     if ((window as any).__historyCopyJobId) {
       (window as any).__historyCopyJobId(jobId);
@@ -221,13 +223,13 @@ export const setupWindowGlobals = (
   // Expose evalExtendScript for backward compatibility (host-specific function calls)
   (window as any).evalExtendScript = async (fn: string, payload?: any) => {
     try {
-      if (typeof window === "undefined" || !(window as any).CSInterface) {
+      if (typeof window === "undefined" || !window.CSInterface) {
         return { ok: false, error: "CSInterface not available" };
       }
 
-      const cs = new (window as any).CSInterface();
+      const cs = new window.CSInterface();
       const arg = JSON.stringify(payload || {});
-      const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
+      const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || "EXTENSION");
       
       // Determine host file based on function name (AEFT_ vs PPRO_)
       const isAE = String(fn || "").indexOf("AEFT_") === 0;

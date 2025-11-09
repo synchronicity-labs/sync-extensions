@@ -1,84 +1,23 @@
 // Host detection - runs synchronously before React loads
 // This ensures HOST_CONFIG is available immediately for all code
+// Uses centralized host detection from shared/utils/host.ts
+import { detectHost } from "../shared/utils/host";
+
 (function() {
   try {
-    // Try multiple detection methods
-    let detected = false;
-    
-    // Method 1: CSInterface getHostEnvironment
-    if (typeof window !== "undefined" && (window as any).CSInterface) {
-      try {
-        const cs = new (window as any).CSInterface();
-        const env = cs.getHostEnvironment?.();
-        if (env) {
-          const appName = (env.appName || "").toUpperCase();
-          const appId = (env.appId || "").toUpperCase();
-          
-          // Debug logging - use window.debugLog if console isn't available
-          const log = (window as any).debugLog || console.log || (() => {});
-          log("[host-detection] Method 1 - appName:", env.appName, "appId:", env.appId);
-          
-          // Detect host based on app ID or name - check multiple variations
-          if (appId.indexOf("AEFT") !== -1 || appName.indexOf("AFTER EFFECTS") !== -1 || appName.indexOf("AFTEREFFECTS") !== -1) {
-            (window as any).HOST_CONFIG = { hostId: "AEFT", hostName: "After Effects", isAE: true };
-            log("[host-detection] Detected After Effects");
-            detected = true;
-          } else if (appId.indexOf("PPRO") !== -1 || appName.indexOf("PREMIERE") !== -1 || appName.indexOf("PREM") !== -1) {
-            (window as any).HOST_CONFIG = { hostId: "PPRO", hostName: "Premiere Pro", isAE: false };
-            log("[host-detection] Detected Premiere Pro");
-            detected = true;
-          }
-        }
-      } catch (e) {
-        // CSInterface failed, try next method
-      }
-    }
-    
-    // Method 2: Check window.__adobe_cep__ directly
-    if (!detected && typeof window !== "undefined" && (window as any).__adobe_cep__) {
-      try {
-        const hostEnv = (window as any).__adobe_cep__.getHostEnvironment();
-        if (hostEnv) {
-          const parsed = typeof hostEnv === 'string' ? JSON.parse(hostEnv) : hostEnv;
-          const appName = (parsed.appName || "").toUpperCase();
-          const appId = (parsed.appId || "").toUpperCase();
-          
-          const log = (window as any).debugLog || console.log || (() => {});
-          log("[host-detection] Method 2 - appName:", parsed.appName, "appId:", parsed.appId);
-          
-          if (appId.indexOf("AEFT") !== -1 || appName.indexOf("AFTER EFFECTS") !== -1 || appName.indexOf("AFTEREFFECTS") !== -1) {
-            (window as any).HOST_CONFIG = { hostId: "AEFT", hostName: "After Effects", isAE: true };
-            detected = true;
-          } else if (appId.indexOf("PPRO") !== -1 || appName.indexOf("PREMIERE") !== -1 || appName.indexOf("PREM") !== -1) {
-            (window as any).HOST_CONFIG = { hostId: "PPRO", hostName: "Premiere Pro", isAE: false };
-            detected = true;
-          }
-        }
-      } catch (e) {
-        // Method 2 failed
-      }
-    }
-    
-    // Method 3: Check URL or other indicators
-    if (!detected && typeof window !== "undefined" && window.location) {
-      const url = window.location.href || "";
-      if (url.includes("premiere") || url.includes("ppro")) {
-        (window as any).HOST_CONFIG = { hostId: "PPRO", hostName: "Premiere Pro", isAE: false };
-        detected = true;
-      } else if (url.includes("aftereffects") || url.includes("aeft") || url.includes("ae")) {
-        (window as any).HOST_CONFIG = { hostId: "AEFT", hostName: "After Effects", isAE: true };
-        detected = true;
-      }
-    }
-    
-    if (!detected) {
-      const log = (window as any).debugLog || console.warn || console.log || (() => {});
+    const config = detectHost();
+    if (config) {
+      const log = window.debugLog || console.log || (() => {});
+      log("[host-detection] Detected host:", config.hostId, config.hostName);
+    } else {
+      const log = window.debugLog || console.warn || console.log || (() => {});
       log("[host-detection] Could not detect host - will be detected by useHostDetection hook");
     }
   } catch (e) {
-    // Detection failed - useHostDetection hook will handle fallback
-    const log = (window as any).debugLog || console.error || (() => {});
+    // Detection failed - log but don't block panel
+    const log = window.debugLog || console.error || (() => {});
     log("[host-detection] Error detecting host:", e);
+    // Don't re-throw - let React mount even if host detection fails
   }
 })();
 
@@ -88,7 +27,32 @@ import App from "./App";
 import { initBolt } from "../lib/utils/bolt";
 
 // Initialize Bolt CEP - loads JSX files
-initBolt();
+// Wait for CEP to be fully available before initializing
+let boltInitRetries = 0;
+const MAX_BOLT_INIT_RETRIES = 50; // 5 seconds max (50 * 100ms)
+
+const initializeBoltWhenReady = () => {
+  // Check if CEP is available
+  if (typeof window !== "undefined" && (window as any).cep && (window as any).__adobe_cep__) {
+    try {
+      initBolt();
+    } catch (error) {
+      console.error("[main] Error initializing Bolt:", error);
+      // Don't block panel rendering if Bolt fails
+    }
+  } else {
+    // Retry after a short delay if CEP isn't ready yet
+    boltInitRetries++;
+    if (boltInitRetries < MAX_BOLT_INIT_RETRIES) {
+      setTimeout(initializeBoltWhenReady, 100);
+    } else {
+      console.warn("[main] CEP not available after max retries - panel will still render");
+    }
+  }
+};
+
+// Start initialization
+initializeBoltWhenReady();
 
 // Enable HMR hot reload for CEP panels
 // In development, Vite HMR updates should work automatically
@@ -103,46 +67,92 @@ if (import.meta.hot) {
     // Only reload if it's a critical error that prevents the app from working
     // Use a small delay to let React finish current render cycle
     setTimeout(() => {
-      if (typeof window !== "undefined" && (window as any).location) {
-        // Ensure we're on localhost before reloading
-        const currentUrl = (window as any).location.href;
-        if (currentUrl.includes('localhost:3001')) {
-          (window as any).location.reload();
-        }
+      if (typeof window !== "undefined" && window.location) {
+        // Reload safely (handles dev vs production)
+        window.location.reload();
       }
     }, 500);
   });
 }
 
 // Mount React app - ensure root element exists
-const rootElement = document.getElementById("root");
-if (!rootElement) {
-  console.error("[main] Root element not found! Waiting for DOM...");
-  // Wait for DOM to be ready
-  const waitForRoot = () => {
-    const el = document.getElementById("root");
-    if (el) {
-      const root = ReactDOM.createRoot(el);
-      root.render(
-        <React.StrictMode>
-          <App />
-        </React.StrictMode>
-      );
+const mountReactApp = () => {
+  try {
+    const rootElement = document.getElementById("root");
+    if (!rootElement) {
+      console.error("[main] Root element not found! Waiting for DOM...");
+      // Wait for DOM to be ready
+      const waitForRoot = () => {
+        const el = document.getElementById("root");
+        if (el) {
+          try {
+            const root = ReactDOM.createRoot(el);
+            root.render(
+              <React.StrictMode>
+                <App />
+              </React.StrictMode>
+            );
+            console.log("[main] React app mounted successfully");
+          } catch (error) {
+            console.error("[main] Error mounting React:", error);
+            // Show error message in panel
+            el.innerHTML = `
+              <div style="padding: 20px; font-family: system-ui; color: #ff0000;">
+                <h2>Error Loading Panel</h2>
+                <p>Failed to mount React application.</p>
+                <p>Error: ${error instanceof Error ? error.message : String(error)}</p>
+                <p>Check the CEP debug console for more details.</p>
+              </div>
+            `;
+          }
+        } else {
+          setTimeout(waitForRoot, 50);
+        }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', waitForRoot);
+      } else {
+        waitForRoot();
+      }
     } else {
-      setTimeout(waitForRoot, 50);
+      // Root element exists - mount React
+      try {
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(
+          <React.StrictMode>
+            <App />
+          </React.StrictMode>
+        );
+        console.log("[main] React app mounted successfully");
+      } catch (error) {
+        console.error("[main] Error mounting React:", error);
+        // Show error message in panel
+        rootElement.innerHTML = `
+          <div style="padding: 20px; font-family: system-ui; color: #ff0000;">
+            <h2>Error Loading Panel</h2>
+            <p>Failed to mount React application.</p>
+            <p>Error: ${error instanceof Error ? error.message : String(error)}</p>
+            <p>Check the CEP debug console for more details.</p>
+          </div>
+        `;
+      }
     }
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', waitForRoot);
-  } else {
-    waitForRoot();
+  } catch (error) {
+    console.error("[main] Fatal error during initialization:", error);
+    // Last resort - try to show error in body
+    try {
+      document.body.innerHTML = `
+        <div style="padding: 20px; font-family: system-ui; color: #ff0000;">
+          <h2>Fatal Error Loading Panel</h2>
+          <p>${error instanceof Error ? error.message : String(error)}</p>
+          <p>Check the CEP debug console for more details.</p>
+        </div>
+      `;
+    } catch (_) {
+      // If even this fails, there's nothing we can do
+    }
   }
-} else {
-  // Root element exists - mount React
-  const root = ReactDOM.createRoot(rootElement);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-}
+};
+
+// Start mounting React app
+mountReactApp();

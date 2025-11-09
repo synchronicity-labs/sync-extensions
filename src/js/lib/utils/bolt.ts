@@ -65,7 +65,10 @@ export const evalTS = <
   return new Promise(function (resolve, reject) {
     const formattedArgs = args
       .map((arg) => {
-        console.log(JSON.stringify(arg));
+        // Only log in development mode
+        if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
+          console.log('[evalTS]', functionName, JSON.stringify(arg));
+        }
         return `${JSON.stringify(arg)}`;
       })
       .join(",");
@@ -80,8 +83,9 @@ export const evalTS = <
         }`,
       (res: string) => {
         try {
-          //@ts-ignore
-          if (res === "undefined") return resolve();
+          if (res === "undefined" || res === undefined) {
+            return resolve(undefined as ReturnType<Func>);
+          }
           const parsed = JSON.parse(res);
           if (
             typeof parsed.name === "string" &&
@@ -166,18 +170,49 @@ export const dispatchTS = <Key extends string & keyof EventTS>(
 // js utils
 
 export const initBolt = (log = true) => {
-  if (window.cep) {
-    const extRoot = csi.getSystemPath("extension");
-    const jsxSrc = `${extRoot}/jsx/index.js`;
-    const jsxBinSrc = `${extRoot}/jsx/index.jsxbin`;
-    if (fs.existsSync(jsxSrc)) {
-      if (log) console.log(jsxSrc);
-      evalFile(jsxSrc);
-    } else if (fs.existsSync(jsxBinSrc)) {
-      if (log) console.log(jsxBinSrc);
-      evalFile(jsxBinSrc);
+  try {
+    if (typeof window === "undefined" || !(window as any).cep) {
+      if (log) console.warn("[initBolt] CEP not available yet");
+      return;
     }
-    initializeCEP();
+
+    // Ensure CSInterface is available
+    if (!csi || typeof csi.getSystemPath !== "function") {
+      if (log) console.error("[initBolt] CSInterface not properly initialized");
+      return;
+    }
+
+    try {
+      const extRoot = csi.getSystemPath("extension");
+      if (!extRoot) {
+        if (log) console.error("[initBolt] Could not get extension root path");
+        return;
+      }
+
+      const jsxSrc = `${extRoot}/jsx/index.js`;
+      const jsxBinSrc = `${extRoot}/jsx/index.jsxbin`;
+      
+      if (fs.existsSync(jsxSrc)) {
+        if (log) console.log("[initBolt] Loading JSX from:", jsxSrc);
+        evalFile(jsxSrc);
+      } else if (fs.existsSync(jsxBinSrc)) {
+        if (log) console.log("[initBolt] Loading JSX from:", jsxBinSrc);
+        evalFile(jsxBinSrc);
+      } else {
+        if (log) console.error("[initBolt] JSX file not found at:", jsxSrc, "or", jsxBinSrc);
+        return;
+      }
+
+      // Initialize CEP menus and context
+      initializeCEP();
+      if (log) console.log("[initBolt] Bolt CEP initialized successfully");
+    } catch (error) {
+      console.error("[initBolt] Error during initialization:", error);
+      throw error; // Re-throw to let caller know it failed
+    }
+  } catch (error) {
+    console.error("[initBolt] Fatal error initializing Bolt CEP:", error);
+    throw error; // Re-throw to let caller know it failed
   }
 };
 
@@ -296,8 +331,9 @@ export const selectFile = (
  * Run once at the start of your app to fix this issue
  */
 export const enableSpectrum = () => {
-  if (window.PointerEvent) {
-    //@ts-ignore
-    delete window.PointerEvent;
+  // Fix React Spectrum PointerEvent issue on macOS
+  // This is a known workaround for React Spectrum compatibility
+  if (typeof window !== 'undefined' && 'PointerEvent' in window) {
+    delete (window as { PointerEvent?: typeof PointerEvent }).PointerEvent;
   }
 };

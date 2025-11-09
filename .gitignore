@@ -41,7 +41,6 @@ certificates/
 certs/
 
 # Environment variables
-# src/server/.env contains server config (R2, PostHog) and ZXP signing password
 .env
 .env.local
 .env.production.local

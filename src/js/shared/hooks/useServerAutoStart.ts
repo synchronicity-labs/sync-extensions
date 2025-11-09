@@ -14,7 +14,7 @@ export const useServerAutoStart = () => {
 
     const logDebug = async (message: string, data?: any) => {
       try {
-        const hostConfig = (window as any).HOST_CONFIG || {};
+        const hostConfig = window.HOST_CONFIG || {};
         const logData = {
           message: `[useServerAutoStart] ${message}`,
           data,
@@ -59,7 +59,7 @@ export const useServerAutoStart = () => {
       }
 
       // Try to start server via NLE
-      const windowNLE = (window as any).nle;
+      const windowNLE = window.nle;
       await logDebug("checking_nle", { 
         nle: !!nle, 
         windowNLE: !!windowNLE

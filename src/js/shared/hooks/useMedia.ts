@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useCore } from "./useCore";
 import { useNLE } from "./useNLE";
 import { getApiUrl } from "../utils/serverConfig";
+import { HOST_IDS } from "../../../shared/host";
 
 interface MediaSelection {
   video: string | null;
@@ -38,7 +39,7 @@ export const useMedia = () => {
         const cs = new (window as any).CSInterface();
         const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
       const hostId = nle.getHostId();
-        const isAE = hostId === "AEFT";
+        const isAE = hostId === HOST_IDS.AEFT;
         const hostFile = isAE ? "/host/ae.jsx" : "/host/ppro.jsx";
         const fn = isAE ? "AEFT_showFileDialog" : "PPRO_showFileDialog";
         

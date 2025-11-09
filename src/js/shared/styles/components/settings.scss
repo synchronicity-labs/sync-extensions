@@ -158,36 +158,35 @@
 }
 
 .api-key-btn {
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  min-height: 20px;
-  background: transparent;
-  border: 1px solid var(--bg-button);
-  border-radius: 4px;
-  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  background: var(--bg-button);
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
-  transition: all 0.2s ease;
+  padding: 8px;
+  transition: all 0.15s ease;
   flex-shrink: 0;
 }
 
 .api-key-btn:hover {
-  color: var(--text-tertiary);
-  border-color: var(--border-tertiary);
+  background: var(--bg-button-hover);
 }
 
 .api-key-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
 }
 
 .api-key-btn i {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
 }
 
 /* api-key-btn styles moved to components/buttons.css */

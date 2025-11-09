@@ -2,41 +2,16 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { detectAppId as detectAppIdFromUtils } from './utils/host.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Resolve EXT_ROOT: server/config.js -> server/ -> extension root
 export const EXT_ROOT = path.resolve(__dirname, '..', '..');
-const EXT_FOLDER = path.basename(EXT_ROOT);
 
-// Detect APP_ID from extension ID (com.sync.extension.ae or com.sync.extension.ppro)
-// or fallback to folder name detection
-function detectAppId() {
-  const folderLower = EXT_FOLDER.toLowerCase();
-  
-  // Check for bolt-cep panel naming convention
-  if (folderLower.includes('com.sync.extension.ae') || folderLower.includes('.ae') || folderLower.includes('ae')) {
-    return 'ae';
-  }
-  if (folderLower.includes('com.sync.extension.ppro') || folderLower.includes('.ppro') || folderLower.includes('ppro')) {
-    return 'premiere';
-  }
-  
-  // Fallback: check if we're in a CEP extension directory structure
-  // Try to read manifest to determine app
-  try {
-    const manifestPath = path.join(EXT_ROOT, 'CSXS', 'manifest.xml');
-    if (fs.existsSync(manifestPath)) {
-      const manifestContent = fs.readFileSync(manifestPath, 'utf8');
-      if (manifestContent.includes('AEFT')) return 'ae';
-      if (manifestContent.includes('PPRO')) return 'premiere';
-    }
-  } catch (_) {}
-  
-  return 'unknown';
-}
-
-export const APP_ID = detectAppId();
+// Use centralized host detection from utils/host.js
+// This ensures consistent host detection across the codebase
+export const APP_ID = detectAppIdFromUtils();
 export const MANIFEST_PATH = path.join(EXT_ROOT, 'CSXS', 'manifest.xml');
 
 // Detect extension installation location (user vs system-wide)

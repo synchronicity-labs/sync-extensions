@@ -5,6 +5,7 @@ import { APP_ID, EXT_ROOT, UPDATES_REPO, UPDATES_CHANNEL, GH_TOKEN, GH_UA, DIRS,
 import { tlog } from '../utils/log.js';
 import { parseBundleVersion, normalizeVersion, compareSemver, getCurrentVersion } from '../utils/version.js';
 import { exec, execPowerShell, runRobocopy } from '../utils/exec.js';
+import { HOST_APP_IDS } from '../../shared/host.js';
 
 function ghHeaders(extra) {
   const h = Object.assign({ 'Accept': 'application/vnd.github+json', 'User-Agent': GH_UA }, extra || {});
@@ -29,7 +30,7 @@ export async function getLatestReleaseInfo() {
     
     const isWindows = process.platform === 'win32';
     const osName = isWindows ? 'windows' : 'mac';
-    const appName = (APP_ID === 'ae' || APP_ID === 'premiere') ? APP_ID : 'premiere';
+    const appName = (APP_ID === HOST_APP_IDS.AE || APP_ID === HOST_APP_IDS.PREMIERE) ? APP_ID : HOST_APP_IDS.PREMIERE;
     const preferredPatterns = [
       new RegExp(`^sync-extension-${appName}-${osName}-signed\\.zxp$`, 'i'),
       new RegExp(`^sync-extension-([a-z]+)-${osName}-signed\\.zxp$`, 'i'),
@@ -338,7 +339,7 @@ export async function applyUpdate(isSpawnedByUI) {
       }
     };
     
-    if (APP_ID === 'ae' && fs.existsSync(aeSrcDir)) {
+    if (APP_ID === HOST_APP_IDS.AE && fs.existsSync(aeSrcDir)) {
       if (isWindows) {
         await runRobocopy(aeSrcDir, EXT_ROOT);
         await runRobocopy(path.join(extractedDir, 'ui'), path.join(EXT_ROOT, 'ui'));
@@ -354,7 +355,7 @@ export async function applyUpdate(isSpawnedByUI) {
         await copyWithRetry(path.join(extractedDir, 'index.html'), path.join(EXT_ROOT, 'index.html'), true);
         await copyWithRetry(path.join(extractedDir, 'lib'), path.join(EXT_ROOT, 'lib'));
       }
-    } else if (APP_ID === 'premiere' && fs.existsSync(pproSrcDir)) {
+    } else if (APP_ID === HOST_APP_IDS.PREMIERE && fs.existsSync(pproSrcDir)) {
       if (isWindows) {
         await runRobocopy(pproSrcDir, EXT_ROOT);
         await runRobocopy(path.join(extractedDir, 'ui'), path.join(EXT_ROOT, 'ui'));

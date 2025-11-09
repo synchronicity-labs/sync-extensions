@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { DIRS, APP_ID } from '../config.js';
+import { HOST_APP_IDS } from '../../shared/host.js';
 
-export const DEBUG_FLAG_FILE = path.join(DIRS.logs, 'debug.enabled');
-// In dev mode, always enable logging; otherwise check debug.enabled flag
+export const DEBUG_FLAG_FILE = path.join(DIRS.logs, '.debug');
+// In dev mode, always enable logging; otherwise check .debug flag
 const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
 let DEBUG = false;
 try { 
@@ -11,7 +12,7 @@ try {
 } catch (_){ 
   DEBUG = isDevMode; // In dev mode, default to true
 }
-export const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === 'premiere') ? 'sync_ppro_debug.log' : (APP_ID === 'ae') ? 'sync_ae_debug.log' : 'sync_server_debug.log');
+export const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === HOST_APP_IDS.PREMIERE) ? 'sync_ppro_debug.log' : (APP_ID === HOST_APP_IDS.AE) ? 'sync_ae_debug.log' : 'sync_server_debug.log');
 
 // Log rotation - max 10MB per file, keep 3 rotated files
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB

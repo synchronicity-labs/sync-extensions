@@ -1,56 +1,19 @@
 import { useState, useEffect } from "react";
+import { getHostConfig, type HostConfig } from "../utils/host";
 
-export interface HostConfig {
-  hostId: string;
-  hostName: string;
-  isAE: boolean;
-}
+export type { HostConfig };
 
 export const useHostDetection = () => {
   const [hostConfig, setHostConfig] = useState<HostConfig | null>(null);
 
   useEffect(() => {
-    // Check if HOST_CONFIG is already set (by extension-specific file)
-    if ((window as any).HOST_CONFIG) {
-      setHostConfig((window as any).HOST_CONFIG);
-      return;
-    }
-
-    // Fallback detection using CSInterface
-    try {
-      if (!(window as any).CSInterface) {
-        console.error("[host-detection] CSInterface not available");
-        return;
-      }
-
-      const cs = new (window as any).CSInterface();
-      const env = cs.getHostEnvironment?.();
-      const appName = env?.appName || "";
-      const appId = env?.appId || "";
-      const nameU = String(appName).toUpperCase();
-      const idU = String(appId).toUpperCase();
-
-      console.log("[host-detection] Fallback detection - appName:", appName, "appId:", appId);
-
-      let config: HostConfig | null = null;
-
-      // Check multiple variations for After Effects
-      if (idU.indexOf("AEFT") !== -1 || nameU.indexOf("AFTER EFFECTS") !== -1 || nameU.indexOf("AFTEREFFECTS") !== -1) {
-        config = { hostId: "AEFT", hostName: "After Effects", isAE: true };
-      } 
-      // Check multiple variations for Premiere Pro
-      else if (idU.indexOf("PPRO") !== -1 || nameU.indexOf("PREMIERE") !== -1 || nameU.indexOf("PREM") !== -1) {
-        config = { hostId: "PPRO", hostName: "Premiere Pro", isAE: false };
-      }
-
-      if (config) {
-        (window as any).HOST_CONFIG = config;
-        setHostConfig(config);
-        console.log("[host-detection] Fallback detected host:", config.hostId);
-      }
-      // Only set if detected - don't default to anything
-    } catch (e) {
-      console.error("[host-detection] Error detecting host:", e);
+    // Use centralized host detection
+    const config = getHostConfig();
+    if (config) {
+      setHostConfig(config);
+      console.log("[host-detection] Detected host:", config.hostId, config.hostName);
+    } else {
+      console.warn("[host-detection] Could not detect host");
     }
   }, []);
 

@@ -3,11 +3,12 @@ import path from 'path';
 import fs from 'fs';
 import { DEBUG_LOG, DEBUG_FLAG_FILE, rotateLogIfNeeded } from '../utils/log.js';
 import { DIRS } from '../config.js';
+import { HOST_IDS } from '../../shared/host.js';
 
 const router = express.Router();
 
 // Check if debug logging is enabled
-// In dev mode, always enable logging; otherwise check debug.enabled flag
+// In dev mode, always enable logging; otherwise check .debug flag
 function isDebugEnabled() {
   try {
     const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
@@ -32,7 +33,7 @@ router.post('/debug', async (req, res) => {
     
     if (body.hostConfig && body.hostConfig.isAE) {
       logFile = path.join(DIRS.logs, 'sync_ae_debug.log');
-    } else if (body.hostConfig && body.hostConfig.hostId === 'PPRO') {
+    } else if (body.hostConfig && body.hostConfig.hostId === HOST_IDS.PPRO) {
       logFile = path.join(DIRS.logs, 'sync_ppro_debug.log');
     }
     

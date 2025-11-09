@@ -6,6 +6,7 @@ import { useNLE } from "../hooks/useNLE";
 import { useMedia } from "../hooks/useMedia";
 import { getApiUrl } from "../utils/serverConfig";
 import { loaderHTML } from "../utils/loader";
+import { HOST_IDS } from "../../../shared/host";
 
 // Utility functions
 function formatDuration(ms: number): string {
@@ -191,12 +192,12 @@ const HistoryTabContent: React.FC = () => {
           // Try ExtendScript first (only for local files)
           if (videoPath && !videoPath.startsWith('http') && !videoPath.startsWith('https')) {
             try {
-              const nle = (window as any).nle;
+              const nle = window.nle;
               if (nle && nle.getHostId) {
                 const hostId = nle.getHostId();
-                const fn = hostId === "AEFT" ? "AEFT_readThumbnail" : "PPRO_readThumbnail";
+                const fn = hostId === HOST_IDS.AEFT ? "AEFT_readThumbnail" : "PPRO_readThumbnail";
                 
-                const result = await (window as any).evalExtendScript(fn, { path: videoPath });
+                const result = await window.evalExtendScript?.(fn, { path: videoPath });
                 if (result?.ok && result?.dataUrl) {
                   newUrls[job.id] = result.dataUrl;
                   continue;
@@ -280,7 +281,7 @@ const HistoryTabContent: React.FC = () => {
 
   // Expose generateThumbnailsForJobs for backward compatibility
   useEffect(() => {
-    (window as any).generateThumbnailsForJobs = async (jobsToRender: any[]) => {
+    window.generateThumbnailsForJobs = async (jobsToRender: any[]) => {
       const newUrls: Record<string, string> = {};
       
       for (const job of jobsToRender || []) {
@@ -295,12 +296,12 @@ const HistoryTabContent: React.FC = () => {
           // Try ExtendScript first (only for local files)
           if (videoPath && !videoPath.startsWith('http') && !videoPath.startsWith('https')) {
             try {
-              const nle = (window as any).nle;
+              const nle = window.nle;
               if (nle && nle.getHostId) {
                 const hostId = nle.getHostId();
-                const fn = hostId === "AEFT" ? "AEFT_readThumbnail" : "PPRO_readThumbnail";
+                const fn = hostId === HOST_IDS.AEFT ? "AEFT_readThumbnail" : "PPRO_readThumbnail";
                 
-                const result = await (window as any).evalExtendScript(fn, { path: videoPath });
+                const result = await window.evalExtendScript?.(fn, { path: videoPath });
                 if (result?.ok && result?.dataUrl) {
                   newUrls[job.id] = result.dataUrl;
                   continue;
@@ -379,15 +380,15 @@ const HistoryTabContent: React.FC = () => {
     };
 
     return () => {
-      delete (window as any).generateThumbnailsForJobs;
+      delete window.generateThumbnailsForJobs;
     };
   }, [thumbnailUrls]);
 
   // Re-initialize Lucide icons
   useEffect(() => {
-    if (activeTab === "history" && (window as any).lucide && (window as any).lucide.createIcons) {
+    if (activeTab === "history" && window.lucide && window.lucide.createIcons) {
       const timer = setTimeout(() => {
-        (window as any).lucide.createIcons();
+        window.lucide.createIcons();
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -405,9 +406,9 @@ const HistoryTabContent: React.FC = () => {
     if (!historyWrapper) return;
 
     // Clean up existing observer
-    if ((window as any).historyScrollObserver) {
-      (window as any).historyScrollObserver.disconnect();
-      (window as any).historyScrollObserver = null;
+    if (window.historyScrollObserver) {
+      window.historyScrollObserver.disconnect();
+      window.historyScrollObserver = null;
     }
 
     // Create IntersectionObserver
@@ -440,12 +441,12 @@ const HistoryTabContent: React.FC = () => {
     );
 
     observer.observe(loader);
-    (window as any).historyScrollObserver = observer;
+    window.historyScrollObserver = observer;
 
     return () => {
-      if ((window as any).historyScrollObserver) {
-        (window as any).historyScrollObserver.disconnect();
-        (window as any).historyScrollObserver = null;
+      if (window.historyScrollObserver) {
+        window.historyScrollObserver.disconnect();
+        window.historyScrollObserver = null;
       }
     };
   }, [activeTab, hasMore, isLoading, loadMore]);
@@ -455,11 +456,11 @@ const HistoryTabContent: React.FC = () => {
     try {
       const job = jobs.find(j => String(j.id) === String(jobId));
       if (!job) {
-        if ((window as any).showToast) (window as any).showToast('job not found', 'error');
+        if (window.showToast) window.showToast('job not found', 'error');
         return;
       }
 
-      const authHeaders = (window as any).authHeaders || (() => ({}));
+      const authHeaders = window.authHeaders || (() => ({}));
       const headers = await authHeaders();
       const response = await fetch(getApiUrl(`/jobs/${jobId}/save`), {
         method: 'POST',
@@ -472,12 +473,12 @@ const HistoryTabContent: React.FC = () => {
 
       const data = await response.json().catch(() => null);
       if (response.ok && data?.ok) {
-        if ((window as any).showToast) (window as any).showToast('saved to documents', 'success');
+        if (window.showToast) window.showToast('saved to documents', 'success');
       } else {
-        if ((window as any).showToast) (window as any).showToast(data?.error || 'failed to save', 'error');
+        if (window.showToast) window.showToast(data?.error || 'failed to save', 'error');
       }
     } catch (e) {
-      if ((window as any).showToast) (window as any).showToast('failed to save', 'error');
+      if (window.showToast) window.showToast('failed to save', 'error');
     }
   };
 
@@ -485,37 +486,37 @@ const HistoryTabContent: React.FC = () => {
     try {
       const job = jobs.find(j => String(j.id) === String(jobId));
       if (!job || !job.outputPath) {
-        if ((window as any).showToast) (window as any).showToast('output not available', 'error');
+        if (window.showToast) window.showToast('output not available', 'error');
         return;
       }
 
       if (!nle) {
-        if ((window as any).showToast) (window as any).showToast('nle not available', 'error');
+        if (window.showToast) window.showToast('nle not available', 'error');
         return;
       }
 
       const result = await nle.insertFileAtPlayhead(job.outputPath);
       if (result?.ok) {
-        if ((window as any).showToast) (window as any).showToast('inserted into timeline', 'success');
+        if (window.showToast) window.showToast('inserted into timeline', 'success');
       } else {
-        if ((window as any).showToast) (window as any).showToast(result?.error || 'failed to insert', 'error');
+        if (window.showToast) window.showToast(result?.error || 'failed to insert', 'error');
       }
     } catch (e) {
-      if ((window as any).showToast) (window as any).showToast('failed to insert', 'error');
+      if (window.showToast) window.showToast('failed to insert', 'error');
     }
   };
 
   const handleCopyOutputLink = (jobId: string) => {
     const job = jobs.find(j => String(j.id) === String(jobId));
     if (!job || !job.outputPath) {
-      if ((window as any).showToast) (window as any).showToast('output path not available', 'error');
+      if (window.showToast) window.showToast('output path not available', 'error');
       return;
     }
     
     if (copyToClipboard(job.outputPath)) {
-      if ((window as any).showToast) (window as any).showToast('output link copied to clipboard', 'success');
+      if (window.showToast) window.showToast('output link copied to clipboard', 'success');
     } else {
-      if ((window as any).showToast) (window as any).showToast('failed to copy output link', 'error');
+      if (window.showToast) window.showToast('failed to copy output link', 'error');
     }
   };
 
@@ -523,9 +524,9 @@ const HistoryTabContent: React.FC = () => {
     if (!jobId) return;
     
     if (copyToClipboard(jobId)) {
-      if ((window as any).showToast) (window as any).showToast('job id copied to clipboard', 'success');
+      if (window.showToast) window.showToast('job id copied to clipboard', 'success');
     } else {
-      if ((window as any).showToast) (window as any).showToast('failed to copy job id', 'error');
+      if (window.showToast) window.showToast('failed to copy job id', 'error');
     }
   };
 
@@ -556,7 +557,7 @@ const HistoryTabContent: React.FC = () => {
     (window as any).__historyRedoGeneration = async (jobId: string) => {
       const job = jobs.find(j => String(j.id) === String(jobId));
       if (!job) {
-        if ((window as any).showToast) (window as any).showToast('job not found', 'error');
+        if (window.showToast) window.showToast('job not found', 'error');
         return;
       }
 
@@ -588,13 +589,13 @@ const HistoryTabContent: React.FC = () => {
         // Switch to sources tab
         setActiveTab('sources');
 
-        if ((window as any).showToast) {
-          (window as any).showToast('generation parameters restored. ready to lipsync!', 'success');
+        if (window.showToast) {
+          window.showToast('generation parameters restored. ready to lipsync!', 'success');
         }
       } catch (e) {
         console.error('Failed to redo generation:', e);
-        if ((window as any).showToast) {
-          (window as any).showToast('failed to restore generation parameters', 'error');
+        if (window.showToast) {
+          window.showToast('failed to restore generation parameters', 'error');
         }
       }
     };
@@ -800,7 +801,7 @@ const HistoryTabContent: React.FC = () => {
                 <div className="history-empty-message">
                   hmm... you might be offline, or<br />
                   the local server is down. <a onClick={async () => {
-                    const nle = (window as any).nle;
+                    const nle = window.nle;
                     console.log("[HistoryTab] Clicked fix this, nle:", nle);
                     if (!nle) {
                       console.error("[HistoryTab] nle is null - JSX script failed to load (CEP error code 27)");
@@ -914,8 +915,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       const home = os.homedir();
       const logsDir = path.join(home, "Library", "Application Support", "sync. extensions", "logs");
       
-      const isAE = (window as any).HOST_CONFIG && (window as any).HOST_CONFIG.isAE;
-      const isPPRO = (window as any).HOST_CONFIG && (window as any).HOST_CONFIG.hostId === "PPRO";
+      const isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+      const isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === HOST_IDS.PPRO;
       const logFileName = isAE ? "sync_ae_debug.log" : (isPPRO ? "sync_ppro_debug.log" : "sync_server_debug.log");
       const logFile = path.join(logsDir, logFileName);
       
@@ -928,7 +929,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     } catch (_) {}
     
     try {
-      const hostConfig = (window as any).HOST_CONFIG || {};
+      const hostConfig = window.HOST_CONFIG || {};
       fetch(getApiUrl("/debug"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },

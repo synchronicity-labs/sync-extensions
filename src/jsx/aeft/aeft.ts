@@ -276,7 +276,7 @@ function _syncDebugLogPath(){
     var dir = SYNC_getLogDir(); if (!dir) { dir = Folder.temp.fsName; }
     // Respect debug flag file in logs (no UI toggle / env required)
     try{
-      var flag = new File(dir + (isWindows?'\\':'/') + 'debug.enabled');
+      var flag = new File(dir + (isWindows?'\\':'/') + '.debug');
       var enabled = false;
       try{ enabled = flag && flag.exists; }catch(_){ enabled = false; }
       if (!enabled) { return ''; }
@@ -313,11 +313,11 @@ function _extensionRoot() {
     
     var userPath, systemPath;
     if (isWindows) {
-      userPath = userHome + "\\AppData\\Roaming\\Adobe\\CEP\\extensions\\com.sync.extension.ae";
-      systemPath = "C:\\Program Files\\Adobe\\CEP\\extensions\\com.sync.extension.ae";
+      userPath = userHome + "\\AppData\\Roaming\\Adobe\\CEP\\extensions\\com.sync.extension";
+      systemPath = "C:\\Program Files\\Adobe\\CEP\\extensions\\com.sync.extension";
     } else {
-      userPath = userHome + "/Library/Application Support/Adobe/CEP/extensions/com.sync.extension.ae";
-      systemPath = "/Library/Application Support/Adobe/CEP/extensions/com.sync.extension.ae";
+      userPath = userHome + "/Library/Application Support/Adobe/CEP/extensions/com.sync.extension";
+      systemPath = "/Library/Application Support/Adobe/CEP/extensions/com.sync.extension";
     }
     
     // Check user location first
@@ -1706,8 +1706,8 @@ export function AEFT_startBackend() {
       
       var spawnCmd;
       if (isWindows) {
-        // Windows: use start with /B to run in background
-        spawnCmd = 'cmd.exe /c start /B "' + nodeBin.replace(/\\/g, '\\\\') + '" "' + serverPath.replace(/\\/g, '\\\\') + '"';
+        // Windows: use start with /B to run in background, pass HOST_APP environment variable
+        spawnCmd = 'cmd.exe /c "set HOST_APP=AEFT && start /B "' + nodeBin.replace(/\\/g, '\\\\') + '" "' + serverPath.replace(/\\/g, '\\\\') + '"';
       } else {
         // macOS: use nohup to run in background and redirect output
         // Determine server directory from serverPath
@@ -1722,7 +1722,8 @@ export function AEFT_startBackend() {
         }
         // Redirect stderr to log file instead of /dev/null
         var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
-        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" server.js >/dev/null" + redirectErr + " &'";
+        // Pass HOST_APP environment variable for macOS
+        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && HOST_APP=AEFT nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" server.js >/dev/null" + redirectErr + " &'";
       }
       
       try {
