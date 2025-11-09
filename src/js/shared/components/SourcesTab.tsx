@@ -241,46 +241,15 @@ const SourcesTab: React.FC = () => {
                   <button className="action-btn" data-action="audio-tts" onClick={(e) => { 
                     e.preventDefault(); 
                     e.stopPropagation(); 
-                    if (!settings.elevenlabsApiKey || !settings.elevenlabsApiKey.trim()) {
-                      // Show toast with link to settings
+                    const apiKey = settings.elevenlabsApiKey?.trim();
+                    if (!apiKey) {
+                      // Show toast with link to settings using standard toast
                       if ((window as any).showToast) {
-                        const toast = document.createElement("div");
-                        toast.style.cssText = `
-                          position: fixed;
-                          top: 20px;
-                          right: 20px;
-                          padding: 12px 24px;
-                          background: #222225;
-                          color: white;
-                          border-radius: 6px;
-                          z-index: 10000;
-                          font-family: var(--font-family);
-                          font-size: 14px;
-                          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-                        `;
-                        toast.innerHTML = 'please set your elevenlabs api key <a href="#" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">here</a>';
-                        const link = toast.querySelector('a');
-                        if (link) {
-                          link.addEventListener('click', (ev) => {
-                            ev.preventDefault();
-                            setActiveTab('settings');
-                            setTimeout(() => {
-                              if (toast.parentNode) {
-                                toast.parentNode.removeChild(toast);
-                              }
-                            }, 100);
-                          });
-                        }
-                        document.body.appendChild(toast);
+                        (window as any).showToast('please set your elevenlabs api key', 'error');
+                        // Switch to settings tab after a short delay
                         setTimeout(() => {
-                          toast.style.opacity = "0";
-                          toast.style.transition = "opacity 0.3s";
-                          setTimeout(() => {
-                            if (toast.parentNode) {
-                              toast.parentNode.removeChild(toast);
-                            }
-                          }, 300);
-                        }, 5000);
+                          setActiveTab('settings');
+                        }, 500);
                       }
                       return;
                     }
