@@ -32,10 +32,7 @@ router.get('/jobs', async (req, res) => {
   try {
     const { syncApiKey } = req.query;
     
-    // Start with local jobs
-    let allJobs = [...req.jobs];
-    
-    // If syncApiKey is provided, fetch from Sync API and merge
+    // If syncApiKey is provided, ONLY fetch from Sync API (no local jobs)
     if (syncApiKey && typeof syncApiKey === 'string' && syncApiKey.trim()) {
       try {
         const url = new URL(`${SYNC_API_BASE}/generations`);
@@ -47,37 +44,38 @@ router.get('/jobs', async (req, res) => {
         if (apiResponse.ok) {
           const apiData = await apiResponse.json().catch(() => null);
           if (apiData && Array.isArray(apiData)) {
-            // Merge API jobs with local jobs, deduplicate by ID
+            // Only return API jobs - no local caching
             const apiJobs = apiData.filter(job => job && job.id);
-            const localJobIds = new Set(allJobs.map(j => String(j.id)));
             
-            // Add API jobs that aren't already in local jobs
-            for (const apiJob of apiJobs) {
-              if (!localJobIds.has(String(apiJob.id))) {
-                allJobs.push(apiJob);
-              }
+            // Debug: log structure of first completed job
+            const firstCompleted = apiJobs.find(j => j.status === 'completed');
+            if (firstCompleted) {
+              tlog(`[/jobs] Sample completed job: id=${firstCompleted.id}, hasOutputUrl=${!!firstCompleted.outputUrl}, hasOutputPath=${!!firstCompleted.outputPath}, keys=${Object.keys(firstCompleted).join(',')}`);
             }
             
-            tlog(`[/jobs] Fetched ${apiJobs.length} jobs from Sync API, total: ${allJobs.length}`);
+            // Sort by createdAt (newest first)
+            apiJobs.sort((a, b) => {
+              const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+              const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+              return bTime - aTime;
+            });
+            
+            tlog(`[/jobs] Fetched ${apiJobs.length} jobs from Sync API only (no local jobs)`);
+            return res.json(apiJobs);
           }
         } else {
           tlog(`[/jobs] Sync API request failed: ${apiResponse.status}`);
         }
       } catch (e) {
         tlog(`[/jobs] Error fetching from Sync API: ${e?.message || String(e)}`);
-        // Continue with local jobs even if API fetch fails
       }
+      
+      // If API fetch failed, return empty array (no local jobs)
+      return res.json([]);
     }
     
-    // Sort by createdAt (newest first)
-    allJobs.sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bTime - aTime;
-    });
-    
-    tlog(`[/jobs] Returning ${allJobs.length} jobs (${req.jobs.length} local, ${allJobs.length - req.jobs.length} from API)`);
-    res.json(allJobs);
+    // No API key - return empty array (no local jobs)
+    res.json([]);
   } catch (e) {
     tlog(`[/jobs] Error: ${e?.message || String(e)}`);
     if (!res.headersSent) {
@@ -264,6 +262,11 @@ router.post('/jobs/:id/save', async (req, res) => {
       job = { id: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
     }
 
+    // Ensure syncApiKey is set (use override if provided, otherwise use job's key)
+    if (!job.syncApiKey && keyOverride) {
+      job.syncApiKey = keyOverride;
+    }
+
     // Use location parameter directly (frontend should pass 'project' or 'documents')
     const outDir = (location === 'documents') ? DOCS_DEFAULT_DIR : (targetDir || job.outputDir || TEMP_DEFAULT_DIR);
     try {
@@ -289,19 +292,32 @@ router.post('/jobs/:id/save', async (req, res) => {
       return res.json({ ok: true, outputPath: job.outputPath });
     }
 
-    const meta = await fetchGeneration(job);
-    if (meta && meta.outputUrl) {
-      const response = await fetch(meta.outputUrl);
-      if (response.ok && response.body) {
-        const dest = path.join(outDir, `${job.id}_output.mp4`);
-        await pipeToFile(response.body, dest);
-        job.outputPath = dest;
-        if (!req.jobs.find(j => String(j.id) === String(job.id))) { req.jobs.unshift(job); req.saveJobs(); }
-        return res.json({ ok: true, outputPath: job.outputPath });
+    // Try to fetch from Sync API
+    if (job.syncApiKey) {
+      try {
+        const meta = await fetchGeneration(job);
+        if (meta && meta.outputUrl) {
+          const response = await fetch(meta.outputUrl);
+          if (response.ok && response.body) {
+            const dest = path.join(outDir, `${job.id}_output.mp4`);
+            await pipeToFile(response.body, dest);
+            job.outputPath = dest;
+            if (!req.jobs.find(j => String(j.id) === String(job.id))) { req.jobs.unshift(job); req.saveJobs(); }
+            return res.json({ ok: true, outputPath: job.outputPath });
+          } else {
+            tlog(`[/jobs/:id/save] Failed to download from outputUrl: ${response.status}`);
+          }
+        } else {
+          tlog(`[/jobs/:id/save] No outputUrl in meta:`, meta);
+        }
+      } catch (e) {
+        tlog(`[/jobs/:id/save] Error fetching generation: ${e?.message || String(e)}`);
       }
     }
+    
     res.status(400).json({ error: 'Output not available yet' });
   } catch (e) {
+    tlog(`[/jobs/:id/save] Error: ${e?.message || String(e)}`);
     if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
   }
 });

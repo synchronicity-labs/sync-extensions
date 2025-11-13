@@ -70,6 +70,16 @@
   position: relative;
 }
 
+/* Prevent border from appearing on audio container when loading */
+.loading-audio,
+.loading-audio .custom-audio-player,
+#audioPreview.loading-audio,
+.audio-upload.has-media.loading-audio,
+.audio-upload.has-media #audioPreview.loading-audio {
+  border: none !important;
+  outline: none !important;
+}
+
 .audio-loading-overlay {
   position: absolute;
   top: 0;

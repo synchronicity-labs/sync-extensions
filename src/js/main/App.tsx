@@ -29,6 +29,71 @@ const AppContent: React.FC = () => {
     setupWindowGlobals(media, jobs, { setActiveTab, activeTab }, core, history);
   }, [media, jobs, setActiveTab, activeTab, core, history]);
 
+  // Bootstrap initialization - matching main branch bootstrap.js behavior
+  useEffect(() => {
+    const init = async () => {
+      try {
+        // Load settings (for backward compatibility)
+        if (typeof (window as any).loadSettings === "function") {
+          (window as any).loadSettings();
+        }
+      } catch (_) {}
+
+      try {
+        // Load jobs from localStorage (for backward compatibility)
+        if (typeof (window as any).loadJobsLocal === "function") {
+          (window as any).loadJobsLocal();
+        }
+      } catch (_) {}
+
+      try {
+        // Update model display
+        if (typeof (window as any).updateModelDisplay === "function") {
+          (window as any).updateModelDisplay();
+        }
+      } catch (_) {}
+
+      try {
+        // Update from video button
+        if (typeof (window as any).updateFromVideoButton === "function") {
+          (window as any).updateFromVideoButton();
+        }
+      } catch (_) {}
+
+      // Ensure auth token
+      try {
+        if (typeof (window as any).ensureAuthToken === "function") {
+          await (window as any).ensureAuthToken();
+        }
+      } catch (_) {}
+    };
+
+    // Listen for backend ready event and load jobs from server
+    const handleBackendReady = async (e: CustomEvent) => {
+      try {
+        if (e.detail && e.detail.port) {
+          (window as any).__syncServerPort = e.detail.port;
+        }
+        // Load jobs from server once backend is ready
+        if (typeof (window as any).loadJobsFromServer === "function") {
+          await (window as any).loadJobsFromServer();
+        }
+      } catch (_) {}
+    };
+
+    window.addEventListener("sync-backend-ready", handleBackendReady as EventListener);
+
+    // Run initialization after a short delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      init();
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("sync-backend-ready", handleBackendReady as EventListener);
+    };
+  }, []);
+
   useEffect(() => {
     // Initialize app
     if (typeof window !== "undefined" && window.CSInterface) {

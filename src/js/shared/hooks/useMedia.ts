@@ -190,6 +190,75 @@ export const useMedia = () => {
     (window as any).uploadedAudioUrl = "";
   }, []);
 
+  const setAudioPath = useCallback(async (audioPath: string) => {
+    setSelection((prev) => ({
+      ...prev,
+      audio: audioPath,
+      audioUrl: null,
+      audioIsTemp: false,
+      audioIsUrl: false,
+    }));
+    (window as any).selectedAudio = audioPath;
+    
+    // Upload to server
+    try {
+      await ensureAuthToken();
+      const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+      const response = await fetch(getApiUrl("/upload"), {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ path: audioPath, apiKey: settings.syncApiKey || "" }),
+      });
+      
+      const data = await response.json().catch(() => null);
+      if (response.ok && data?.ok && data?.url) {
+        setSelection((prev) => ({
+          ...prev,
+          audioUrl: data.url,
+        }));
+        (window as any).uploadedAudioUrl = data.url;
+        localStorage.setItem("uploadedAudioUrl", data.url);
+      }
+    } catch (_) {
+      // Upload failed, continue anyway
+    }
+  }, [authHeaders, ensureAuthToken]);
+
+  const setVideoPath = useCallback(async (videoPath: string) => {
+    setSelection((prev) => ({
+      ...prev,
+      video: videoPath,
+      videoUrl: null,
+      videoIsTemp: false,
+      videoIsUrl: false,
+    }));
+    (window as any).selectedVideo = videoPath;
+    (window as any).selectedVideoIsTemp = false;
+    
+    // Upload to server
+    try {
+      await ensureAuthToken();
+      const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+      const response = await fetch(getApiUrl("/upload"), {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ path: videoPath, apiKey: settings.syncApiKey || "" }),
+      });
+      
+      const data = await response.json().catch(() => null);
+      if (response.ok && data?.ok && data?.url) {
+        setSelection((prev) => ({
+          ...prev,
+          videoUrl: data.url,
+        }));
+        (window as any).uploadedVideoUrl = data.url;
+        localStorage.setItem("uploadedVideoUrl", data.url);
+      }
+    } catch (_) {
+      // Upload failed, continue anyway
+    }
+  }, [authHeaders, ensureAuthToken]);
+
   return {
     selection,
     selectVideo,
@@ -197,5 +266,7 @@ export const useMedia = () => {
     clearVideo,
     clearAudio,
     openFileDialog,
+    setAudioPath,
+    setVideoPath,
   };
 };

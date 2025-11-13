@@ -64,20 +64,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     // Convert UI messages to lowercase
     const lowercaseMessage = message.toLowerCase();
     const toast = document.createElement("div");
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 12px 24px;
-      background: ${type === "error" ? "#dc2626" : type === "success" ? "#22c55e" : "#222225"};
-      color: white;
-      border-radius: 6px;
-      z-index: 10000;
-      font-family: var(--font-family);
-      font-size: 14px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-      max-width: 400px;
-    `;
+    toast.className = `history-toast history-toast-${type}`;
     
     if (action) {
       const messageDiv = document.createElement("div");
@@ -90,12 +77,13 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
       button.style.cssText = `
         background: rgba(255,255,255,0.2);
         border: none;
-        color: white;
+        color: var(--text-primary);
         padding: 6px 12px;
         border-radius: 4px;
         cursor: pointer;
         font-size: 12px;
         margin-top: 8px;
+        font-family: var(--font-family);
       `;
       button.addEventListener("click", (e) => {
         e.preventDefault();
@@ -112,10 +100,14 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     }
     
     document.body.appendChild(toast);
+
+    // Trigger animation by adding show class
+    requestAnimationFrame(() => {
+      toast.classList.add("show");
+    });
     
     setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transition = "opacity 0.3s";
+      toast.classList.remove("show");
       setTimeout(() => {
         if (toast.parentNode) {
           toast.parentNode.removeChild(toast);

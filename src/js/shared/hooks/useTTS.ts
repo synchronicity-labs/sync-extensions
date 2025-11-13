@@ -15,6 +15,11 @@ export const useTTS = () => {
   const [voices, setVoices] = useState<TTSVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>("rachel");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>("eleven_v3");
+  const [voiceSettings, setVoiceSettings] = useState({
+    stability: 0.5,
+    similarityBoost: 0.8,
+  });
 
   const loadVoices = useCallback(async () => {
     try {
@@ -35,28 +40,32 @@ export const useTTS = () => {
   }, [authHeaders, ensureAuthToken]);
 
   const generateTTS = useCallback(
-    async (text: string, voiceId?: string) => {
+    async (text: string, voiceId?: string, model?: string, customVoiceSettings?: { stability: number; similarityBoost: number }) => {
       if (!text.trim()) return null;
 
       setIsGenerating(true);
       try {
         await ensureAuthToken();
+        const modelToUse = model || selectedModel;
+        const settingsToUse = customVoiceSettings || voiceSettings;
         const response = await fetch(getApiUrl("/tts/generate"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             text,
             voiceId: voiceId || selectedVoice,
-            apiKey: settings.elevenlabsApiKey || "",
-            model: "eleven_v3",
-            stability: 0.5,
-            similarityBoost: 0.8,
+            elevenApiKey: settings.elevenlabsApiKey || "",
+            model: modelToUse,
+            voiceSettings: {
+              stability: settingsToUse.stability,
+              similarity_boost: settingsToUse.similarityBoost,
+            },
           }),
         });
 
         const data = await response.json().catch(() => null);
-        if (response.ok && data?.ok && data?.audioUrl) {
-          return data.audioUrl;
+        if (response.ok && data?.ok && data?.audioPath) {
+          return data.audioPath;
         }
         return null;
       } catch (_) {
@@ -65,7 +74,7 @@ export const useTTS = () => {
         setIsGenerating(false);
       }
     },
-    [selectedVoice, settings.elevenlabsApiKey, authHeaders, ensureAuthToken]
+    [selectedVoice, selectedModel, voiceSettings, settings.elevenlabsApiKey, authHeaders, ensureAuthToken]
   );
 
   return {
@@ -75,5 +84,9 @@ export const useTTS = () => {
     loadVoices,
     setSelectedVoice,
     generateTTS,
+    selectedModel,
+    setSelectedModel,
+    voiceSettings,
+    setVoiceSettings,
   };
 };

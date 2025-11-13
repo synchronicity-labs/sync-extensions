@@ -1,6 +1,6 @@
-# sync. Extensions
+# sync. extensions
 
-Adobe CEP extensions for After Effects and Premiere Pro.
+Adobe CEP extensions for After Effects and Premiere Pro. Built with React, TypeScript, and Vite using the `bolt-cep` boilerplate.
 
 ## Installation
 

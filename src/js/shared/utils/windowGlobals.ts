@@ -9,6 +9,7 @@ import { useTabs } from "../hooks/useTabs";
 import { useCore } from "../hooks/useCore";
 import { useHistory } from "../hooks/useHistory";
 import { HOST_IDS } from "../../../shared/host";
+import { formatTime } from "./formatTime";
 
 export const setupWindowGlobals = (
   media: ReturnType<typeof useMedia>,
@@ -70,29 +71,20 @@ export const setupWindowGlobals = (
 
   // Toast notification function
   (window as any).showToast = (message: string, type: "info" | "error" | "success" = "info") => {
-    // Simple toast implementation - can be enhanced later
     // Convert UI messages to lowercase
     const lowercaseMessage = message.toLowerCase();
     const toast = document.createElement("div");
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 12px 24px;
-      background: ${type === "error" ? "#dc2626" : type === "success" ? "#22c55e" : "#222225"};
-      color: white;
-      border-radius: 6px;
-      z-index: 10000;
-      font-family: var(--font-family);
-      font-size: 14px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    `;
+    toast.className = `history-toast history-toast-${type}`;
     toast.textContent = lowercaseMessage;
     document.body.appendChild(toast);
 
+    // Trigger animation by adding show class
+    requestAnimationFrame(() => {
+      toast.classList.add("show");
+    });
+
     setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transition = "opacity 0.3s";
+      toast.classList.remove("show");
       setTimeout(() => {
         if (toast.parentNode) {
           toast.parentNode.removeChild(toast);
@@ -183,6 +175,31 @@ export const setupWindowGlobals = (
 
   // History card functions - exposed via HistoryTab component
   // These will be set up when HistoryTab mounts
+  // Load settings function (for backward compatibility with bootstrap.js)
+  // In React, settings are loaded automatically via useSettings hook, but we expose this for compatibility
+  (window as any).loadSettings = () => {
+    // Settings are automatically loaded in useSettings hook
+    // This function exists for backward compatibility only
+    if (typeof (window as any).updateModelDisplay === "function") {
+      (window as any).updateModelDisplay();
+    }
+  };
+
+  // Load jobs from localStorage (for backward compatibility with bootstrap.js)
+  // In React, jobs are loaded from server via useHistory hook, but we expose this for compatibility
+  (window as any).loadJobsLocal = () => {
+    try {
+      const raw = localStorage.getItem("syncJobs");
+      if (raw) {
+        const localJobs = (JSON.parse(raw) || []).filter((j: any) => !j.id || !j.id.startsWith("local-"));
+        // Update global jobs reference for backward compatibility
+        (window as any).jobs = localJobs;
+      }
+    } catch (_) {
+      // Silently fail
+    }
+  };
+
   // History functions - these use internal functions that may not be typed
   (window as any).copyJobId = (jobId: string) => {
     if ((window as any).__historyCopyJobId) {
@@ -205,6 +222,175 @@ export const setupWindowGlobals = (
   (window as any).insertJob = async (jobId: string) => {
     if ((window as any).__historyInsertJob) {
       return (window as any).__historyInsertJob(jobId);
+    }
+  };
+
+  // Post-lipsync action functions (for sources tab)
+  (window as any).saveCompletedJob = async (jobId: string) => {
+    if ((window as any).saveJob) {
+      return (window as any).saveJob(jobId);
+    }
+  };
+
+  (window as any).insertCompletedJob = async (jobId: string) => {
+    if ((window as any).insertJob) {
+      return (window as any).insertJob(jobId);
+    }
+  };
+
+  (window as any).clearCompletedJob = () => {
+    const videoSection = document.getElementById('videoSection');
+    const videoPreview = document.getElementById('videoPreview');
+    const videoDropzone = document.getElementById('videoDropzone');
+    const postLipsyncActions = document.getElementById('postLipsyncActions');
+    const sourcesContainer = document.querySelector('.sources-container');
+    
+    // Remove post-lipsync actions
+    if (postLipsyncActions) {
+      postLipsyncActions.remove();
+    }
+    
+    // Clear video preview
+    if (videoPreview) {
+      videoPreview.innerHTML = '';
+      videoPreview.style.display = 'none';
+    }
+    
+    // Show dropzone again
+    if (videoDropzone) {
+      videoDropzone.style.display = 'flex';
+    }
+    
+    // Remove has-media class
+    if (videoSection) {
+      videoSection.classList.remove('has-media');
+    }
+    
+    // Remove has-video and has-both classes
+    if (sourcesContainer) {
+      sourcesContainer.classList.remove('has-video', 'has-both');
+    }
+    
+    // Clear output video player
+    const outputVideo = document.getElementById('outputVideo');
+    if (outputVideo) {
+      (outputVideo as HTMLVideoElement).pause();
+      (outputVideo as HTMLVideoElement).currentTime = 0;
+      (outputVideo as HTMLVideoElement).removeAttribute('src');
+      (outputVideo as HTMLVideoElement).load();
+    }
+  };
+
+  // Output video player initialization
+  (window as any).initOutputVideoPlayer = () => {
+    const video = document.getElementById('outputVideo') as HTMLVideoElement;
+    const centerPlayBtn = document.getElementById('outputCenterPlayBtn');
+    const playOverlay = document.getElementById('outputVideoPlayOverlay');
+    const timeDisplay = document.getElementById('outputVideoTime');
+    const frameInfo = document.getElementById('outputVideoFrameInfo');
+    const progressFill = document.getElementById('outputVideoProgress');
+    const progressThumb = document.getElementById('outputVideoThumb');
+    const progressBar = document.querySelector('.video-progress-bar');
+    const volumeBtn = document.getElementById('outputVolumeBtn');
+    const volumeSlider = document.getElementById('outputVolumeSlider') as HTMLInputElement;
+    
+    if (!video) return;
+
+    // Initialize display when metadata loads
+    const updateVideoDuration = () => {
+      const duration = video.duration || 0;
+      const durationStr = isFinite(duration) && duration > 0 ? formatTime(duration) : '--';
+      if (timeDisplay) timeDisplay.textContent = `00:00 / ${durationStr}`;
+      if (frameInfo) {
+        const totalFrames = isFinite(duration) && duration > 0 ? Math.floor(duration * 30) : 0;
+        frameInfo.textContent = `0 / ${totalFrames || '--'}`;
+      }
+    };
+
+    if (video.readyState >= 1) {
+      updateVideoDuration();
+    } else {
+      video.addEventListener('loadedmetadata', updateVideoDuration);
+    }
+
+    // Update time and progress during playback
+    const handleTimeUpdate = () => {
+      const current = formatTime(video.currentTime);
+      const duration = video.duration || 0;
+      const durationStr = isFinite(duration) ? formatTime(duration) : '0:00';
+      const progress = (video.currentTime / (duration || 1)) * 100;
+      
+      if (timeDisplay) timeDisplay.textContent = `${current} / ${durationStr}`;
+      if (progressFill) (progressFill as HTMLElement).style.width = `${progress}%`;
+      if (progressThumb) (progressThumb as HTMLElement).style.left = `${progress}%`;
+      
+      // Frame info (approximate)
+      if (frameInfo && isFinite(duration)) {
+        const currentFrame = Math.floor(video.currentTime * 30);
+        const totalFrames = Math.floor(duration * 30);
+        frameInfo.textContent = `${currentFrame} / ${totalFrames}`;
+      }
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+
+    // Hide overlay when playing, show when paused
+    const handlePlay = () => {
+      if (playOverlay) playOverlay.classList.add('hidden');
+    };
+
+    const handlePause = () => {
+      if (playOverlay) playOverlay.classList.remove('hidden');
+    };
+
+    const handleEnded = () => {
+      if (playOverlay) playOverlay.classList.remove('hidden');
+    };
+
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
+
+    // Progress bar scrubbing
+    if (progressBar) {
+      progressBar.addEventListener('click', (e: MouseEvent) => {
+        const rect = progressBar.getBoundingClientRect();
+        const pos = (e.clientX - rect.left) / rect.width;
+        video.currentTime = pos * video.duration;
+      });
+    }
+
+    // Play/pause functionality
+    const togglePlay = () => {
+      if (video.paused) {
+        video.play();
+      } else {
+        video.pause();
+      }
+    };
+
+    if (centerPlayBtn) {
+      centerPlayBtn.addEventListener('click', togglePlay);
+    }
+    video.addEventListener('click', togglePlay);
+
+    // Volume control
+    if (volumeSlider) {
+      volumeSlider.addEventListener('input', (e) => {
+        video.volume = (e.target as HTMLInputElement).valueAsNumber / 100;
+      });
+    }
+
+    // Volume button
+    if (volumeBtn) {
+      volumeBtn.addEventListener('click', () => {
+        video.muted = !video.muted;
+        if (video.muted) {
+          volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" stroke-width="2"/><line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" stroke-width="2"/></svg>';
+        } else {
+          volumeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+        }
+      });
     }
   };
 

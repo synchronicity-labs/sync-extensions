@@ -4,9 +4,11 @@ import { useTabs } from "../hooks/useTabs";
 import { useCore } from "../hooks/useCore";
 import { useNLE } from "../hooks/useNLE";
 import { useMedia } from "../hooks/useMedia";
+import { useSettings } from "../hooks/useSettings";
 import { getApiUrl } from "../utils/serverConfig";
 import { loaderHTML } from "../utils/loader";
 import { HOST_IDS } from "../../../shared/host";
+import { generateThumbnailsForJobs } from "../utils/thumbnails";
 
 // Utility functions
 function formatDuration(ms: number): string {
@@ -140,10 +142,17 @@ const HistoryTabContent: React.FC = () => {
   const [hasError, setHasError] = useState(false);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
   const { jobs, isLoading, hasMore, loadMore, loadJobsFromServer, displayedCount, serverError } = useHistory();
-  const { serverState } = useCore();
+  const displayedCountRef = useRef(displayedCount);
+  
+  // Keep ref updated
+  useEffect(() => {
+    displayedCountRef.current = displayedCount;
+  }, [displayedCount]);
+  const { serverState, authHeaders, ensureAuthToken } = useCore();
   const { setActiveTab, activeTab } = useTabs();
   const { nle } = useNLE();
   const { setSelection } = useMedia();
+  const { settings } = useSettings();
   const hasLoadedRef = useRef(false);
   const loadJobsRef = useRef(loadJobsFromServer);
 
@@ -171,233 +180,146 @@ const HistoryTabContent: React.FC = () => {
     }
   }, [activeTab]);
 
-  // Generate thumbnails for completed jobs using ExtendScript
+  // Trigger first page load when jobs are loaded and displayedCount is 0
+  // Matching main branch: initially show first 10 items, then set displayedCount to 10
+  // This ensures we start with 10 items visible
   useEffect(() => {
-    if (activeTab !== "history" || !jobs || jobs.length === 0) return;
-
-    const generateThumbnails = async () => {
-      // Only generate thumbnails for currently displayed jobs
-      const completedJobs = jobs.filter(j => j.status === 'completed' && (j.outputPath || j.videoPath || j.outputUrl));
-      const jobsToRender = completedJobs.slice(0, displayedCount);
-      const newUrls: Record<string, string> = {};
-
-      for (const job of jobsToRender) {
-        if (thumbnailUrls[job.id]) continue;
-
-        try {
-          // Check for outputUrl (from Sync API) or outputPath (local file)
-          const videoPath = job.outputPath || job.videoPath || job.outputUrl;
-          if (!videoPath) continue;
-
-          // Try ExtendScript first (only for local files)
-          if (videoPath && !videoPath.startsWith('http') && !videoPath.startsWith('https')) {
-            try {
-              const nle = window.nle;
-              if (nle && nle.getHostId) {
-                const hostId = nle.getHostId();
-                const fn = hostId === HOST_IDS.AEFT ? "AEFT_readThumbnail" : "PPRO_readThumbnail";
-                
-                const result = await window.evalExtendScript?.(fn, { path: videoPath });
-                if (result?.ok && result?.dataUrl) {
-                  newUrls[job.id] = result.dataUrl;
-                  continue;
-                }
-              }
-            } catch (e) {
-              // Fall back to canvas method
-            }
-          }
-
-          // Fallback: Generate thumbnail URL from video file using canvas
-          const thumbnailUrl = await new Promise<string | null>((resolve) => {
-            try {
-              const video = document.createElement('video');
-              video.preload = 'metadata';
-              video.crossOrigin = 'anonymous';
-              
-              // Handle both local files and URLs
-              if (videoPath.startsWith('http') || videoPath.startsWith('https')) {
-                video.src = videoPath;
-              } else {
-                video.src = `file://${videoPath}`;
-              }
-              
-              let resolved = false;
-              const timeout = setTimeout(() => {
-                if (!resolved) {
-                  resolved = true;
-                  resolve(null);
-                }
-              }, 5000);
-              
-              video.onloadedmetadata = () => {
-                video.currentTime = 1; // Seek to 1 second
-              };
-              video.onseeked = () => {
-                if (resolved) return;
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth || 320;
-                canvas.height = video.videoHeight || 180;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                  resolved = true;
-                  clearTimeout(timeout);
-                  resolve(canvas.toDataURL('image/jpeg', 0.8));
-                } else {
-                  resolved = true;
-                  clearTimeout(timeout);
-                  resolve(null);
-                }
-              };
-              video.onerror = () => {
-                if (!resolved) {
-                  resolved = true;
-                  clearTimeout(timeout);
-                  resolve(null);
-                }
-              };
-            } catch (e) {
-              resolve(null);
-            }
-          });
-
-          if (thumbnailUrl) {
-            newUrls[job.id] = thumbnailUrl;
-          }
-        } catch (e) {
-          console.error(`[HistoryTab] Failed to generate thumbnail for job ${job.id}:`, e);
-        }
-      }
-
-      if (Object.keys(newUrls).length > 0) {
-        setThumbnailUrls(prev => ({ ...prev, ...newUrls }));
-      }
-    };
-
-    const timeout = setTimeout(generateThumbnails, 100);
-    return () => clearTimeout(timeout);
-  }, [jobs, displayedCount, activeTab, thumbnailUrls]);
-
-  // Expose generateThumbnailsForJobs for backward compatibility
-  useEffect(() => {
-    window.generateThumbnailsForJobs = async (jobsToRender: any[]) => {
-      const newUrls: Record<string, string> = {};
-      
-      for (const job of jobsToRender || []) {
-        if (!job || job.status !== 'completed' || !(job.outputPath || job.videoPath || job.outputUrl)) continue;
-        if (thumbnailUrls[job.id]) continue;
-
-        try {
-          // Check for outputUrl (from Sync API) or outputPath (local file)
-          const videoPath = job.outputPath || job.videoPath || job.outputUrl;
-          if (!videoPath) continue;
-
-          // Try ExtendScript first (only for local files)
-          if (videoPath && !videoPath.startsWith('http') && !videoPath.startsWith('https')) {
-            try {
-              const nle = window.nle;
-              if (nle && nle.getHostId) {
-                const hostId = nle.getHostId();
-                const fn = hostId === HOST_IDS.AEFT ? "AEFT_readThumbnail" : "PPRO_readThumbnail";
-                
-                const result = await window.evalExtendScript?.(fn, { path: videoPath });
-                if (result?.ok && result?.dataUrl) {
-                  newUrls[job.id] = result.dataUrl;
-                  continue;
-                }
-              }
-            } catch (e) {
-              // Fall back to canvas
-            }
-          }
-
-          // Fallback: canvas method
-          const thumbnailUrl = await new Promise<string | null>((resolve) => {
-            try {
-              const video = document.createElement('video');
-              video.preload = 'metadata';
-              video.crossOrigin = 'anonymous';
-              
-              // Handle both local files and URLs
-              if (videoPath.startsWith('http') || videoPath.startsWith('https')) {
-                video.src = videoPath;
-              } else {
-                video.src = `file://${videoPath}`;
-              }
-              
-              let resolved = false;
-              const timeout = setTimeout(() => {
-                if (!resolved) {
-                  resolved = true;
-                  resolve(null);
-                }
-              }, 5000);
-              
-              video.onloadedmetadata = () => {
-                video.currentTime = 1;
-              };
-              video.onseeked = () => {
-                if (resolved) return;
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth || 320;
-                canvas.height = video.videoHeight || 180;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                  resolved = true;
-                  clearTimeout(timeout);
-                  resolve(canvas.toDataURL('image/jpeg', 0.8));
-                } else {
-                  resolved = true;
-                  clearTimeout(timeout);
-                  resolve(null);
-                }
-              };
-              video.onerror = () => {
-                if (!resolved) {
-                  resolved = true;
-                  clearTimeout(timeout);
-                  resolve(null);
-                }
-              };
-            } catch (e) {
-              resolve(null);
-            }
-          });
-
-          if (thumbnailUrl) {
-            newUrls[job.id] = thumbnailUrl;
-          }
-        } catch (e) {
-          console.error(`[HistoryTab] Failed to generate thumbnail for job ${job.id}:`, e);
-        }
-      }
-
-      if (Object.keys(newUrls).length > 0) {
-        setThumbnailUrls(prev => ({ ...prev, ...newUrls }));
-      }
-    };
-
-    return () => {
-      delete window.generateThumbnailsForJobs;
-    };
-  }, [thumbnailUrls]);
-
-  // Re-initialize Lucide icons
-  useEffect(() => {
-    if (activeTab === "history" && window.lucide && window.lucide.createIcons) {
+    if (activeTab === "history" && jobs.length > 0 && displayedCount === 0 && !isLoading) {
+      // Set displayedCount to 10 to show first page (matching main branch behavior)
       const timer = setTimeout(() => {
-        window.lucide.createIcons();
+        loadMore();
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [activeTab, jobs, displayedCount]);
+  }, [activeTab, jobs.length, displayedCount, isLoading, loadMore]);
 
-  // Infinite scroll using IntersectionObserver
+  // Generate thumbnails for currently rendered jobs - matching main branch behavior
+  // This calls generateThumbnailsForJobs like the main branch does
+  // Track previous displayedCount to only generate thumbnails for NEW jobs
+  const prevDisplayedCountForThumbnailsRef = useRef(0);
+  useEffect(() => {
+    if (activeTab !== "history" || !jobs || jobs.length === 0) return;
+
+    const pageSize = 10;
+    const currentDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
+    
+    // Calculate which jobs are currently rendered
+    // When displayedCount = 0, show first 10 (slice(0, 10)) - generate thumbnails for 0-9
+    // When displayedCount = 10, show first 10 (slice(0, 10)) - same items, don't regenerate
+    // When displayedCount = 20, show first 20 (slice(0, 20)) - generate thumbnails for 10-19
+    const prevDisplayedCount = prevDisplayedCountForThumbnailsRef.current;
+    const currentShown = currentDisplayedCount === 0 ? Math.min(pageSize, jobs.length) : Math.min(currentDisplayedCount, jobs.length);
+    const prevShown = prevDisplayedCount === 0 ? Math.min(pageSize, jobs.length) : Math.min(prevDisplayedCount, jobs.length);
+    
+    // Only generate thumbnails for the NEW jobs (the ones just added)
+    // If displayedCount hasn't changed, don't regenerate
+    if (currentShown === prevShown) {
+      return;
+    }
+    
+    // Generate thumbnails for the NEW jobs (from prevShown to currentShown)
+    const startIndex = prevShown;
+    const endIndex = currentShown;
+    const renderedJobs = jobs.slice(startIndex, endIndex);
+    
+    // Update ref for next time
+    prevDisplayedCountForThumbnailsRef.current = currentDisplayedCount;
+
+    // Call generateThumbnailsForJobs like main branch does
+    const generateThumbnailsForRendered = async () => {
+      if (renderedJobs.length > 0) {
+        console.log('[HistoryTab] Calling generateThumbnailsForJobs for', renderedJobs.length, 'new jobs (indices', startIndex, 'to', endIndex, ')');
+        console.log('[HistoryTab] Jobs to generate thumbnails for:', renderedJobs.map(j => ({ id: j.id, status: j.status, outputPath: j.outputPath, outputUrl: j.outputUrl })));
+        // Use the imported function directly - this will cache thumbnails before they load
+        await generateThumbnailsForJobs(renderedJobs);
+      }
+    };
+
+    const timeout = setTimeout(generateThumbnailsForRendered, 100);
+    return () => clearTimeout(timeout);
+  }, [jobs, displayedCount, activeTab]);
+
+  // Use ref to access current thumbnailUrls in generateThumbnailsForJobs
+  const thumbnailUrlsRef = useRef(thumbnailUrls);
+  useEffect(() => {
+    thumbnailUrlsRef.current = thumbnailUrls;
+  }, [thumbnailUrls]);
+
+  // Expose generateThumbnailsForJobs globally for backward compatibility
+  // The thumbnails utility already sets this, but we ensure it's available
+  useEffect(() => {
+    // The generateThumbnailsForJobs function from thumbnails.ts is already exposed globally
+    // We just need to ensure it's available and update React state when thumbnails are set
+    const originalGenerateThumbnails = window.generateThumbnailsForJobs;
+    if (originalGenerateThumbnails) {
+      window.generateThumbnailsForJobs = async (jobsToRender: any[]) => {
+        console.log('[generateThumbnailsForJobs] Called with', jobsToRender?.length || 0, 'jobs');
+        
+        // Call the original function from thumbnails.ts
+        await originalGenerateThumbnails(jobsToRender || []);
+        
+        // Update React state with thumbnails that were set
+        // The thumbnails utility updates DOM directly, but we also need to update React state
+        const newUrls: Record<string, string> = {};
+        for (const job of jobsToRender || []) {
+          if (!job || !job.id) continue;
+          const img = document.querySelector(`.history-thumbnail[data-job-id="${job.id}"]`) as HTMLImageElement;
+          if (img && img.src && img.src !== '') {
+            newUrls[job.id] = img.src;
+          }
+        }
+        
+        if (Object.keys(newUrls).length > 0) {
+          setThumbnailUrls(prev => ({ ...prev, ...newUrls }));
+        }
+        
+        return Promise.resolve();
+      };
+    }
+
+    return () => {
+      // Restore original if it exists
+      if (originalGenerateThumbnails) {
+        window.generateThumbnailsForJobs = originalGenerateThumbnails;
+      }
+    };
+  }, []); // Empty deps - function uses imported utility
+
+  // Re-initialize Lucide icons - only when new items are added, not on every render
+  const prevDisplayedCountForIconsRef = useRef(displayedCount);
+  useEffect(() => {
+    if (activeTab === "history" && window.lucide && window.lucide.createIcons) {
+      // Only re-initialize if displayedCount actually changed (new items added)
+      if (displayedCount !== prevDisplayedCountForIconsRef.current) {
+        prevDisplayedCountForIconsRef.current = displayedCount;
+        const timer = setTimeout(() => {
+          window.lucide.createIcons();
+        }, 200); // Slight delay to ensure DOM is updated
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [activeTab, displayedCount]);
+
+  // Infinite scroll using IntersectionObserver - matching main branch
   const isLoadingMoreRef = useRef(false);
   useEffect(() => {
-    if (activeTab !== "history" || !hasMore || isLoading) return;
+    // Calculate actual hasMore based on rendered count
+    // displayedCount represents the total number of items to show
+    const safeJobsArray = Array.isArray(jobs) ? jobs : [];
+    const pageSize = 10;
+    const currentDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
+    // Calculate how many items are currently shown
+    const currentShown = currentDisplayedCount === 0 ? Math.min(pageSize, safeJobsArray.length) : Math.min(currentDisplayedCount, safeJobsArray.length);
+    const actualHasMore = currentShown < safeJobsArray.length;
+
+    if (activeTab !== "history" || !actualHasMore || isLoading) {
+      // Clean up observer when not needed
+      if (window.historyScrollObserver) {
+        window.historyScrollObserver.disconnect();
+        window.historyScrollObserver = null;
+      }
+      return;
+    }
 
     const loader = document.getElementById('historyInfiniteLoader');
     if (!loader) return;
@@ -411,22 +333,29 @@ const HistoryTabContent: React.FC = () => {
       window.historyScrollObserver = null;
     }
 
-    // Create IntersectionObserver
+    // Create IntersectionObserver - matching main branch settings
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting && !isLoading && !isLoadingMoreRef.current && hasMore && loadMore) {
+          if (entry.isIntersecting && !isLoading && !isLoadingMoreRef.current && actualHasMore && loadMore) {
             // Prevent multiple simultaneous calls
             isLoadingMoreRef.current = true;
             // Temporarily disconnect observer to prevent multiple triggers
             observer.disconnect();
             // Load next page (10 more jobs)
             loadMore();
-            // Reconnect observer after state update
+            // Reconnect observer after state update - recalculate hasMore using ref
             setTimeout(() => {
               isLoadingMoreRef.current = false;
-              if (loader && loader.parentNode) {
-                observer.observe(loader);
+              // Recalculate hasMore after state update using ref for current displayedCount
+              const newSafeJobsArray = Array.isArray(jobs) ? jobs : [];
+              const newDisplayedCount = displayedCountRef.current;
+              const newCurrentShown = newDisplayedCount === 0 ? Math.min(pageSize, newSafeJobsArray.length) : Math.min(newDisplayedCount, newSafeJobsArray.length);
+              const newActualHasMore = newCurrentShown < newSafeJobsArray.length;
+              
+              const newLoader = document.getElementById('historyInfiniteLoader');
+              if (newLoader && newLoader.parentNode && newActualHasMore) {
+                observer.observe(newLoader);
               }
             }, 500);
             break;
@@ -435,8 +364,8 @@ const HistoryTabContent: React.FC = () => {
       },
       {
         root: historyWrapper,
-        rootMargin: '200px', // Trigger 200px before visible
-        threshold: 0, // Trigger as soon as any part enters
+        rootMargin: '0px', // Only trigger when loader is actually visible
+        threshold: 0.1, // Trigger when at least 10% of loader is visible
       }
     );
 
@@ -449,18 +378,56 @@ const HistoryTabContent: React.FC = () => {
         window.historyScrollObserver = null;
       }
     };
-  }, [activeTab, hasMore, isLoading, loadMore]);
+  }, [activeTab, jobs, displayedCount, isLoading, loadMore]);
 
-  // Action handlers
+  // Action handlers - matching main branch implementation
   const handleSaveJob = async (jobId: string) => {
     try {
-      const job = jobs.find(j => String(j.id) === String(jobId));
-      if (!job) {
-        if (window.showToast) window.showToast('job not found', 'error');
-        return;
+      const job = jobs.find(j => String(j.id) === String(jobId)) || { id: jobId, status: 'completed' };
+      const saveLocation = settings.saveLocation || 'project';
+      let location = saveLocation === 'documents' || saveLocation === 'universal' ? 'documents' : 'project';
+      let targetDir = '';
+      
+      if (location === 'project') {
+        try {
+          if (nle && typeof nle.getProjectDir === 'function') {
+            const r = await nle.getProjectDir();
+            if (r && r.ok && r.outputDir) targetDir = r.outputDir;
+          } else if (window.CSInterface) {
+            const cs = new window.CSInterface();
+            await new Promise((resolve) => {
+              cs.evalScript('PPRO_getProjectDir()', (resp: string) => {
+                try { 
+                  const r = JSON.parse(resp || '{}'); 
+                  if (r && r.ok && r.outputDir) targetDir = r.outputDir; 
+                } catch(_) {}
+                resolve(undefined);
+              });
+            });
+          }
+        } catch(_) {}
+        
+        // If project selected but host didn't resolve, fallback to Documents in AE
+        try {
+          if (!targetDir && window.HOST_CONFIG && window.HOST_CONFIG.isAE) {
+            location = 'documents';
+          }
+        } catch(_) {}
       }
-
-      const authHeaders = window.authHeaders || (() => ({}));
+      
+      const apiKey = settings.syncApiKey || '';
+      let savedPath = '';
+      
+      // Mark button as working
+      const saveBtn = document.getElementById(`save-${jobId}`);
+      const originalText = saveBtn?.querySelector('span')?.textContent || 'save';
+      if (saveBtn) {
+        const span = saveBtn.querySelector('span');
+        if (span) span.textContent = 'saving…';
+        (saveBtn as HTMLButtonElement).disabled = true;
+      }
+      
+      try {
       const headers = await authHeaders();
       const response = await fetch(getApiUrl(`/jobs/${jobId}/save`), {
         method: 'POST',
@@ -468,14 +435,145 @@ const HistoryTabContent: React.FC = () => {
           'Content-Type': 'application/json',
           ...headers
         },
-        body: JSON.stringify({ location: 'documents' })
+          body: JSON.stringify({ location, targetDir, syncApiKey: apiKey })
       });
 
       const data = await response.json().catch(() => null);
-      if (response.ok && data?.ok) {
-        if (window.showToast) window.showToast('saved to documents', 'success');
+        if (response.ok && data && data.outputPath) {
+          savedPath = data.outputPath;
+        } else if (!response.ok) {
+          if (saveBtn) {
+            const span = saveBtn.querySelector('span');
+            if (span) span.textContent = originalText;
+            (saveBtn as HTMLButtonElement).disabled = false;
+          }
+          const errorMsg = data?.error || `Server returned error ${response.status}`;
+          console.error('[handleSaveJob] Save failed:', errorMsg, data);
+          if (window.showToast) window.showToast(`failed to save: ${errorMsg}`, 'error');
+          return;
+        } else {
+          // Response OK but no outputPath - might still be processing
+          console.warn('[handleSaveJob] Save response OK but no outputPath:', data);
+        }
+      } catch(_) {
+        if (saveBtn) {
+          const span = saveBtn.querySelector('span');
+          if (span) span.textContent = originalText;
+          (saveBtn as HTMLButtonElement).disabled = false;
+        }
+        if (window.showToast) window.showToast('failed to save', 'error');
+        return;
+      }
+      
+      if (!savedPath) {
+        try {
+          const headers = await authHeaders();
+          const res = await fetch(getApiUrl(`/jobs/${jobId}`), { headers });
+          const j = await res.json().catch(() => null);
+          if (j && j.outputPath) savedPath = j.outputPath;
+        } catch(_) {}
+      }
+      
+      // Wait briefly for file to exist on disk if path looks local
+      try {
+        if (savedPath && savedPath.indexOf('://') === -1 && window.CSInterface) {
+          const cs = new window.CSInterface();
+          const safe = String(savedPath).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+          let tries = 0;
+          let exists = false;
+          while (tries < 20 && !exists) {
+            await new Promise(resolve => {
+              const es = `(function(){try{var f=new File("${safe}");return (f&&f.exists)?'1':'0';}catch(e){return '0';}})()`;
+              cs.evalScript(es, (r: string) => {
+                exists = String(r || '0') === '1';
+                resolve(undefined);
+              });
+            });
+            if (!exists) await new Promise(r => setTimeout(r, 250));
+            tries++;
+          }
+        }
+      } catch(_) {}
+      
+      // Reset button
+      if (saveBtn) {
+        const span = saveBtn.querySelector('span');
+        if (span) span.textContent = originalText;
+        (saveBtn as HTMLButtonElement).disabled = false;
+      }
+      
+      if (savedPath) {
+        const fp = savedPath.replace(/"/g, '\\"');
+        try {
+          if (!window.CSInterface) {
+            if (window.showToast) window.showToast('saved to ' + location, 'success');
+            return;
+          }
+          
+          const cs = new window.CSInterface();
+          const isAE = window.HOST_CONFIG ? window.HOST_CONFIG.isAE : false;
+          const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
+          const isAEConfirmed = isAE && hostId !== 'PPRO';
+          
+          if (isAEConfirmed) {
+            try {
+              const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || 'EXTENSION').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              const payload = JSON.stringify({ path: savedPath, binName: 'sync. outputs' }).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              cs.evalScript(`$.evalFile("${extPath}/host/ae.jsx"); AEFT_importFileToBin("${payload}")`, (r: string) => {
+                try {
+                  let ok = false;
+                  let out: any = null;
+                  if (typeof r === 'string') {
+                    try {
+                      out = JSON.parse(r || '{}');
+                    } catch(parseErr) {
+                      if (r === '[object Object]' || r.indexOf('ok') !== -1) {
+                        out = { ok: true };
       } else {
-        if (window.showToast) window.showToast(data?.error || 'failed to save', 'error');
+                        out = { ok: false, error: r };
+                      }
+                    }
+                  } else if (typeof r === 'object' && r !== null) {
+                    out = r;
+                  } else {
+                    out = { ok: false, error: String(r) };
+                  }
+                  ok = !!(out && out.ok);
+                  
+                  if (ok) {
+                    if (window.showToast) window.showToast('saved to project', 'success');
+                  } else {
+                    if (window.showToast) window.showToast('save failed', 'error');
+                  }
+                } catch(_) {
+                  if (window.showToast) window.showToast('saved to ' + location, 'success');
+                }
+              });
+            } catch(e) {
+              if (window.showToast) window.showToast('saved to ' + location, 'success');
+            }
+          } else {
+            // PPro - import to bin
+            try {
+              if (nle && typeof nle.importFileToBin === 'function') {
+                const result = await nle.importFileToBin(savedPath, 'sync. outputs');
+                if (result?.ok) {
+                  if (window.showToast) window.showToast('saved to project', 'success');
+                } else {
+                  if (window.showToast) window.showToast('saved to ' + location, 'success');
+                }
+              } else {
+                if (window.showToast) window.showToast('saved to ' + location, 'success');
+              }
+            } catch(_) {
+              if (window.showToast) window.showToast('saved to ' + location, 'success');
+            }
+          }
+        } catch(_) {
+          if (window.showToast) window.showToast('saved to ' + location, 'success');
+        }
+      } else {
+        if (window.showToast) window.showToast('failed to save', 'error');
       }
     } catch (e) {
       if (window.showToast) window.showToast('failed to save', 'error');
@@ -483,37 +581,258 @@ const HistoryTabContent: React.FC = () => {
   };
 
   const handleInsertJob = async (jobId: string) => {
+    // Guard against concurrent inserts
+    if ((window as any).__insertingGuard) return;
+    (window as any).__insertingGuard = true;
+    
     try {
-      const job = jobs.find(j => String(j.id) === String(jobId));
-      if (!job || !job.outputPath) {
-        if (window.showToast) window.showToast('output not available', 'error');
+      const job = jobs.find(j => String(j.id) === String(jobId)) || { id: jobId, status: 'completed' };
+      const saveLocation = settings.saveLocation || 'project';
+      let location = saveLocation === 'documents' || saveLocation === 'universal' ? 'documents' : 'project';
+      let targetDir = '';
+      
+      if (location === 'project') {
+        try {
+          if (nle && typeof nle.getProjectDir === 'function') {
+            const r = await nle.getProjectDir();
+            if (r && r.ok && r.outputDir) targetDir = r.outputDir;
+          } else if (window.CSInterface) {
+            const cs = new window.CSInterface();
+            await new Promise((resolve) => {
+              cs.evalScript('PPRO_getProjectDir()', (resp: string) => {
+                try { 
+                  const r = JSON.parse(resp || '{}'); 
+                  if (r && r.ok && r.outputDir) targetDir = r.outputDir; 
+                } catch(_) {}
+                resolve(undefined);
+              });
+            });
+          }
+        } catch(_) {}
+        
+        // If project selected but host didn't resolve, fallback to Documents in AE
+        try {
+          if (!targetDir && window.HOST_CONFIG && window.HOST_CONFIG.isAE) {
+            location = 'documents';
+          }
+        } catch(_) {}
+      }
+      
+      const apiKey = settings.syncApiKey || '';
+      let savedPath = '';
+      
+      // Mark button as working
+      const insertBtn = document.getElementById(`insert-${jobId}`);
+      const mainInsertBtn = document.getElementById('insertBtn');
+      const originalText = insertBtn?.querySelector('span')?.textContent || 'insert';
+      const mainInsertWasDisabled = mainInsertBtn ? (mainInsertBtn as HTMLButtonElement).disabled : false;
+      
+      if (insertBtn) {
+        const span = insertBtn.querySelector('span');
+        if (span) span.textContent = 'inserting…';
+        (insertBtn as HTMLButtonElement).disabled = true;
+      }
+      if (mainInsertBtn) {
+        (mainInsertBtn as HTMLButtonElement).disabled = true;
+        const span = mainInsertBtn.querySelector('span');
+        if (span) span.textContent = 'inserting…';
+      }
+      
+      try {
+        const headers = await authHeaders();
+        const response = await fetch(getApiUrl(`/jobs/${jobId}/save`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers
+          },
+          body: JSON.stringify({ location, targetDir, syncApiKey: apiKey })
+        });
+        
+        const data = await response.json().catch(() => null);
+        if (response.ok && data && data.outputPath) {
+          savedPath = data.outputPath;
+        } else if (!response.ok) {
+          const errorMsg = data?.error || `Server returned error ${response.status}`;
+          console.error('[handleInsertJob] Insert failed:', errorMsg, data);
+          if (insertBtn) {
+            const span = insertBtn.querySelector('span');
+            if (span) span.textContent = originalText;
+            (insertBtn as HTMLButtonElement).disabled = false;
+          }
+          if (mainInsertBtn) {
+            (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+            const span = mainInsertBtn.querySelector('span');
+            if (span) span.textContent = 'insert';
+          }
+          if (window.showToast) window.showToast('failed to insert', 'error');
+          (window as any).__insertingGuard = false;
+          return;
+        }
+      } catch(_) {
+        if (insertBtn) {
+          const span = insertBtn.querySelector('span');
+          if (span) span.textContent = originalText;
+          (insertBtn as HTMLButtonElement).disabled = false;
+        }
+        if (mainInsertBtn) {
+          (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+          const span = mainInsertBtn.querySelector('span');
+          if (span) span.textContent = 'insert';
+        }
+        if (window.showToast) window.showToast('failed to insert', 'error');
+        (window as any).__insertingGuard = false;
         return;
       }
 
-      if (!nle) {
-        if (window.showToast) window.showToast('nle not available', 'error');
+      if (!savedPath) {
+        try {
+          const headers = await authHeaders();
+          const res = await fetch(getApiUrl(`/jobs/${jobId}`), { headers });
+          const j = await res.json().catch(() => null);
+          if (j && j.outputPath) savedPath = j.outputPath;
+        } catch(_) {}
+      }
+      
+      // Reset button text
+      if (insertBtn) {
+        const span = insertBtn.querySelector('span');
+        if (span) span.textContent = originalText;
+        (insertBtn as HTMLButtonElement).disabled = false;
+      }
+      
+      if (!savedPath) {
+        if (mainInsertBtn) {
+          (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+          const span = mainInsertBtn.querySelector('span');
+          if (span) span.textContent = 'insert';
+        }
+        if (window.showToast) window.showToast('not ready', 'error');
+        (window as any).__insertingGuard = false;
         return;
       }
 
-      const result = await nle.insertFileAtPlayhead(job.outputPath);
-      if (result?.ok) {
-        if (window.showToast) window.showToast('inserted into timeline', 'success');
+      const fp = savedPath.replace(/"/g, '\\"');
+      try {
+        if (!window.CSInterface) {
+          if (mainInsertBtn) {
+            (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+            const span = mainInsertBtn.querySelector('span');
+            if (span) span.textContent = 'insert';
+          }
+          (window as any).__insertingGuard = false;
+          if (window.showToast) window.showToast('insert failed', 'error');
+          return;
+        }
+        
+        const cs = new window.CSInterface();
+        const isAE = window.HOST_CONFIG ? window.HOST_CONFIG.isAE : false;
+        const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
+        const isAEConfirmed = isAE && hostId !== 'PPRO';
+        
+        if (isAEConfirmed) {
+          try {
+            const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || 'EXTENSION').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            cs.evalScript(`$.evalFile("${extPath}/host/ae.jsx"); AEFT_insertFileAtPlayhead("${fp.replace(/\\/g, '\\\\')}")`, (r: string) => {
+              try {
+                let out: any = null;
+                if (typeof r === 'string') {
+                  try {
+                    out = JSON.parse(r || '{}');
+                  } catch(parseErr) {
+                    if (r === '[object Object]' || r.indexOf('ok') !== -1) {
+                      out = { ok: true };
       } else {
-        if (window.showToast) window.showToast(result?.error || 'failed to insert', 'error');
+                      out = { ok: false, error: r };
+                    }
+                  }
+                } else if (typeof r === 'object' && r !== null) {
+                  out = r;
+                } else {
+                  out = { ok: false, error: String(r) };
+                }
+                
+                if (out && out.ok === true) {
+                  if (window.showToast) window.showToast('inserted' + (out.diag ? ' [' + out.diag + ']' : ''), 'success');
+                } else {
+                  if (window.showToast) window.showToast('insert failed' + (out && out.error ? ' (' + out.error + ')' : ''), 'error');
+                }
+              } catch(_) {
+                if (window.showToast) window.showToast('insert failed', 'error');
+              }
+              if (mainInsertBtn) {
+                (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+                const span = mainInsertBtn.querySelector('span');
+                if (span) span.textContent = 'insert';
+              }
+              (window as any).__insertingGuard = false;
+            });
+          } catch(e) {
+            if (window.showToast) window.showToast('insert failed (error)', 'error');
+            if (mainInsertBtn) {
+              (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+              const span = mainInsertBtn.querySelector('span');
+              if (span) span.textContent = 'insert';
+            }
+            (window as any).__insertingGuard = false;
+          }
+        } else {
+          // PPro fallback
+          try {
+            const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || 'EXTENSION').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const payload = JSON.stringify({ path: savedPath }).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            cs.evalScript(`$.evalFile("${extPath}/host/ppro.jsx"); PPRO_insertFileAtPlayhead("${payload}")`, (r: string) => {
+              try {
+                const out = (typeof r === 'string') ? JSON.parse(r || '{}') : r;
+                if (out && out.ok === true) {
+                  if (window.showToast) window.showToast('inserted' + (out.diag ? ' [' + out.diag + ']' : ''), 'success');
+                } else {
+                  if (window.showToast) window.showToast('insert failed' + (out && out.error ? ' (' + out.error + ')' : ''), 'error');
+                }
+              } catch(_) {
+                if (window.showToast) window.showToast('insert failed', 'error');
+              }
+              if (mainInsertBtn) {
+                (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+                const span = mainInsertBtn.querySelector('span');
+                if (span) span.textContent = 'insert';
+              }
+              (window as any).__insertingGuard = false;
+            });
+          } catch(e) {
+            if (window.showToast) window.showToast('insert failed', 'error');
+            if (mainInsertBtn) {
+              (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+              const span = mainInsertBtn.querySelector('span');
+              if (span) span.textContent = 'insert';
+            }
+            (window as any).__insertingGuard = false;
+          }
+        }
+      } catch(_) {
+        if (window.showToast) window.showToast('insert failed', 'error');
+        if (mainInsertBtn) {
+          (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
+          const span = mainInsertBtn.querySelector('span');
+          if (span) span.textContent = 'insert';
+        }
+        (window as any).__insertingGuard = false;
       }
     } catch (e) {
       if (window.showToast) window.showToast('failed to insert', 'error');
+      (window as any).__insertingGuard = false;
     }
   };
 
   const handleCopyOutputLink = (jobId: string) => {
     const job = jobs.find(j => String(j.id) === String(jobId));
-    if (!job || !job.outputPath) {
+    const outputPath = job?.outputPath || job?.outputUrl;
+    if (!job || !outputPath) {
       if (window.showToast) window.showToast('output path not available', 'error');
       return;
     }
     
-    if (copyToClipboard(job.outputPath)) {
+    if (copyToClipboard(outputPath)) {
       if (window.showToast) window.showToast('output link copied to clipboard', 'success');
     } else {
       if (window.showToast) window.showToast('failed to copy output link', 'error');
@@ -531,20 +850,72 @@ const HistoryTabContent: React.FC = () => {
   };
 
   const handleLoadJobIntoSources = (jobId: string) => {
+    console.log('[loadJobIntoSources] Called with jobId:', jobId);
     const job = jobs.find(j => String(j.id) === String(jobId));
-    if (!job || !job.outputPath) return;
-
-    setSelection({
-      video: job.outputPath,
-      videoUrl: null,
-      audio: null,
-      audioUrl: null,
-      videoIsTemp: false,
-      audioIsTemp: false,
-      videoIsUrl: false,
-      audioIsUrl: false,
+    
+    if (!job) {
+      console.warn('[loadJobIntoSources] Job not found:', jobId);
+      if ((window as any).showToast) {
+        (window as any).showToast('job not found', 'error');
+      }
+      return;
+    }
+    
+    console.log('[loadJobIntoSources] Found job:', {
+      id: job.id,
+      status: job.status,
+      outputPath: job.outputPath,
+      outputUrl: job.outputUrl
     });
+    
+    const outputPath = job.outputPath || job.outputUrl;
+    if (job.status !== 'completed' || !outputPath) {
+      console.warn('[loadJobIntoSources] Job not ready:', {
+        status: job.status,
+        hasOutputPath: !!job.outputPath,
+        hasOutputUrl: !!job.outputUrl
+      });
+      if ((window as any).showToast) {
+        (window as any).showToast('job is not completed yet', 'error');
+      }
+      return;
+    }
+    
+    console.log('[loadJobIntoSources] Loading job into sources tab...');
+    
+    // Disable lipsync button (keep visible, greyed out) and hide audio section FIRST
+    // Do this before switching tabs to prevent showTab from re-enabling it
+    const lipsyncBtn = document.getElementById('lipsyncBtn');
+    if (lipsyncBtn) {
+      (lipsyncBtn as HTMLButtonElement).disabled = true;
+      lipsyncBtn.style.display = 'flex';
+    }
+    const audioSection = document.getElementById('audioSection');
+    if (audioSection) audioSection.style.display = 'none';
+    
+    // Switch to sources tab
     setActiveTab('sources');
+    
+    // Ensure button stays disabled after tab switch
+    setTimeout(() => {
+      const btn = document.getElementById('lipsyncBtn');
+      if (btn) {
+        (btn as HTMLButtonElement).disabled = true;
+      }
+    }, 50);
+    
+    // Render the output video and actions
+    if ((window as any).renderOutputVideo) {
+      (window as any).renderOutputVideo(job);
+    }
+    if ((window as any).showPostLipsyncActions) {
+      (window as any).showPostLipsyncActions(job);
+    }
+    
+    // Show toast
+    if ((window as any).showToast) {
+      (window as any).showToast('generation loaded', 'success');
+    }
   };
 
   // Expose window functions for backward compatibility (AFTER handlers are defined)
@@ -612,7 +983,23 @@ const HistoryTabContent: React.FC = () => {
 
   // Ensure jobs is always an array
   const safeJobs = Array.isArray(jobs) ? jobs : [];
-  const safeDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
+  // Calculate which jobs to render - matching main branch exactly
+  // Main branch behavior:
+  // - Initially: displayedCount=0, show first 10 items (slice(0, 10))
+  // - After first loadMore: displayedCount=10, show first 10 items (slice(0, 10)) - same items
+  // - After second loadMore: displayedCount=20, show first 20 items (slice(0, 20))
+  // So displayedCount represents the total number of items to show
+  const pageSize = 10;
+  const currentDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
+  // If displayedCount is 0, show first page (10 items). Otherwise show all up to displayedCount
+  const endIndex = currentDisplayedCount === 0 
+    ? Math.min(pageSize, safeJobs.length)
+    : Math.min(currentDisplayedCount, safeJobs.length);
+  const jobsToRender = safeJobs.slice(0, endIndex);
+  
+  // Calculate hasMore based on actual rendered count
+  // hasMore = there are more jobs beyond what we've rendered
+  const actualHasMore = endIndex < safeJobs.length;
 
   // Check if API key exists - update when tab becomes active or settings change
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -655,7 +1042,9 @@ const HistoryTabContent: React.FC = () => {
     const isFailed = status === 'failed';
     const isRejected = status === 'rejected';
     const isCompleted = status === 'completed';
-    const hasOutput = isCompleted && job.outputPath;
+    // Enable buttons if job is completed and has outputPath or outputUrl
+    // Jobs from Sync API may have outputUrl instead of outputPath
+    const hasOutput = isCompleted && (job.outputPath || job.outputUrl);
 
     const timestamp = formatHistoryTimestamp(job);
     const modelText = getModelText(job);
@@ -668,10 +1057,8 @@ const HistoryTabContent: React.FC = () => {
         data-job-id={job.id}
         onClick={(e) => {
           if (hasOutput && !(e.target as HTMLElement).closest('button')) {
-            // Only load into sources if we have a local file path
-            if (job.outputPath) {
-              handleLoadJobIntoSources(job.id);
-            }
+            // Load job into sources (outputPath or outputUrl from API)
+            handleLoadJobIntoSources(job.id);
           }
         }}
       >
@@ -682,18 +1069,17 @@ const HistoryTabContent: React.FC = () => {
                 __html: loaderHTML({ size: 'sm', color: 'white' })
               }} />
             ) : hasOutput ? (
-              thumbnailUrl ? (
-                <img
-                  src={thumbnailUrl}
-                  alt="Thumbnail"
-                  className="history-thumbnail"
-                  style={{ opacity: 1 }}
-                />
-              ) : (
-                <div className="history-thumbnail-loader" dangerouslySetInnerHTML={{
-                  __html: loaderHTML({ size: 'sm', color: 'white' })
-                }} />
-              )
+              <img
+                src={thumbnailUrl || ''}
+                alt="Thumbnail"
+                className="history-thumbnail"
+                data-job-id={job.id}
+                style={{ opacity: thumbnailUrl ? 1 : 0 }}
+                onLoad={(e) => {
+                  // Fade in when loaded (matching main branch)
+                  (e.target as HTMLImageElement).style.opacity = '1';
+                }}
+              />
             ) : null}
             
             {isPending ? (
@@ -867,8 +1253,12 @@ const HistoryTabContent: React.FC = () => {
             </div>
           ) : (
             <>
-              {safeJobs.slice(0, safeDisplayedCount).map((job, index) => renderHistoryCard(job, index))}
-              {hasMore && (
+              {jobsToRender.map((job, index) => {
+                // Calculate actual index in the full jobs array
+                const actualIndex = index;
+                return renderHistoryCard(job, actualIndex);
+              })}
+              {actualHasMore && (
                 <div id="historyInfiniteLoader" className="history-infinite-loader" dangerouslySetInnerHTML={{
                   __html: loaderHTML({ size: 'md', color: 'muted' })
                 }} />

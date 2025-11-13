@@ -133,9 +133,38 @@ export const useHistory = () => {
         }
         
         // Filter out invalid jobs (must have an id and status)
-        const loadedJobs = rawJobs.filter((job) => {
-          return job && typeof job === 'object' && job.id != null && job.status != null;
-        });
+        // Also map outputUrl to outputPath for consistency (Sync API uses outputUrl)
+        // But preserve both fields so thumbnails and save/insert can work
+        const loadedJobs = rawJobs
+          .filter((job) => {
+            return job && typeof job === 'object' && job.id != null && job.status != null;
+          })
+          .map((job) => {
+            // Debug: log first completed job structure
+            if (job.status === 'completed' && !job._logged) {
+              job._logged = true;
+              console.log('[useHistory] Sample completed job structure:', {
+                id: job.id,
+                status: job.status,
+                hasOutputPath: !!job.outputPath,
+                hasOutputUrl: !!job.outputUrl,
+                outputPath: job.outputPath,
+                outputUrl: job.outputUrl,
+                allKeys: Object.keys(job)
+              });
+            }
+            
+            // Map outputUrl to outputPath if outputPath doesn't exist (Sync API format)
+            // This ensures hasOutput check works, but we preserve outputUrl for thumbnails
+            if (!job.outputPath && job.outputUrl) {
+              job.outputPath = job.outputUrl;
+            }
+            // Also ensure outputUrl is set if we only have outputPath (for consistency)
+            if (!job.outputUrl && job.outputPath && (job.outputPath.startsWith('http://') || job.outputPath.startsWith('https://'))) {
+              job.outputUrl = job.outputPath;
+            }
+            return job;
+          });
         
         // Log final result
         try {
@@ -154,8 +183,8 @@ export const useHistory = () => {
         } catch (_) {}
         
         setJobs(loadedJobs);
-        // Start with first page only (10 jobs)
-        setDisplayedCount(Math.min(pageSize, loadedJobs.length));
+        // Start with 0 - first page will be rendered immediately
+        setDisplayedCount(0);
         setServerError(null); // Clear error on success
       } else {
         const errorText = await response.text().catch(() => "");
@@ -225,6 +254,9 @@ export const useHistory = () => {
   const loadMore = useCallback(() => {
     try {
       setDisplayedCount((prev) => {
+        // Matching main branch: displayedCount is START index
+        // First render: displayedCount=0, slice(0, 10), then displayedCount becomes 10
+        // Next render: displayedCount=10, slice(10, 20), then displayedCount becomes 20
         const next = prev + pageSize;
         return Math.min(next, jobs.length);
       });

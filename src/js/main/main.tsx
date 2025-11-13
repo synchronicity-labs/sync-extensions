@@ -88,9 +88,7 @@ const mountReactApp = () => {
           try {
             const root = ReactDOM.createRoot(el);
             root.render(
-              <React.StrictMode>
-                <App />
-              </React.StrictMode>
+              <App />
             );
             console.log("[main] React app mounted successfully");
           } catch (error) {
