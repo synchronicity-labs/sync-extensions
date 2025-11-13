@@ -3,6 +3,8 @@
  * Matches main branch implementation in ui/thumbnails.js
  */
 
+import { debugLog as debugLogFn } from './debugLog';
+
 // Cache directory in Application Support
 const CACHE_DIR = 'sync. extensions/sync-thumbnails';
 
@@ -11,13 +13,16 @@ const CACHE_DIR = 'sync. extensions/sync-thumbnails';
  */
 function logToFile(message: string) {
   try {
-    if (typeof (window as any).logToFile === 'function') {
-      (window as any).logToFile(message);
-    } else {
-      console.log(message);
-    }
+    // Use debugLog which sends to server /debug endpoint
+    // This ensures logs appear in sync_ppro_debug.log or sync_ae_debug.log
+    debugLogFn(`[Thumbnails] ${message}`);
   } catch(e) {
-    console.log(message);
+      // Silent failure - logging shouldn't break thumbnails
+    try {
+      if (typeof (window as any).logToFile === 'function') {
+        (window as any).logToFile(message);
+    }
+    } catch(_) {}
   }
 }
 
@@ -26,14 +31,19 @@ function logToFile(message: string) {
  */
 async function getCacheDir(): Promise<string | null> {
   try {
-    if (!window.CSInterface) return null;
+    if (!window.CSInterface) {
+      logToFile(`[Thumbnails] CSInterface not available`);
+      return null;
+    }
     const cs = new window.CSInterface();
     const userDataPath = cs.getSystemPath(window.CSInterface.SystemPath.USER_DATA);
     // On macOS: ~/Library/Application Support
     // On Windows: %APPDATA%
-    return `${userDataPath}/${CACHE_DIR}`;
+    const cacheDir = `${userDataPath}/${CACHE_DIR}`;
+    logToFile(`[Thumbnails] Cache directory path: ${cacheDir}`);
+    return cacheDir;
   } catch(e: any) {
-    logToFile(`Failed to get cache dir: ${e.message}`);
+    logToFile(`[Thumbnails] Failed to get cache dir: ${e.message}`);
     return null;
   }
 }
@@ -81,36 +91,35 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
       if (loader) loader.style.display = 'flex';
     }
     
-    // Create video element to capture frame
+    // Create a NEW video element for each job to avoid conflicts
+    // Don't reuse video elements across multiple thumbnail generations
     const video = document.createElement('video');
     video.preload = 'metadata';
     video.muted = true;
     (video as any).playsInline = true;
     
-    // For HTTP URLs, try with and without crossOrigin
+    // For HTTP URLs, try without crossOrigin first - works for many CDNs
     if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
-      // Try with anonymous crossOrigin first - required for canvas.toDataURL
-      video.crossOrigin = 'anonymous';
-      // If that fails, we'll try without it in the error handler
+      video.crossOrigin = null;
     } else {
       video.crossOrigin = 'anonymous';
     }
     
     return new Promise((resolve) => {
       let hasResolved = false;
-      let retryAttempted = false;
-      let currentTimeout: NodeJS.Timeout | null = null;
       
       const cleanup = () => {
         try {
-          if (currentTimeout) {
-            clearTimeout(currentTimeout);
-            currentTimeout = null;
-          }
+          // Remove event handlers FIRST to prevent error events during cleanup
+          video.onloadedmetadata = null;
+          video.onseeked = null;
+          video.onerror = null;
           video.pause();
           video.src = '';
           video.load();
-        } catch(e) {}
+        } catch(e) {
+          // Silent cleanup failure
+        }
       };
       
       const resolveOnce = (value: string | null) => {
@@ -121,102 +130,80 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
         }
       };
       
-      const tryLoadVideo = (url: string, useCors: boolean) => {
-        // Clear previous timeout
-        if (currentTimeout) {
-          clearTimeout(currentTimeout);
-          currentTimeout = null;
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        logToFile(`[Thumbnails] Thumbnail generation timeout for: ${jobId}`);
+        resolveOnce(null);
+      }, 10000);
+      
+      video.onloadedmetadata = () => {
+        logToFile(`[Thumbnails] Video metadata loaded, seeking for: ${jobId}`);
+        try {
+          // Seek to 0.5 seconds to avoid black frames
+          video.currentTime = Math.min(0.5, video.duration || 0);
+        } catch(e: any) {
+          logToFile(`[Thumbnails] Seek error for ${jobId}: ${e.message}`);
+          clearTimeout(timeout);
+          resolveOnce(null);
         }
-        
-        // Remove old event listeners
-        video.onloadedmetadata = null;
-        video.onseeked = null;
-        video.onerror = null;
-        
-        video.crossOrigin = useCors ? 'anonymous' : null;
-        video.src = url;
-        video.load();
-        
-        // Timeout after 10 seconds
-        currentTimeout = setTimeout(() => {
-          logToFile(`[Thumbnails] Thumbnail generation timeout for: ${jobId}`);
-          resolveOnce(null);
-        }, 10000);
-        
-        video.onloadedmetadata = () => {
-          logToFile(`[Thumbnails] Video metadata loaded, seeking for: ${jobId}`);
-          try {
-            // Seek to 0.5 seconds to avoid black frames
-            video.currentTime = Math.min(0.5, video.duration || 0);
-          } catch(e: any) {
-            logToFile(`[Thumbnails] Seek error for ${jobId}: ${e.message}`);
-            if (currentTimeout) clearTimeout(currentTimeout);
-            resolveOnce(null);
-          }
-        };
-        
-        video.onseeked = async () => {
-          try {
-            logToFile(`[Thumbnails] Seeked successfully, capturing frame for: ${jobId}`);
-            
-            // Create canvas to capture frame
-            const canvas = document.createElement('canvas');
-            const maxWidth = 200; // Low-res thumbnail
-            
-            if (!video.videoWidth || !video.videoHeight) {
-              logToFile(`[Thumbnails] Invalid video dimensions for: ${jobId}`);
-              if (currentTimeout) clearTimeout(currentTimeout);
-              resolveOnce(null);
-              return;
-            }
-            
-            const aspectRatio = video.videoHeight / video.videoWidth;
-            canvas.width = maxWidth;
-            canvas.height = Math.round(maxWidth * aspectRatio);
-            
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-              if (currentTimeout) clearTimeout(currentTimeout);
-              resolveOnce(null);
-              return;
-            }
-            
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // Convert to JPEG data URL
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            logToFile(`[Thumbnails] Thumbnail generated successfully for: ${jobId}`);
-            
-            if (currentTimeout) clearTimeout(currentTimeout);
-            resolveOnce(dataUrl);
-          } catch(e: any) {
-            logToFile(`[Thumbnails] Frame capture error for ${jobId}: ${e.message}`);
-            if (currentTimeout) clearTimeout(currentTimeout);
-            resolveOnce(null);
-          }
-        };
-        
-        video.onerror = (e) => {
-          logToFile(`[Thumbnails] Video load error for job: ${jobId} - Error: ${(e as any).type || 'unknown'}`);
-          if (currentTimeout) clearTimeout(currentTimeout);
-          
-          // If CORS failed and we haven't retried, try without crossOrigin for HTTP URLs
-          if (url.startsWith('http://') || url.startsWith('https://')) {
-            if (useCors && !retryAttempted) {
-              logToFile(`[Thumbnails] CORS failed, trying without crossOrigin for: ${jobId}`);
-              retryAttempted = true;
-              tryLoadVideo(url, false);
-              return; // Don't resolve yet, let it try again
-            }
-          }
-          
-          resolveOnce(null);
-        };
       };
       
-      // Start loading with CORS for HTTP URLs
-      const useCors = videoUrl.startsWith('http://') || videoUrl.startsWith('https://');
-      tryLoadVideo(videoUrl, useCors);
+      video.onseeked = async () => {
+        try {
+          logToFile(`[Thumbnails] Seeked successfully, capturing frame for: ${jobId}`);
+          
+          // Create canvas to capture frame
+          const canvas = document.createElement('canvas');
+          const maxWidth = 200; // Low-res thumbnail
+          
+          if (!video.videoWidth || !video.videoHeight) {
+            logToFile(`[Thumbnails] Invalid video dimensions for: ${jobId}`);
+            clearTimeout(timeout);
+            resolveOnce(null);
+            return;
+          }
+          
+          const aspectRatio = video.videoHeight / video.videoWidth;
+          canvas.width = maxWidth;
+          canvas.height = Math.round(maxWidth * aspectRatio);
+          
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            clearTimeout(timeout);
+            resolveOnce(null);
+            return;
+          }
+          
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Convert to JPEG data URL
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          logToFile(`[Thumbnails] Thumbnail generated successfully for: ${jobId}`);
+          
+          clearTimeout(timeout);
+          resolveOnce(dataUrl);
+        } catch(e: any) {
+          logToFile(`[Thumbnails] Frame capture error for ${jobId}: ${e.message}`);
+          clearTimeout(timeout);
+          resolveOnce(null);
+        }
+      };
+      
+      video.onerror = (e) => {
+        logToFile(`[Thumbnails] Video load error for job: ${jobId} - Error: ${(e as any).type || 'unknown'}`);
+        clearTimeout(timeout);
+        resolveOnce(null);
+      };
+      
+      // Set video source and start loading
+      try {
+        video.src = videoUrl;
+        video.load();
+      } catch (e: any) {
+        logToFile(`[Thumbnails] Failed to set video source for ${jobId}: ${e.message}`);
+        clearTimeout(timeout);
+        resolveOnce(null);
+      }
     });
   } catch(e: any) {
     logToFile(`[Thumbnails] Generate error for ${jobId}: ${e.message}`);
@@ -276,38 +263,53 @@ async function loadThumbnail(jobId: string): Promise<string | null> {
  */
 async function cacheThumbnail(jobId: string, thumbnailDataUrl: string): Promise<boolean> {
   try {
+    logToFile(`[Thumbnails] cacheThumbnail called for: ${jobId}, dataUrl length: ${thumbnailDataUrl?.length || 0}`);
+    
     const thumbnailPath = await getThumbnailPath(jobId);
     if (!thumbnailPath) {
       logToFile(`[Thumbnails] No cache path available for: ${jobId}`);
       return false;
     }
+    logToFile(`[Thumbnails] Thumbnail path: ${thumbnailPath}`);
     
     // Ensure cache directory exists
     const cacheDir = await getCacheDir();
+    logToFile(`[Thumbnails] Cache dir: ${cacheDir || 'null'}`);
     if (cacheDir) {
-      await ensureCacheDir();
+      const ensured = await ensureCacheDir();
+      logToFile(`[Thumbnails] Directory ensured: ${ensured}`);
     }
     
     // Save thumbnail using host function
     const isAE = (window.HOST_CONFIG && (window.HOST_CONFIG as any).isAE);
     const saveFn = isAE ? 'AEFT_saveThumbnail' : 'PPRO_saveThumbnail';
+    logToFile(`[Thumbnails] Using save function: ${saveFn}, isAE: ${isAE}`);
     
     // saveThumbnail expects a JSON string payload
     const payload = JSON.stringify({
       path: thumbnailPath,
       dataUrl: thumbnailDataUrl
     });
+    logToFile(`[Thumbnails] Payload length: ${payload.length}, path in payload: ${thumbnailPath}`);
     
-    const result = await (window as any).evalExtendScript?.(saveFn, payload);
+    if (!(window as any).evalExtendScript) {
+      logToFile(`[Thumbnails] evalExtendScript not available!`);
+      return false;
+    }
+    
+    logToFile(`[Thumbnails] Calling evalExtendScript for: ${saveFn}`);
+    const result = await (window as any).evalExtendScript(saveFn, payload);
+    logToFile(`[Thumbnails] evalExtendScript result: ${JSON.stringify(result)}`);
+    
     if (result?.ok) {
       logToFile(`[Thumbnails] Cached thumbnail successfully: ${jobId}`);
       return true;
     } else {
-      logToFile(`[Thumbnails] Failed to cache thumbnail: ${result?.error || 'unknown error'}`);
+      logToFile(`[Thumbnails] Failed to cache thumbnail: ${result?.error || 'unknown error'}, result: ${JSON.stringify(result)}`);
       return false;
     }
   } catch(e: any) {
-    logToFile(`[Thumbnails] Cache error: ${e.message}`);
+    logToFile(`[Thumbnails] Cache error: ${e.message}, stack: ${e.stack}`);
     return false;
   }
 }
@@ -334,12 +336,16 @@ function updateCardThumbnail(jobId: string, thumbnailUrl: string) {
   // Update the thumbnail image
   const img = card.querySelector(`.history-thumbnail[data-job-id="${jobId}"]`) as HTMLImageElement;
   if (img) {
-    logToFile(`[Thumbnails] Updating card thumbnail: ${jobId} - ${thumbnailUrl}`);
+    logToFile(`[Thumbnails] Updating card thumbnail: ${jobId} - ${thumbnailUrl.substring(0, 50)}...`);
     img.onload = () => {
       img.style.opacity = '1';
+      // Trigger custom event to update React state
+      window.dispatchEvent(new CustomEvent('thumbnailUpdated', { 
+        detail: { jobId, thumbnailUrl } 
+      }));
     };
     img.onerror = () => {
-      logToFile(`[Thumbnails] Failed to load image: ${thumbnailUrl}`);
+      logToFile(`[Thumbnails] Failed to load image: ${jobId}`);
       img.style.opacity = '0';
     };
     img.src = thumbnailUrl;
@@ -353,18 +359,68 @@ function updateCardThumbnail(jobId: string, thumbnailUrl: string) {
  * Matches main branch implementation exactly
  */
 export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
+  logToFile(`[Thumbnails] generateThumbnailsForJobs CALLED with ${jobs?.length || 0} jobs`);
+  
   if (!Array.isArray(jobs) || jobs.length === 0) {
-    logToFile('[Thumbnails] No jobs to generate thumbnails for');
+    logToFile('[Thumbnails] No jobs to generate thumbnails for (empty or not array)');
     return;
   }
   
   logToFile(`[Thumbnails] Starting generation for batch: ${jobs.length} jobs`);
   
-  // Only process completed jobs
-  const completedJobs = jobs.filter(j => j && j.status === 'completed' && j.id && (j.outputPath || j.videoPath || j.outputUrl));
-  logToFile(`[Thumbnails] Completed jobs with video: ${completedJobs.length}`);
+  // Debug: log first few jobs to see their structure
+  if (jobs.length > 0) {
+    const sampleJob = jobs[0];
+    logToFile(`[Thumbnails] Sample job structure: ${JSON.stringify({
+      id: sampleJob?.id,
+      status: sampleJob?.status,
+      hasOutputPath: !!sampleJob?.outputPath,
+      hasOutputUrl: !!sampleJob?.outputUrl,
+      hasVideoPath: !!sampleJob?.videoPath,
+      outputPath: sampleJob?.outputPath?.substring(0, 50),
+      outputUrl: sampleJob?.outputUrl?.substring(0, 50),
+      videoPath: sampleJob?.videoPath?.substring(0, 50),
+      allKeys: Object.keys(sampleJob || {})
+    })}`);
+  }
   
-  for (const job of completedJobs) {
+  // Process jobs that have video URLs - be more lenient with status
+  // Some jobs might have different statuses but still have output videos
+  const jobsWithVideo = jobs.filter(j => {
+    if (!j || !j.id) return false;
+    const hasVideo = !!(j.outputPath || j.videoPath || j.outputUrl);
+    return hasVideo;
+  });
+  logToFile(`[Thumbnails] Jobs with video URLs: ${jobsWithVideo.length} out of ${jobs.length}`);
+  
+  // Log status breakdown for debugging
+  if (jobs.length > 0) {
+    const statusCounts: Record<string, number> = {};
+    jobs.forEach(j => {
+      if (j) {
+        const status = j.status || 'no-status';
+        statusCounts[status] = (statusCounts[status] || 0) + 1;
+      }
+    });
+    logToFile(`[Thumbnails] Job status breakdown: ${JSON.stringify(statusCounts)}`);
+  }
+  
+  // Process only COMPLETED jobs from Sync API (all jobs in history are from Sync API)
+  // The Sync API returns "COMPLETED" (uppercase)
+  const completedJobs = jobsWithVideo.filter(j => {
+    return j.status === 'COMPLETED';
+  });
+  
+  // Only process completed jobs from Sync API
+  const jobsToProcess = completedJobs;
+  
+  if (completedJobs.length < jobsWithVideo.length) {
+    logToFile(`[Thumbnails] Filtered out ${jobsWithVideo.length - completedJobs.length} jobs (not COMPLETED status from Sync API)`);
+  }
+  logToFile(`[Thumbnails] Processing ${jobsToProcess.length} COMPLETED jobs with video URLs from Sync API`);
+  
+  // Process jobs sequentially (one at a time) to avoid video element conflicts
+  for (const job of jobsToProcess) {
     try {
       logToFile(`[Thumbnails] Processing job: ${job.id} - outputPath: ${job.outputPath || 'none'}, videoPath: ${job.videoPath || 'none'}, outputUrl: ${job.outputUrl || 'none'}, status: ${job.status}`);
       
@@ -372,11 +428,11 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
       logToFile(`[Thumbnails] Checking cache for job: ${job.id}`);
       const existing = await loadThumbnail(job.id);
       if (existing) {
-        logToFile(`[Thumbnails] Using cached thumbnail: ${job.id}`);
+        logToFile(`[Thumbnails] Using cached thumbnail (skipping generation): ${job.id}`);
         updateCardThumbnail(job.id, existing);
-        continue;
+        continue; // Skip generation if cached
       } else {
-        logToFile(`[Thumbnails] No cached thumbnail found, generating new one for: ${job.id}`);
+        logToFile(`[Thumbnails] No cached thumbnail found, will generate new one for: ${job.id}`);
       }
       
       // Try to generate from outputPath, outputUrl, or videoPath (in that order)
@@ -396,7 +452,7 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
       // For HTTP URLs, try to generate through backend proxy
       let finalVideoUrl = videoUrl;
       if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
-        logToFile(`[Thumbnails] HTTP URL detected, will try with CORS: ${videoUrl}`);
+        logToFile(`[Thumbnails] HTTP URL detected, will try with CORS: ${videoUrl.substring(0, 100)}`);
         // We'll try to load it directly - many CDNs support CORS
         // If it fails, the onerror handler will hide the loader
         finalVideoUrl = videoUrl;
@@ -407,19 +463,18 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
         finalVideoUrl = 'file://' + videoUrl;
       }
       
-      logToFile(`[Thumbnails] Generating thumbnail from: ${finalVideoUrl}`);
+      logToFile(`[Thumbnails] Generating thumbnail from: ${finalVideoUrl.substring(0, 100)}`);
+      // Await each thumbnail generation to ensure sequential processing
       const thumbnailDataUrl = await generateThumbnail(finalVideoUrl, job.id);
       if (thumbnailDataUrl) {
         logToFile(`[Thumbnails] Generated thumbnail successfully for: ${job.id}`);
         updateCardThumbnail(job.id, thumbnailDataUrl);
         
-        // Cache the generated thumbnail (only for local files, not URLs)
-        if (!videoUrl.startsWith('http://') && !videoUrl.startsWith('https://')) {
+        // Cache the generated thumbnail
           try {
             await cacheThumbnail(job.id, thumbnailDataUrl);
           } catch(e: any) {
             logToFile(`[Thumbnails] Failed to cache thumbnail: ${e.message}`);
-          }
         }
       } else {
         logToFile(`[Thumbnails] Failed to generate thumbnail, showing placeholder for: ${job.id}`);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { ChevronDown } from "lucide-react";
 import whiteIcon from "../../assets/icons/white_icon.png";
 import { useJobs } from "../hooks/useJobs";
@@ -36,7 +36,48 @@ const BottomBar: React.FC = () => {
     }
   }, [selection.video, selection.videoUrl, selection.audio, selection.audioUrl, estimateCost]);
 
-  const canLipsync = !!(selection.video || selection.videoUrl) && !!(selection.audio || selection.audioUrl);
+  // Update button when R2 URLs change (for local file uploads)
+  useEffect(() => {
+    if (typeof (window as any).updateLipsyncButton === "function") {
+      (window as any).updateLipsyncButton();
+    }
+  }, [
+    selection.video,
+    selection.videoUrl,
+    selection.videoIsUrl,
+    selection.audio,
+    selection.audioUrl,
+    selection.audioIsUrl,
+  ]);
+
+  // Check if R2 URLs are ready for local files
+  const hasVideoReady = useMemo(() => {
+    if (selection.videoIsUrl && selection.videoUrl) {
+      // Already a URL, ready to go
+      return true;
+    }
+    if (selection.video && !selection.videoIsUrl) {
+      // Local file - check if R2 URL is ready
+      const uploadedUrl = (window as any).uploadedVideoUrl || localStorage.getItem("uploadedVideoUrl");
+      return !!uploadedUrl;
+    }
+    return false;
+  }, [selection.video, selection.videoUrl, selection.videoIsUrl]);
+
+  const hasAudioReady = useMemo(() => {
+    if (selection.audioIsUrl && selection.audioUrl) {
+      // Already a URL, ready to go
+      return true;
+    }
+    if (selection.audio && !selection.audioIsUrl) {
+      // Local file - check if R2 URL is ready
+      const uploadedUrl = (window as any).uploadedAudioUrl || localStorage.getItem("uploadedAudioUrl");
+      return !!uploadedUrl;
+    }
+    return false;
+  }, [selection.audio, selection.audioUrl, selection.audioIsUrl]);
+
+  const canLipsync = hasVideoReady && hasAudioReady;
 
   const handleLipsync = async () => {
     if (!canLipsync) return;

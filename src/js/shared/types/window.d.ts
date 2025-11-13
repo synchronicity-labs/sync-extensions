@@ -31,18 +31,30 @@ interface Window {
   };
   debugLog?: (message: string, data?: any) => void;
   HOST_CONFIG?: {
-    hostId: string;
+    hostId: "AEFT" | "PPRO" | "RESOLVE";
     hostName: string;
     isAE: boolean;
   };
   lucide?: {
     createIcons?: (options?: { root?: HTMLElement }) => void;
   };
-  __forceHostId?: "AEFT" | "PPRO";
+  __forceHostId?: "AEFT" | "PPRO" | "RESOLVE";
   nle?: {
-    loadHostScript?: () => Promise<void>;
-    call?: (fnTail: string, payload?: any) => Promise<any>;
-    [key: string]: any;
+    getHostId: () => string;
+    loadHostScript: () => Promise<void>;
+    startBackend: () => Promise<any>;
+    getProjectDir: () => Promise<any>;
+    exportInOutVideo: (opts?: any) => Promise<any>;
+    exportInOutAudio: (opts?: any) => Promise<any>;
+    insertFileAtPlayhead: (fsPath?: string) => Promise<any>;
+    importFileToBin: (fsPath?: string, binName?: string) => Promise<any>;
+    revealFile: (fsPath?: string) => Promise<any>;
+    diagInOut: () => Promise<any>;
+  };
+  electronAPI?: {
+    showOpenDialog: (options: any) => Promise<any>;
+    getApiKey: () => Promise<string>;
+    setApiKey: (key: string) => Promise<boolean>;
   };
   evalExtendScript?: (fn: string, payload?: any) => Promise<any>;
   generateThumbnailsForJobs?: (jobs: any[]) => Promise<void>;

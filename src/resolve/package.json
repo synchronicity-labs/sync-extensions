@@ -1,0 +1,14 @@
+{
+  "name": "sync-resolve",
+  "version": "0.1.0",
+  "main": "backend.js",
+  "scripts": {
+    "start": "electron backend.js",
+    "dev": "tsx backend.ts"
+  },
+  "private": true,
+  "dependencies": {
+    "electron": "^31.3.1"
+  }
+}
+

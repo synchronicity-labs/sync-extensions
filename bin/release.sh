@@ -124,6 +124,9 @@ REQUIRED_FILES=(
   "jsx/index.jsxbin"
   "server/server.js"
   "server/package.json"
+  "bin/darwin-arm64/node"
+  "bin/darwin-x64/node"
+  "bin/win32-x64/node.exe"
 )
 
 ALL_PRESENT=true

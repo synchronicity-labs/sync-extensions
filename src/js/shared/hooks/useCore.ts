@@ -47,6 +47,11 @@ export const useCore = () => {
         "lipsync_button_setup",
         "lipsync_function_missing",
         "lipsync_button_update",
+        "button_click",
+        "button_handler_setup",
+        "button_not_found",
+        "sources_tab_click",
+        "dom_changed",
       ];
       
       if (importantEvents.includes(type)) {

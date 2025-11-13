@@ -1,8 +1,9 @@
 import { useEffect, useCallback, useState } from "react";
 import { useHostDetection } from "./useHostDetection";
 import { getApiUrl } from "../utils/serverConfig";
-import { getHostId as detectHostId } from "../utils/host";
+import { getHostId as detectHostId } from "../utils/clientHostDetection";
 import { HOST_IDS } from "../../../shared/host";
+import { debugLog, debugError, debugWarn } from "../utils/debugLog";
 
 interface NLEMethods {
   getHostId: () => string;
@@ -23,7 +24,40 @@ export const useNLE = () => {
 
   useEffect(() => {
     // Initialize NLE adapter
-    if (typeof window === "undefined" || !window.CSInterface) {
+    // For Resolve, window.nle is set by nle-resolve.js (HTTP-based)
+    // For CEP hosts (AEFT/PPRO), use CSInterface-based approach
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // Check if Resolve (window.nle already set by nle-resolve.js)
+    if (hostConfig?.hostId === HOST_IDS.RESOLVE) {
+      if (window.nle) {
+        setNLE(window.nle);
+        return;
+      }
+      // Wait for nle-resolve.js to load
+      const checkInterval = setInterval(() => {
+        if (window.nle) {
+          setNLE(window.nle);
+          clearInterval(checkInterval);
+        }
+      }, 100);
+      return () => clearInterval(checkInterval);
+    }
+
+    // CEP hosts require CSInterface
+    // But wait a bit for it to be available (it might load asynchronously)
+    if (!window.CSInterface) {
+      // Retry after a short delay - CSInterface might not be ready yet
+      const checkInterval = setInterval(() => {
+        if (window.CSInterface) {
+          clearInterval(checkInterval);
+          initNLE();
+        }
+      }, 100);
+      // Stop retrying after 5 seconds
+      setTimeout(() => clearInterval(checkInterval), 5000);
       return;
     }
 
@@ -38,10 +72,10 @@ export const useNLE = () => {
         try {
           return detectHostId();
         } catch (error) {
-          console.error("[useNLE] Cannot determine host:", error);
+          debugError("[useNLE] Cannot determine host", error);
           // Don't throw - return a default to prevent blocking panel
           // The panel should still work even if host detection fails
-          console.warn("[useNLE] Using fallback host ID - panel may not work correctly");
+          debugWarn("[useNLE] Using fallback host ID - panel may not work correctly");
           return HOST_IDS.PPRO; // Fallback to prevent blocking
         }
       };
@@ -62,9 +96,9 @@ export const useNLE = () => {
                 // Check for errors in result
                 if (result && (result.includes("error") || result.includes("Error") || result.includes("27"))) {
                   const errorMsg = `[useNLE] JSX load error (CEP error code 27): ${result}`;
-                  console.error(errorMsg);
-                  console.error("[useNLE] Extension path:", extPath);
-                  console.error("[useNLE] JSX file path:", escPath);
+                  debugError(errorMsg);
+                  debugError("[useNLE] Extension path", { extPath });
+                  debugError("[useNLE] JSX file path", { escPath });
                   // Try to log to debug endpoint if available
                   try {
                     const hostConfig = window.HOST_CONFIG || {};
@@ -83,12 +117,12 @@ export const useNLE = () => {
                     }).catch(() => {});
                   } catch (_) {}
                 } else {
-                  console.log("[useNLE] JSX script loaded successfully");
+                  debugLog("[useNLE] JSX script loaded successfully");
                 }
                 resolve();
               });
             } catch (error) {
-              console.error("[useNLE] Error loading JSX:", error);
+              debugError("[useNLE] Error loading JSX", error);
               // Try to log to debug endpoint if available
               try {
                 const hostConfig = window.HOST_CONFIG || {};
@@ -108,7 +142,7 @@ export const useNLE = () => {
             }
           });
         } catch (error) {
-          console.error("[useNLE] ensureHostLoaded error:", error);
+          debugError("[useNLE] ensureHostLoaded error", error);
         }
       };
 

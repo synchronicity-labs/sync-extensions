@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Film, History, Settings, CreditCard, Key, HelpCircle } from "lucide-react";
 import { Tab } from "../hooks/useTabs";
 import { useHostDetection } from "../hooks/useHostDetection";
-import { getExtensionVersion } from "../utils/version";
+import { getExtensionVersion } from "../utils/clientVersion";
 import { getApiUrl } from "../utils/serverConfig";
 import whiteIcon from "../../assets/icons/white_icon.png";
 import avatarIcon from "../../assets/icons/avatar.png";

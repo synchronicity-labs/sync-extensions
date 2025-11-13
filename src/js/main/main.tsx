@@ -1,7 +1,7 @@
 // Host detection - runs synchronously before React loads
 // This ensures HOST_CONFIG is available immediately for all code
-// Uses centralized host detection from shared/utils/host.ts
-import { detectHost } from "../shared/utils/host";
+// Uses centralized host detection from shared/utils/clientHostDetection.ts
+import { detectHost } from "../shared/utils/clientHostDetection";
 
 (function() {
   try {
@@ -25,6 +25,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initBolt } from "../lib/utils/bolt";
+import { debugLog, debugError, debugWarn } from "../shared/utils/debugLog";
 
 // Initialize Bolt CEP - loads JSX files
 // Wait for CEP to be fully available before initializing
@@ -37,7 +38,7 @@ const initializeBoltWhenReady = () => {
     try {
       initBolt();
     } catch (error) {
-      console.error("[main] Error initializing Bolt:", error);
+      debugError("[main] Error initializing Bolt", error);
       // Don't block panel rendering if Bolt fails
     }
   } else {
@@ -46,7 +47,7 @@ const initializeBoltWhenReady = () => {
     if (boltInitRetries < MAX_BOLT_INIT_RETRIES) {
       setTimeout(initializeBoltWhenReady, 100);
     } else {
-      console.warn("[main] CEP not available after max retries - panel will still render");
+      debugWarn("[main] CEP not available after max retries - panel will still render");
     }
   }
 };
@@ -63,7 +64,7 @@ if (import.meta.hot) {
   
   // Only reload on critical errors that can't be recovered
   import.meta.hot.on("vite:error", (error) => {
-    console.error("[HMR] Critical error during update:", error);
+    debugError("[HMR] Critical error during update", error);
     // Only reload if it's a critical error that prevents the app from working
     // Use a small delay to let React finish current render cycle
     setTimeout(() => {
@@ -80,7 +81,7 @@ const mountReactApp = () => {
   try {
     const rootElement = document.getElementById("root");
     if (!rootElement) {
-      console.error("[main] Root element not found! Waiting for DOM...");
+      debugError("[main] Root element not found! Waiting for DOM");
       // Wait for DOM to be ready
       const waitForRoot = () => {
         const el = document.getElementById("root");
@@ -90,9 +91,9 @@ const mountReactApp = () => {
             root.render(
               <App />
             );
-            console.log("[main] React app mounted successfully");
+            debugLog("[main] React app mounted successfully");
           } catch (error) {
-            console.error("[main] Error mounting React:", error);
+            debugError("[main] Error mounting React", error);
             // Show error message in panel
             el.innerHTML = `
               <div style="padding: 20px; font-family: system-ui; color: #ff0000;">
@@ -121,9 +122,9 @@ const mountReactApp = () => {
             <App />
           </React.StrictMode>
         );
-        console.log("[main] React app mounted successfully");
+        debugLog("[main] React app mounted successfully");
       } catch (error) {
-        console.error("[main] Error mounting React:", error);
+        debugError("[main] Error mounting React", error);
         // Show error message in panel
         rootElement.innerHTML = `
           <div style="padding: 20px; font-family: system-ui; color: #ff0000;">
@@ -136,7 +137,7 @@ const mountReactApp = () => {
       }
     }
   } catch (error) {
-    console.error("[main] Fatal error during initialization:", error);
+    debugError("[main] Fatal error during initialization", error);
     // Last resort - try to show error in body
     try {
       document.body.innerHTML = `

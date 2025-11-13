@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, Component, ErrorInfo, ReactNode, useMemo } from "react";
+import React, { useEffect, useRef, useState, Component, ErrorInfo, ReactNode, useMemo, useCallback } from "react";
 import { useHistory } from "../hooks/useHistory";
 import { useTabs } from "../hooks/useTabs";
 import { useCore } from "../hooks/useCore";
@@ -9,6 +9,7 @@ import { getApiUrl } from "../utils/serverConfig";
 import { loaderHTML } from "../utils/loader";
 import { HOST_IDS } from "../../../shared/host";
 import { generateThumbnailsForJobs } from "../utils/thumbnails";
+import { debugLog, debugError, debugWarn } from "../utils/debugLog";
 
 // Utility functions
 function formatDuration(ms: number): string {
@@ -45,8 +46,8 @@ function formatHistoryTimestamp(job: any): string {
       year: 'numeric'
     });
     
-    // Add duration if completed
-    if (job.status === 'completed' && job.completedAt) {
+    // Add duration if completed (Sync API returns "COMPLETED" uppercase)
+    if ((job.status === 'COMPLETED' || job.status === 'completed') && job.completedAt) {
       const created = new Date(job.createdAt);
       const completed = new Date(job.completedAt);
       const durationMs = completed.getTime() - created.getTime();
@@ -123,7 +124,7 @@ function copyToClipboard(text: string): boolean {
     document.body.removeChild(textarea);
     if (success) return true;
   } catch(e) {
-    console.error('Copy method 1 failed:', e);
+    debugError('Copy method 1 failed', e);
   }
   
   try {
@@ -132,7 +133,7 @@ function copyToClipboard(text: string): boolean {
       return true;
     }
   } catch(e) {
-    console.error('Copy method 2 failed:', e);
+    debugError('Copy method 2 failed', e);
   }
   
   return false;
@@ -171,11 +172,11 @@ const HistoryTabContent: React.FC = () => {
     setHasError(false);
     try {
       loadJobsRef.current().catch((error) => {
-        console.error("[HistoryTab] Failed to load jobs:", error);
+        debugError("[HistoryTab] Failed to load jobs", error);
         setHasError(true);
       });
     } catch (error) {
-      console.error("[HistoryTab] Error accessing settings:", error);
+      debugError("[HistoryTab] Error accessing settings", error);
       setHasError(true);
     }
   }, [activeTab]);
@@ -193,45 +194,89 @@ const HistoryTabContent: React.FC = () => {
     }
   }, [activeTab, jobs.length, displayedCount, isLoading, loadMore]);
 
-  // Generate thumbnails for currently rendered jobs - matching main branch behavior
-  // This calls generateThumbnailsForJobs like the main branch does
-  // Track previous displayedCount to only generate thumbnails for NEW jobs
-  const prevDisplayedCountForThumbnailsRef = useRef(0);
+  // Generate thumbnails for currently rendered jobs
+  // Generate thumbnails for the jobs that are actually visible in the UI
+  const prevRenderedJobsRef = useRef<string>('');
+  const prevJobsLengthRef = useRef<number>(0);
+  
   useEffect(() => {
-    if (activeTab !== "history" || !jobs || jobs.length === 0) return;
+    // Only process if history tab is active and we have jobs
+    if (activeTab !== "history" || !jobs || jobs.length === 0) {
+      // Don't reset ref when switching tabs - only reset when jobs actually change
+      // This prevents regeneration when switching back to history tab
+      return;
+    }
+    
+    // Reset only if jobs list changed significantly (new load)
+    if (jobs.length !== prevJobsLengthRef.current && prevJobsLengthRef.current > 0) {
+      prevRenderedJobsRef.current = '';
+    }
+    prevJobsLengthRef.current = jobs.length;
 
     const pageSize = 10;
     const currentDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
     
-    // Calculate which jobs are currently rendered
-    // When displayedCount = 0, show first 10 (slice(0, 10)) - generate thumbnails for 0-9
-    // When displayedCount = 10, show first 10 (slice(0, 10)) - same items, don't regenerate
-    // When displayedCount = 20, show first 20 (slice(0, 20)) - generate thumbnails for 10-19
-    const prevDisplayedCount = prevDisplayedCountForThumbnailsRef.current;
-    const currentShown = currentDisplayedCount === 0 ? Math.min(pageSize, jobs.length) : Math.min(currentDisplayedCount, jobs.length);
-    const prevShown = prevDisplayedCount === 0 ? Math.min(pageSize, jobs.length) : Math.min(prevDisplayedCount, jobs.length);
+    // Calculate which jobs are currently rendered (matching the rendering logic below)
+    // When displayedCount = 0, show first 10 (slice(0, 10))
+    // When displayedCount = 10, show first 10 (slice(0, 10)) - same items
+    // When displayedCount = 20, show first 20 (slice(0, 20))
+    const endIndex = currentDisplayedCount === 0 
+      ? Math.min(pageSize, jobs.length)
+      : Math.min(currentDisplayedCount, jobs.length);
     
-    // Only generate thumbnails for the NEW jobs (the ones just added)
-    // If displayedCount hasn't changed, don't regenerate
-    if (currentShown === prevShown) {
+    // Get the jobs that are actually rendered
+    const renderedJobs = jobs.slice(0, endIndex);
+    
+    // Create a key from job IDs to detect if the rendered set changed
+    const renderedJobsKey = renderedJobs.map(j => j?.id || '').join(',');
+    
+    // Only generate thumbnails if the rendered jobs changed
+    if (renderedJobsKey === prevRenderedJobsRef.current) {
       return;
     }
     
-    // Generate thumbnails for the NEW jobs (from prevShown to currentShown)
-    const startIndex = prevShown;
-    const endIndex = currentShown;
-    const renderedJobs = jobs.slice(startIndex, endIndex);
+    prevRenderedJobsRef.current = renderedJobsKey;
     
-    // Update ref for next time
-    prevDisplayedCountForThumbnailsRef.current = currentDisplayedCount;
-
-    // Call generateThumbnailsForJobs like main branch does
+    // Call generateThumbnailsForJobs for the currently visible jobs
     const generateThumbnailsForRendered = async () => {
       if (renderedJobs.length > 0) {
-        console.log('[HistoryTab] Calling generateThumbnailsForJobs for', renderedJobs.length, 'new jobs (indices', startIndex, 'to', endIndex, ')');
-        console.log('[HistoryTab] Jobs to generate thumbnails for:', renderedJobs.map(j => ({ id: j.id, status: j.status, outputPath: j.outputPath, outputUrl: j.outputUrl })));
-        // Use the imported function directly - this will cache thumbnails before they load
+        try {
+          debugLog('[HistoryTab] Calling generateThumbnailsForJobs', { 
+            count: renderedJobs.length, 
+            endIndex,
+            displayedCount: currentDisplayedCount,
+            jobIds: renderedJobs.slice(0, 5).map(j => j?.id).join(',')
+          });
+          
+          // First, try to load any cached thumbnails immediately
+          const cachedUrls: Record<string, string> = {};
+          for (const job of renderedJobs) {
+            if (job?.id && job.status === 'COMPLETED') {
+              try {
+                const cached = await (window as any).loadThumbnail?.(job.id);
+                if (cached) {
+                  cachedUrls[job.id] = cached;
+                }
+              } catch (e) {
+                // Ignore errors loading individual thumbnails
+              }
+            }
+          }
+          
+          // Update state with cached thumbnails
+          if (Object.keys(cachedUrls).length > 0) {
+            setThumbnailUrls(prev => ({ ...prev, ...cachedUrls }));
+            // Also update DOM directly for immediate display
+            Object.entries(cachedUrls).forEach(([jobId, url]) => {
+              (window as any).updateCardThumbnail?.(jobId, url);
+            });
+          }
+          
+          // Use the imported function directly - this will generate missing thumbnails
         await generateThumbnailsForJobs(renderedJobs);
+        } catch (error: any) {
+          debugError('[HistoryTab] Error calling generateThumbnailsForJobs', error);
+        }
       }
     };
 
@@ -245,6 +290,21 @@ const HistoryTabContent: React.FC = () => {
     thumbnailUrlsRef.current = thumbnailUrls;
   }, [thumbnailUrls]);
 
+  // Listen for thumbnail updates from the thumbnails utility
+  useEffect(() => {
+    const handleThumbnailUpdate = (e: CustomEvent) => {
+      const { jobId, thumbnailUrl } = e.detail;
+      if (jobId && thumbnailUrl) {
+        setThumbnailUrls(prev => ({ ...prev, [jobId]: thumbnailUrl }));
+      }
+    };
+    
+    window.addEventListener('thumbnailUpdated', handleThumbnailUpdate as EventListener);
+    return () => {
+      window.removeEventListener('thumbnailUpdated', handleThumbnailUpdate as EventListener);
+    };
+  }, []);
+
   // Expose generateThumbnailsForJobs globally for backward compatibility
   // The thumbnails utility already sets this, but we ensure it's available
   useEffect(() => {
@@ -252,29 +312,29 @@ const HistoryTabContent: React.FC = () => {
     // We just need to ensure it's available and update React state when thumbnails are set
     const originalGenerateThumbnails = window.generateThumbnailsForJobs;
     if (originalGenerateThumbnails) {
-      window.generateThumbnailsForJobs = async (jobsToRender: any[]) => {
-        console.log('[generateThumbnailsForJobs] Called with', jobsToRender?.length || 0, 'jobs');
-        
+    window.generateThumbnailsForJobs = async (jobsToRender: any[]) => {
+      debugLog('[generateThumbnailsForJobs] Called', { count: jobsToRender?.length || 0 });
+      
         // Call the original function from thumbnails.ts
         await originalGenerateThumbnails(jobsToRender || []);
-        
-        // Update React state with thumbnails that were set
-        // The thumbnails utility updates DOM directly, but we also need to update React state
-        const newUrls: Record<string, string> = {};
-        for (const job of jobsToRender || []) {
-          if (!job || !job.id) continue;
+      
+      // Update React state with thumbnails that were set
+      // The thumbnails utility updates DOM directly, but we also need to update React state
+      const newUrls: Record<string, string> = {};
+      for (const job of jobsToRender || []) {
+        if (!job || !job.id) continue;
           const img = document.querySelector(`.history-thumbnail[data-job-id="${job.id}"]`) as HTMLImageElement;
-          if (img && img.src && img.src !== '') {
-            newUrls[job.id] = img.src;
-          }
+        if (img && img.src && img.src !== '') {
+          newUrls[job.id] = img.src;
         }
-        
-        if (Object.keys(newUrls).length > 0) {
-          setThumbnailUrls(prev => ({ ...prev, ...newUrls }));
-        }
-        
-        return Promise.resolve();
-      };
+      }
+      
+      if (Object.keys(newUrls).length > 0) {
+        setThumbnailUrls(prev => ({ ...prev, ...newUrls }));
+      }
+      
+      return Promise.resolve();
+    };
     }
 
     return () => {
@@ -448,12 +508,12 @@ const HistoryTabContent: React.FC = () => {
             (saveBtn as HTMLButtonElement).disabled = false;
           }
           const errorMsg = data?.error || `Server returned error ${response.status}`;
-          console.error('[handleSaveJob] Save failed:', errorMsg, data);
+          debugError('[handleSaveJob] Save failed', { errorMsg, data });
           if (window.showToast) window.showToast(`failed to save: ${errorMsg}`, 'error');
           return;
         } else {
           // Response OK but no outputPath - might still be processing
-          console.warn('[handleSaveJob] Save response OK but no outputPath:', data);
+          debugWarn('[handleSaveJob] Save response OK but no outputPath', { data });
         }
       } catch(_) {
         if (saveBtn) {
@@ -654,7 +714,7 @@ const HistoryTabContent: React.FC = () => {
           savedPath = data.outputPath;
         } else if (!response.ok) {
           const errorMsg = data?.error || `Server returned error ${response.status}`;
-          console.error('[handleInsertJob] Insert failed:', errorMsg, data);
+          debugError('[handleInsertJob] Insert failed', { errorMsg, data });
           if (insertBtn) {
             const span = insertBtn.querySelector('span');
             if (span) span.textContent = originalText;
@@ -849,19 +909,29 @@ const HistoryTabContent: React.FC = () => {
     }
   };
 
-  const handleLoadJobIntoSources = (jobId: string) => {
-    console.log('[loadJobIntoSources] Called with jobId:', jobId);
+  const handleLoadJobIntoSources = useCallback((jobId: string) => {
+    debugLog('[loadJobIntoSources] Called', { jobId, jobsCount: jobs.length });
     const job = jobs.find(j => String(j.id) === String(jobId));
     
+    debugLog('[loadJobIntoSources] Job lookup', { 
+      found: !!job, 
+      jobId: job?.id, 
+      status: job?.status, 
+      outputUrl: job?.outputUrl 
+    });
+    
     if (!job) {
-      console.warn('[loadJobIntoSources] Job not found:', jobId);
+      debugError('[loadJobIntoSources] Job not found', { 
+        jobId, 
+        availableIds: jobs.slice(0, 5).map(j => j.id) 
+      });
       if ((window as any).showToast) {
         (window as any).showToast('job not found', 'error');
       }
       return;
     }
     
-    console.log('[loadJobIntoSources] Found job:', {
+    debugLog('[loadJobIntoSources] Found job', {
       id: job.id,
       status: job.status,
       outputPath: job.outputPath,
@@ -869,11 +939,14 @@ const HistoryTabContent: React.FC = () => {
     });
     
     const outputPath = job.outputPath || job.outputUrl;
-    if (job.status !== 'completed' || !outputPath) {
-      console.warn('[loadJobIntoSources] Job not ready:', {
+    // Sync API returns "COMPLETED" (uppercase), check for both
+    const isCompleted = job.status === 'COMPLETED' || job.status === 'completed';
+    if (!isCompleted || !outputPath) {
+      debugWarn('[loadJobIntoSources] Job not ready', {
         status: job.status,
         hasOutputPath: !!job.outputPath,
-        hasOutputUrl: !!job.outputUrl
+        hasOutputUrl: !!job.outputUrl,
+        isCompleted
       });
       if ((window as any).showToast) {
         (window as any).showToast('job is not completed yet', 'error');
@@ -881,10 +954,9 @@ const HistoryTabContent: React.FC = () => {
       return;
     }
     
-    console.log('[loadJobIntoSources] Loading job into sources tab...');
+    debugLog('[loadJobIntoSources] Loading job into sources tab');
     
-    // Disable lipsync button (keep visible, greyed out) and hide audio section FIRST
-    // Do this before switching tabs to prevent showTab from re-enabling it
+    // Disable lipsync button (keep visible, greyed out) and hide audio section
     const lipsyncBtn = document.getElementById('lipsyncBtn');
     if (lipsyncBtn) {
       (lipsyncBtn as HTMLButtonElement).disabled = true;
@@ -893,18 +965,24 @@ const HistoryTabContent: React.FC = () => {
     const audioSection = document.getElementById('audioSection');
     if (audioSection) audioSection.style.display = 'none';
     
-    // Switch to sources tab
-    setActiveTab('sources');
-    
-    // Ensure button stays disabled after tab switch
-    setTimeout(() => {
-      const btn = document.getElementById('lipsyncBtn');
-      if (btn) {
-        (btn as HTMLButtonElement).disabled = true;
-      }
-    }, 50);
-    
-    // Render the output video and actions
+    // Switch to sources tab (use window.showTab like main branch)
+    if (typeof (window as any).showTab === 'function') {
+      (window as any).showTab('sources');
+      
+      // Ensure button stays disabled after tab switch (showTab might re-enable it)
+      setTimeout(() => {
+        const btn = document.getElementById('lipsyncBtn');
+        if (btn) {
+          (btn as HTMLButtonElement).disabled = true;
+        }
+      }, 50);
+    } else {
+      // Fallback to React setActiveTab
+      setActiveTab('sources');
+    }
+
+    // Render the output video and actions immediately (like main branch)
+    // Elements are always in DOM, just hidden/shown with CSS
     if ((window as any).renderOutputVideo) {
       (window as any).renderOutputVideo(job);
     }
@@ -916,7 +994,8 @@ const HistoryTabContent: React.FC = () => {
     if ((window as any).showToast) {
       (window as any).showToast('generation loaded', 'success');
     }
-  };
+    debugLog('[loadJobIntoSources] Function completed');
+  }, [jobs, setActiveTab]);
 
   // Expose window functions for backward compatibility (AFTER handlers are defined)
   useEffect(() => {
@@ -964,7 +1043,7 @@ const HistoryTabContent: React.FC = () => {
           window.showToast('generation parameters restored. ready to lipsync!', 'success');
         }
       } catch (e) {
-        console.error('Failed to redo generation:', e);
+        debugError('Failed to redo generation', e);
         if (window.showToast) {
           window.showToast('failed to restore generation parameters', 'error');
         }
@@ -1044,7 +1123,8 @@ const HistoryTabContent: React.FC = () => {
     const isCompleted = status === 'completed';
     // Enable buttons if job is completed and has outputPath or outputUrl
     // Jobs from Sync API may have outputUrl instead of outputPath
-    const hasOutput = isCompleted && (job.outputPath || job.outputUrl);
+    // Check for both uppercase (Sync API) and lowercase status
+    const hasOutput = (isCompleted || job.status === 'COMPLETED') && (job.outputPath || job.outputUrl);
 
     const timestamp = formatHistoryTimestamp(job);
     const modelText = getModelText(job);
@@ -1056,9 +1136,28 @@ const HistoryTabContent: React.FC = () => {
         className="history-card"
         data-job-id={job.id}
         onClick={(e) => {
+          debugLog('[HistoryCard] Clicked', { 
+            jobId: job.id, 
+            hasOutput, 
+            status: job.status,
+            outputPath: job.outputPath,
+            outputUrl: job.outputUrl,
+            clickedButton: !!(e.target as HTMLElement).closest('button'),
+            hasHandleLoadJobIntoSources: typeof handleLoadJobIntoSources === 'function'
+          });
           if (hasOutput && !(e.target as HTMLElement).closest('button')) {
             // Load job into sources (outputPath or outputUrl from API)
+            debugLog('[HistoryCard] Calling handleLoadJobIntoSources', { jobId: job.id });
+            try {
             handleLoadJobIntoSources(job.id);
+            } catch (error: any) {
+              debugError('[HistoryCard] Error calling handleLoadJobIntoSources', error);
+            }
+          } else {
+            debugLog('[HistoryCard] Click ignored', { 
+              hasOutput, 
+              clickedButton: !!(e.target as HTMLElement).closest('button')
+            });
           }
         }}
       >
@@ -1179,7 +1278,7 @@ const HistoryTabContent: React.FC = () => {
     <div id="history" className={`tab-pane ${activeTab === "history" ? "active" : ""}`}>
       <div className="history-wrapper">
         <div id="historyList" className="history-list-container">
-            {(serverState?.isOffline || (serverError && serverError.includes("Cannot connect"))) ? (
+            {serverState?.isOffline ? (
               <div className="history-empty-state">
                 <div className="history-empty-icon">
                   <i data-lucide="wifi-off"></i>
@@ -1188,20 +1287,20 @@ const HistoryTabContent: React.FC = () => {
                   hmm... you might be offline, or<br />
                   the local server is down. <a onClick={async () => {
                     const nle = window.nle;
-                    console.log("[HistoryTab] Clicked fix this, nle:", nle);
+                    debugLog("[HistoryTab] Clicked fix this", { hasNLE: !!nle });
                     if (!nle) {
-                      console.error("[HistoryTab] nle is null - JSX script failed to load (CEP error code 27)");
+                      debugError("[HistoryTab] nle is null - JSX script failed to load (CEP error code 27)");
                       alert("JSX script failed to load. Check CEP logs at ~/Library/Logs/CSXS/CEP12-PPRO.log for error code 27. The extension may need to be rebuilt.");
                       return;
                     }
                     if (!nle.startBackend) {
-                      console.error("[HistoryTab] startBackend function missing");
+                      debugError("[HistoryTab] startBackend function missing");
                       alert("startBackend function is missing. JSX script may not have loaded correctly.");
                       return;
                     }
                     try {
                       const result = await nle.startBackend();
-                      console.log("[HistoryTab] startBackend result:", result);
+                      debugLog("[HistoryTab] startBackend result", { result });
                       if (result && result.ok) {
                         setTimeout(() => {
                           window.location.reload();
@@ -1210,7 +1309,7 @@ const HistoryTabContent: React.FC = () => {
                         alert("Server startup failed: " + (result?.error || "Unknown error"));
                       }
                     } catch (error) {
-                      console.error("[HistoryTab] Error calling startBackend:", error);
+                      debugError("[HistoryTab] Error calling startBackend", error);
                       alert("Error starting server: " + String(error));
                     }
                   }}>fix this</a>
@@ -1223,10 +1322,6 @@ const HistoryTabContent: React.FC = () => {
               </div>
               <div className="history-empty-message">
                 {serverError || "failed to load history. please try again."}
-                <br />
-                <small style={{ marginTop: "8px", display: "block", opacity: 0.7 }}>
-                  Check the browser console (F12) for more details. The server may not be running.
-                </small>
               </div>
             </div>
           ) : !hasApiKey ? (

@@ -7,16 +7,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 500;
   line-height: 15px;
   text-transform: lowercase;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-base);
   white-space: nowrap;
 }
 
@@ -39,22 +39,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   height: 32px;
   min-height: 32px;
   max-height: 32px;
   background: var(--bg-button);
   color: var(--text-secondary);
   border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 500;
   line-height: 15px;
   text-transform: lowercase;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-base);
   white-space: nowrap;
   box-sizing: border-box;
 }
@@ -73,20 +73,20 @@
 
 .action-btn i,
 .audio-play-btn i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
   flex-shrink: 0;
-  min-width: 18px;
-  min-height: 18px;
+  min-width: var(--icon-md);
+  min-height: var(--icon-md);
 }
 
 .action-btn i svg,
 .audio-play-btn i svg {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
   flex-shrink: 0;
-  min-width: 18px;
-  min-height: 18px;
+  min-width: var(--icon-md);
+  min-height: var(--icon-md);
 }
 
 .action-btn i svg path,
@@ -109,7 +109,7 @@
   outline: none;
   width: 32px;
   min-width: 32px;
-  padding: 8px;
+  padding: var(--spacing-sm);
 }
 
 .audio-play-btn:focus,
@@ -139,7 +139,7 @@
 .history-btn-icon {
   width: 32px;
   height: 32px;
-  padding: 8px;
+  padding: var(--spacing-sm);
   flex-shrink: 0;
 }
 
@@ -154,8 +154,8 @@
 }
 
 .action-btn-icon i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 /* Large buttons (bottom bar) */
@@ -164,11 +164,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   height: 40px;
   min-height: 40px;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
   border: none;
   font-family: var(--font-family);
   font-size: 14px;
@@ -176,7 +176,7 @@
   line-height: 15px;
   text-transform: lowercase;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-base);
   white-space: nowrap;
   outline: none !important;
 }
@@ -204,8 +204,8 @@
 }
 
 .model-btn i {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   flex-shrink: 0;
 }
 
@@ -226,8 +226,8 @@
 }
 
 .lipsync-btn img {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   flex-shrink: 0;
   object-fit: contain;
 }
@@ -280,13 +280,13 @@
 .audio-dubbing-submit-btn {
   width: 32px;
   height: 32px;
-  padding: 8px;
-  border-radius: 6px;
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
   border: none;
   background: var(--bg-button);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -302,8 +302,8 @@
 }
 
 .audio-dubbing-submit-btn i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
   animation: none;
 }
 
@@ -325,12 +325,12 @@
 .tts-clone-save-btn {
   flex: 1;
   height: 40px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   text-transform: lowercase;
 }
 
@@ -368,10 +368,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  transition: background 0.2s ease;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-base);
   flex-shrink: 0;
-  padding: 8px;
+  padding: var(--spacing-sm);
 }
 
 .audio-delete-btn {
@@ -388,8 +388,8 @@
 
 .audio-delete-btn i,
 .video-delete-btn i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 .audio-delete-btn i {
@@ -411,8 +411,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: background 0.2s ease;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-base);
 }
 
 .video-control-btn:hover {
@@ -420,7 +420,7 @@
 }
 
 .video-control-btn svg {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 

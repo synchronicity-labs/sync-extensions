@@ -44,7 +44,7 @@
 .tab-switcher {
   background: var(--bg-dark);
   border: 1px solid var(--border-primary);
-  border-radius: 30px;
+  border-radius: var(--radius-full);
   padding: 4px;
   display: flex;
   gap: 4px;
@@ -60,7 +60,7 @@
   padding: 8px;
   min-width: 96px;
   height: 32px;
-  border-radius: 100px;
+  border-radius: var(--radius-full);
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-tertiary);
@@ -68,7 +68,7 @@
   font-weight: 500;
   text-transform: lowercase;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   font-family: var(--font-family);
   line-height: 15px;
   overflow: hidden;
@@ -77,8 +77,8 @@
 }
 
 .tab-switch i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 .tab-switch.active {

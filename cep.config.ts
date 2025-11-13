@@ -88,8 +88,8 @@ const config: CEP_Config = {
     jsxBin: "replace",
   },
   installModules: [],
-  copyAssets: ["js/assets/icons", "js/lib", "server/server.js", "server/config.js", "server/telemetry.js", "server/package.json", "server/routes", "server/services", "server/utils"],
-  copyFolders: ["js/panels/ppro/epr", "bin", "server/node_modules"],
+  copyAssets: ["js/assets/icons", "js/lib", "server/package.json", "server/server.ts", "server/serverConfig.ts", "server/telemetry.ts", "server/routes", "server/services", "server/utils"],
+  copyFolders: ["js/panels/ppro/epr", "bin"],
   copyZipAssets: [],
 };
 

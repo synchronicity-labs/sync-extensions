@@ -10,8 +10,10 @@ import { useDragAndDrop } from "../hooks/useDragAndDrop";
 import { getApiUrl } from "../utils/serverConfig";
 import TTSVoiceSelector from "./TTSVoiceSelector";
 import TTSInterface from "./TTSInterface";
+import TTSVoiceCloneModal from "./TTSVoiceCloneModal";
 import { useVideoPlayer } from "../hooks/useVideoPlayer";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
+import { debugLog, debugError } from "../utils/debugLog";
 
 const SourcesTab: React.FC = () => {
   const { selection, selectVideo, selectAudio, clearVideo, clearAudio, setVideoPath, setAudioPath } = useMedia();
@@ -25,6 +27,7 @@ const SourcesTab: React.FC = () => {
   const [audioUrlValue, setAudioUrlValue] = useState("");
   const [ttsInterfaceOpen, setTtsInterfaceOpen] = useState(false);
   const [ttsVoiceSelectorOpen, setTtsVoiceSelectorOpen] = useState(false);
+  const [ttsVoiceCloneModalOpen, setTtsVoiceCloneModalOpen] = useState(false);
   const isOffline = serverState?.isOffline || false;
 
   // Initialize drag and drop
@@ -47,13 +50,24 @@ const SourcesTab: React.FC = () => {
 
   // Expose functions on window for backward compatibility with original code
   useEffect(() => {
+    // Expose setVideoPath and setAudioPath for useRecording
+    (window as any).setVideoPath = setVideoPath;
+    (window as any).setAudioPath = setAudioPath;
+    
     // Update lipsync button function
     (window as any).updateLipsyncButton = () => {
       const btn = document.getElementById("lipsyncBtn");
       if (!btn) return;
-      const hasVideo = !!(selection.video || selection.videoUrl);
-      const hasAudio = !!(selection.audio || selection.audioUrl);
-      (btn as HTMLButtonElement).disabled = !(hasVideo && hasAudio);
+      
+      // Check if video is ready (URL or local file with R2 URL)
+      const hasVideoReady = (selection.videoIsUrl && selection.videoUrl) || 
+        (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || localStorage.getItem("uploadedVideoUrl")));
+      
+      // Check if audio is ready (URL or local file with R2 URL)
+      const hasAudioReady = (selection.audioIsUrl && selection.audioUrl) || 
+        (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || localStorage.getItem("uploadedAudioUrl")));
+      
+      (btn as HTMLButtonElement).disabled = !(hasVideoReady && hasAudioReady);
     };
 
     // Render input preview function
@@ -90,7 +104,19 @@ const SourcesTab: React.FC = () => {
     (window as any).selectVideo = selectVideo;
     (window as any).selectVideoInOut = async () => {
       if (nle?.exportInOutVideo) {
-        const result = await nle.exportInOutVideo({ codec: "h264" });
+        // Map settings.renderVideo to codec value
+        // For Premiere: mp4 -> h264, prores_422 -> prores_422, prores_422hq -> prores_422hq
+        // For After Effects: mp4 -> h264, anything else -> prores (handled in aeft.ts)
+        let codec = "h264"; // default
+        if (settings.renderVideo === "mp4" || settings.renderVideo === "h264") {
+          codec = "h264";
+        } else if (settings.renderVideo === "prores_422") {
+          codec = "prores_422";
+        } else if (settings.renderVideo === "prores_422hq") {
+          codec = "prores_422hq";
+        }
+        
+        const result = await nle.exportInOutVideo({ codec });
         if (result?.ok && result?.path) {
           await selectVideo();
         } else if (result?.error) {
@@ -136,6 +162,9 @@ const SourcesTab: React.FC = () => {
       }, 0);
     };
     (window as any).startVideoRecording = async () => {
+        if ((window as any).debugLog) {
+          (window as any).debugLog('video_record_clicked', { isRecording, recordingType });
+        }
         if (isRecording && recordingType === "video") {
           stopRecording();
           return;
@@ -155,68 +184,73 @@ const SourcesTab: React.FC = () => {
           videoPreview.style.display = 'flex';
           videoSection.classList.add('recording');
           
+          // Create recording UI first
+          const preview = document.getElementById('videoPreview');
+          if (preview && !preview.querySelector('.recording-container')) {
+            preview.innerHTML = `
+              <div class="recording-container">
+                <video id="videoRecordPreview" class="recording-preview" autoplay muted playsinline></video>
+                <button class="recording-close-btn" id="videoBackBtn">
+                  <i data-lucide="x"></i>
+                </button>
+                <div class="recording-device-switcher" id="videoDeviceSwitcher">
+                  <select id="videoDeviceSelect" class="device-select">
+                  </select>
+                </div>
+                <button class="recording-stop-btn" id="videoStopBtn">
+                  <div class="recording-stop-icon"></div>
+                  <span class="recording-timer" id="videoTimer">00:00</span>
+                </button>
+              </div>
+            `;
+            
+            // Initialize icons
+            if ((window as any).lucide && (window as any).lucide.createIcons) {
+              (window as any).lucide.createIcons();
+            }
+            
+            // Setup handlers
+            const stopBtn = document.getElementById('videoStopBtn');
+            if (stopBtn) {
+              stopBtn.addEventListener('click', () => {
+                stopRecording();
+              });
+            }
+            
+            const backBtn = document.getElementById('videoBackBtn');
+            if (backBtn) {
+              backBtn.addEventListener('click', () => {
+                stopRecording();
+                // Reset UI
+                videoDropzone.style.display = 'flex';
+                videoPreview.style.display = 'none';
+                videoSection.classList.remove('recording');
+                const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
+                if (video) video.srcObject = null;
+              });
+            }
+          }
+          
           // Start recording
           await startRecording("video");
           
-          // Create recording UI - this will be handled by useRecording hook
-          // But we need to set up the UI here to match main branch
+          // Attach stream to video element after recording starts
           setTimeout(() => {
-            const preview = document.getElementById('videoPreview');
-            if (preview && !preview.querySelector('.recording-container')) {
-              preview.innerHTML = `
-                <div class="recording-container">
-                  <video id="videoRecordPreview" class="recording-preview" autoplay muted playsinline></video>
-                  <button class="recording-close-btn" id="videoBackBtn">
-                    <i data-lucide="x"></i>
-                  </button>
-                  <div class="recording-device-switcher" id="videoDeviceSwitcher">
-                    <select id="videoDeviceSelect" class="device-select">
-                    </select>
-                  </div>
-                  <button class="recording-stop-btn" id="videoStopBtn">
-                    <div class="recording-stop-icon"></div>
-                    <span class="recording-timer" id="videoTimer">00:00</span>
-                  </button>
-                </div>
-              `;
-              
-              // Initialize icons
-              if ((window as any).lucide && (window as any).lucide.createIcons) {
-                (window as any).lucide.createIcons();
-              }
-              
-              // Attach stream to video element
-              const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
-              if (video && (window as any).__recordingStream) {
-                video.srcObject = (window as any).__recordingStream;
-              }
-              
-              // Setup handlers
-              const stopBtn = document.getElementById('videoStopBtn');
-              if (stopBtn) {
-                stopBtn.addEventListener('click', () => {
-                  stopRecording();
-                });
-              }
-              
-              const backBtn = document.getElementById('videoBackBtn');
-              if (backBtn) {
-                backBtn.addEventListener('click', () => {
-                  stopRecording();
-                  // Reset UI
-                  videoDropzone.style.display = 'flex';
-                  videoPreview.style.display = 'none';
-                  videoSection.classList.remove('recording');
-                  if (video) video.srcObject = null;
-                });
-              }
+            const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
+            if (video && (window as any).__recordingStream) {
+              video.srcObject = (window as any).__recordingStream;
             }
-          }, 100);
+          }, 300);
         } catch (error) {
-          console.error('Video recording error:', error);
-          if ((window as any).showToast) {
-            (window as any).showToast('Camera access denied or unavailable', 'error');
-          }
+          debugError('Video recording error', error);
+          // Error handling and UI reset is done in useRecording hook
+          // Just ensure UI is reset here as well
+          const videoSection = document.getElementById('videoSection');
+          const videoDropzone = document.getElementById('videoDropzone');
+          const videoPreview = document.getElementById('videoPreview');
+          if (videoDropzone) videoDropzone.style.display = 'flex';
+          if (videoPreview) videoPreview.style.display = 'none';
+          if (videoSection) videoSection.classList.remove('recording');
         }
     };
 
@@ -224,7 +258,10 @@ const SourcesTab: React.FC = () => {
     (window as any).selectAudio = selectAudio;
     (window as any).selectAudioInOut = async () => {
       if (nle?.exportInOutAudio) {
-        const result = await nle.exportInOutAudio({ format: "wav" });
+        // Use settings.renderAudio directly (wav or mp3)
+        const format = settings.renderAudio || "wav";
+        
+        const result = await nle.exportInOutAudio({ format });
         if (result?.ok && result?.path) {
           await selectAudio();
         } else if (result?.error) {
@@ -270,6 +307,9 @@ const SourcesTab: React.FC = () => {
       }, 0);
     };
     (window as any).startAudioRecording = async () => {
+        if ((window as any).debugLog) {
+          (window as any).debugLog('audio_record_clicked', { isRecording, recordingType });
+        }
         if (isRecording && recordingType === "audio") {
           stopRecording();
           return;
@@ -289,86 +329,115 @@ const SourcesTab: React.FC = () => {
           audioPreview.style.display = 'flex';
           audioSection.classList.add('recording');
           
+          // Create recording UI first
+          const preview = document.getElementById('audioPreview');
+          if (preview && !preview.querySelector('.audio-recording-container')) {
+            preview.innerHTML = `
+              <div class="audio-recording-container">
+                <div class="audio-waveform-wrapper">
+                  <canvas id="audioRecordWaveform" class="audio-record-waveform"></canvas>
+                  <div class="audio-timeline-dots"></div>
+                  <div class="audio-playhead" id="audioPlayhead"></div>
+                </div>
+                <div class="recording-device-switcher" id="audioDeviceSwitcher">
+                  <select id="audioDeviceSelect" class="device-select">
+                  </select>
+                </div>
+                <button class="audio-recording-stop-btn" id="audioStopBtn">
+                  <div class="audio-stop-icon"></div>
+                  <span class="recording-timer" id="audioTimer">00:00</span>
+                </button>
+                <button class="recording-close-btn" id="audioBackBtn">
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+            `;
+            
+            // Initialize icons
+            if ((window as any).lucide && (window as any).lucide.createIcons) {
+              (window as any).lucide.createIcons();
+            }
+            
+            // Setup handlers
+            const stopBtn = document.getElementById('audioStopBtn');
+            if (stopBtn) {
+              stopBtn.addEventListener('click', () => {
+                stopRecording();
+              });
+            }
+            
+            const backBtn = document.getElementById('audioBackBtn');
+            if (backBtn) {
+              backBtn.addEventListener('click', () => {
+                stopRecording();
+                // Reset UI
+                audioDropzone.style.display = 'flex';
+                audioPreview.style.display = 'none';
+                audioSection.classList.remove('recording');
+              });
+            }
+          }
+          
           // Start recording
           await startRecording("audio");
-          
-          // Create recording UI - this will be handled by useRecording hook
-          // But we need to set up the UI here to match main branch
-          setTimeout(() => {
-            const preview = document.getElementById('audioPreview');
-            if (preview && !preview.querySelector('.audio-recording-container')) {
-              preview.innerHTML = `
-                <div class="audio-recording-container">
-                  <div class="audio-waveform-wrapper">
-                    <canvas id="audioRecordWaveform" class="audio-record-waveform"></canvas>
-                    <div class="audio-timeline-dots"></div>
-                    <div class="audio-playhead" id="audioPlayhead"></div>
-                  </div>
-                  <div class="recording-device-switcher" id="audioDeviceSwitcher">
-                    <select id="audioDeviceSelect" class="device-select">
-                    </select>
-                  </div>
-                  <button class="audio-recording-stop-btn" id="audioStopBtn">
-                    <div class="audio-stop-icon"></div>
-                    <span class="recording-timer" id="audioTimer">00:00</span>
-                  </button>
-                  <button class="recording-close-btn" id="audioBackBtn">
-                    <i data-lucide="x"></i>
-                  </button>
-                </div>
-              `;
-              
-              // Initialize icons
-              if ((window as any).lucide && (window as any).lucide.createIcons) {
-                (window as any).lucide.createIcons();
-              }
-              
-              // Setup handlers
-              const stopBtn = document.getElementById('audioStopBtn');
-              if (stopBtn) {
-                stopBtn.addEventListener('click', () => {
-                  stopRecording();
-                });
-              }
-              
-              const backBtn = document.getElementById('audioBackBtn');
-              if (backBtn) {
-                backBtn.addEventListener('click', () => {
-                  stopRecording();
-                  // Reset UI
-                  audioDropzone.style.display = 'flex';
-                  audioPreview.style.display = 'none';
-                  audioSection.classList.remove('recording');
-                });
-              }
-            }
-          }, 100);
         } catch (error) {
-          console.error('Audio recording error:', error);
-          if ((window as any).showToast) {
-            (window as any).showToast('Microphone access denied or unavailable', 'error');
-          }
+          debugError('Audio recording error', error);
+          // Error handling and UI reset is done in useRecording hook
+          // Just ensure UI is reset here as well
+          const audioSection = document.getElementById('audioSection');
+          const audioDropzone = document.getElementById('audioDropzone');
+          const audioPreview = document.getElementById('audioPreview');
+          if (audioDropzone) audioDropzone.style.display = 'flex';
+          if (audioPreview) audioPreview.style.display = 'none';
+          if (audioSection) audioSection.classList.remove('recording');
         }
     };
     (window as any).selectAudioFromVideo = async () => {
       if (!selection.video && !selection.videoUrl) return;
       
       try {
-        const videoPath = selection.video || selection.videoUrl;
-        if (!videoPath) return;
+        const videoPath = selection.video;
+        const videoUrl = selection.videoUrl;
+        
+        if (!videoPath && !videoUrl) return;
 
-        const response = await fetch(getApiUrl("/audio/extract"), {
+        const response = await fetch(getApiUrl("/extract-audio"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoPath, format: "wav" }),
+          body: JSON.stringify({ videoPath, videoUrl, format: "wav" }),
         });
 
         const data = await response.json().catch(() => null);
-        if (response.ok && data?.ok && data?.path) {
-          await selectAudio();
+        if (response.ok && data?.ok && data?.audioPath) {
+          await setAudioPath(data.audioPath);
+          
+          // Update UI state
+          if (typeof (window as any).updateLipsyncButton === "function") {
+            (window as any).updateLipsyncButton();
+          }
+          if (typeof (window as any).renderInputPreview === "function") {
+            (window as any).renderInputPreview("extract-audio");
+          }
+          if (typeof (window as any).updateInputStatus === "function") {
+            (window as any).updateInputStatus();
+          }
+          
+          // Show success toast
+          if ((window as any).showToast) {
+            (window as any).showToast("Audio extracted from video", "success");
+          }
+        } else {
+          // Show error toast
+          const errorMsg = data?.error || "Failed to extract audio from video";
+          if ((window as any).showToast) {
+            (window as any).showToast(errorMsg, "error");
+          }
         }
       } catch (error) {
-        console.error("Error extracting audio from video:", error);
+        debugError("Error extracting audio from video", error);
+        if ((window as any).showToast) {
+          (window as any).showToast("Error extracting audio: " + (error as Error).message, "error");
+        }
       }
     };
     (window as any).TTSInterface = {
@@ -476,13 +545,44 @@ const SourcesTab: React.FC = () => {
     };
 
     // Render output video
-    (window as any).renderOutputVideo = (job: any) => {
-      if (!job || (!job.outputPath && !job.outputUrl)) return;
+    (window as any).renderOutputVideo = (job: any, retryCount: number = 0) => {
+      const maxRetries = 3;
+      debugLog('[renderOutputVideo] Called', { hasJob: !!job, hasOutputPath: !!job?.outputPath, hasOutputUrl: !!job?.outputUrl, retryCount });
+      if (!job || (!job.outputPath && !job.outputUrl)) {
+        debugLog('[renderOutputVideo] No job or no output path/url', { job: !!job, outputPath: job?.outputPath, outputUrl: job?.outputUrl });
+        return;
+      }
       
       const videoSection = document.getElementById('videoSection');
       const videoDropzone = document.getElementById('videoDropzone');
       const videoPreview = document.getElementById('videoPreview');
       const sourcesContainer = document.querySelector('.sources-container');
+      
+      const hasVideoSection = !!videoSection;
+      const hasVideoPreview = !!videoPreview;
+      const hasVideoDropzone = !!videoDropzone;
+      const hasSourcesContainer = !!sourcesContainer;
+      
+      debugLog('[renderOutputVideo] Elements check', {
+        hasVideoSection,
+        hasVideoPreview,
+        hasVideoDropzone,
+        hasSourcesContainer,
+        videoSectionId: videoSection?.id,
+        videoPreviewId: videoPreview?.id,
+        retryCount
+      });
+      
+      // If elements don't exist and we haven't exceeded retries, wait and try again
+      if ((!videoSection || !videoPreview) && retryCount < maxRetries) {
+        debugLog('[renderOutputVideo] Elements not found, retrying', { retryCount, maxRetries });
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            (window as any).renderOutputVideo(job, retryCount + 1);
+          }, 50 * (retryCount + 1)); // Increasing delay: 50ms, 100ms, 150ms
+        });
+        return;
+      }
       
       if (videoSection && videoPreview) {
         // Add classes for proper layout
@@ -506,11 +606,27 @@ const SourcesTab: React.FC = () => {
           }
         }
         
-        if (!videoSrc) return;
+        debugLog('[renderOutputVideo] Video source determined', {
+          hasVideoSrc: !!videoSrc,
+          videoSrcLength: videoSrc?.length,
+          outputUrl: job.outputUrl,
+          outputPath: job.outputPath
+        });
+        
+        if (!videoSrc) {
+          debugLog('[renderOutputVideo] No video source available - exiting', {
+            outputUrl: job.outputUrl,
+            outputPath: job.outputPath
+          });
+          return;
+        }
         
         // Ensure video preview is visible for output display
         if (videoDropzone) videoDropzone.style.display = 'none';
         videoPreview.style.display = 'block';
+        
+        debugLog('[renderOutputVideo] Setting video HTML', { videoSrc });
+        
         videoPreview.innerHTML = `
           <div class="custom-video-player">
             <video id="outputVideo" class="video-element" src="${videoSrc}" preload="metadata" playsinline>
@@ -551,10 +667,23 @@ const SourcesTab: React.FC = () => {
             </div>
           </div>`;
         
-        // Initialize output video player
+        debugLog('[renderOutputVideo] Video HTML set, initializing player');
+        
         if ((window as any).initOutputVideoPlayer) {
           (window as any).initOutputVideoPlayer();
+          debugLog('[renderOutputVideo] Player initialization function called');
+        } else {
+          debugLog('[renderOutputVideo] initOutputVideoPlayer function not found');
         }
+        
+        debugLog('[renderOutputVideo] Video rendered successfully', { videoSrc });
+      } else {
+        debugLog('[renderOutputVideo] Elements missing', {
+          hasVideoSection,
+          hasVideoPreview,
+          videoSectionId: videoSection?.id,
+          videoPreviewId: videoPreview?.id
+        });
       }
     };
 
@@ -574,132 +703,209 @@ const SourcesTab: React.FC = () => {
   }, [selectVideo, selectAudio, nle, isRecording, recordingType, startRecording, stopRecording, selection, setTtsInterfaceOpen]);
 
 
-  // Set up button event listeners - matching main branch behavior
+  // Use event delegation on the sources container - this works even if buttons are recreated
   useEffect(() => {
     if (activeTab !== "sources") return;
     
-    const setupButtonListeners = () => {
-      // Video upload button
-      const videoUploadBtn = document.querySelector('button[data-action="video-upload"]') as HTMLButtonElement;
-      if (videoUploadBtn) {
-        videoUploadBtn.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if ((window as any).selectVideo) {
-            (window as any).selectVideo();
-          }
-        };
+    // Wait for tab to be visible and DOM to be ready
+    const setupHandlers = () => {
+      const sourcesContainer = document.getElementById('sources');
+      if (!sourcesContainer) {
+        if ((window as any).debugLog) {
+          (window as any).debugLog('button_not_found', { message: 'Sources container not found, retrying...' });
+        }
+        return false;
       }
       
-      // Audio upload button
-      const audioUploadBtn = document.querySelector('button[data-action="audio-upload"]') as HTMLButtonElement;
-      if (audioUploadBtn) {
-        audioUploadBtn.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if ((window as any).selectAudio) {
-            (window as any).selectAudio();
-          }
-        };
+      // Check if tab is actually visible
+      const isVisible = sourcesContainer.classList.contains('active') && 
+                        window.getComputedStyle(sourcesContainer).display !== 'none';
+      if (!isVisible) {
+        if ((window as any).debugLog) {
+          (window as any).debugLog('button_not_found', { message: 'Sources tab not visible yet' });
+        }
+        return false;
       }
       
-      // Video use in/out button
-      const videoInOutBtn = document.querySelector('button[data-action="video-inout"]') as HTMLButtonElement;
-      if (videoInOutBtn) {
-        videoInOutBtn.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (nle?.exportInOutVideo) {
-            const result = await nle.exportInOutVideo({ codec: "h264" });
-            if (result?.ok && result?.path) {
-              if ((window as any).selectVideo) {
-                await (window as any).selectVideo();
-              }
-            } else if (result?.error && (window as any).showToast) {
-              (window as any).showToast(result.error, "error");
-            }
-          }
-        };
+      if ((window as any).debugLog) {
+        (window as any).debugLog('button_handler_setup', { message: 'Setting up event delegation on sources container' });
       }
-      
-      // Audio use in/out button
-      const audioInOutBtn = document.querySelector('button[data-action="audio-inout"]') as HTMLButtonElement;
-      if (audioInOutBtn) {
-        audioInOutBtn.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (nle?.exportInOutAudio) {
-            const result = await nle.exportInOutAudio({ format: "wav" });
-            if (result?.ok && result?.path) {
-              if ((window as any).selectAudio) {
-                await (window as any).selectAudio();
-              }
-            } else if (result?.error && (window as any).showToast) {
-              (window as any).showToast(result.error, "error");
-            }
-          }
-        };
-      }
-      
-      // Video record button
-      const videoRecordBtn = document.querySelector('button[data-action="video-record"]') as HTMLButtonElement;
-      if (videoRecordBtn) {
-        videoRecordBtn.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if ((window as any).startVideoRecording) {
-            await (window as any).startVideoRecording();
-          }
-        };
-      }
-      
-      // Audio record button
-      const audioRecordBtn = document.querySelector('button[data-action="audio-record"]') as HTMLButtonElement;
-      if (audioRecordBtn) {
-        audioRecordBtn.onclick = async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if ((window as any).startAudioRecording) {
-            await (window as any).startAudioRecording();
-          }
-        };
-      }
-      
-      // Video link button
-      const videoLinkBtn = document.querySelector('button[data-action="video-link"]') as HTMLButtonElement;
-      if (videoLinkBtn) {
-        videoLinkBtn.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if ((window as any).selectVideoUrl) {
-            (window as any).selectVideoUrl();
-          }
-        };
-      }
-      
-      // Audio link button
-      const audioLinkBtn = document.querySelector('button[data-action="audio-link"]') as HTMLButtonElement;
-      if (audioLinkBtn) {
-        audioLinkBtn.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if ((window as any).selectAudioUrl) {
-            (window as any).selectAudioUrl();
-          }
-        };
-      }
+      return true;
     };
     
-    // Set up listeners after a short delay to ensure DOM is ready
-    const timer = setTimeout(() => {
-      setupButtonListeners();
-      if ((window as any).lucide && (window as any).lucide.createIcons) {
-        (window as any).lucide.createIcons();
-      }
-    }, 100);
+    // Try immediately, then retry if needed
+    let retries = 0;
+    const maxRetries = 10;
+    const trySetup = () => {
+      if (setupHandlers()) {
+        attachHandlers();
+      } else if (retries < maxRetries) {
+        retries++;
+        setTimeout(trySetup, 100);
+            }
+    };
     
-    return () => clearTimeout(timer);
-  }, [activeTab, nle, selection]);
+    let cleanupHandlers: (() => void) | null = null;
+    
+    const attachHandlers = () => {
+      const sourcesContainer = document.getElementById('sources');
+      if (!sourcesContainer) return;
+    
+      const handleClick = async (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        
+        // Check if click is on a button or inside a button
+        const button = target.closest('button[data-action]') as HTMLButtonElement;
+        
+        if (!button || button.disabled) {
+          return;
+        }
+        
+        const action = button.getAttribute('data-action');
+        if (!action) return;
+            
+        if ((window as any).debugLog) {
+          (window as any).debugLog('button_click', { action, disabled: button.disabled });
+        }
+        
+        // Don't prevent default or stop propagation - let React handlers also run if they exist
+        // We'll handle the action regardless
+        
+        try {
+          switch (action) {
+            case 'video-upload':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'video-upload', handling: true, hasNLE: !!nle, hasCSInterface: !!(window as any).CSInterface });
+            }
+            try {
+              // Call from window to ensure we get the latest function (not stale closure)
+              if (typeof (window as any).selectVideo === 'function') {
+                await (window as any).selectVideo();
+                if ((window as any).debugLog) {
+                  (window as any).debugLog('button_click', { action: 'video-upload', completed: true });
+                }
+              } else {
+                if ((window as any).debugLog) {
+                  (window as any).debugLog('button_click', { action: 'video-upload', error: 'selectVideo function not available on window' });
+                }
+              }
+            } catch (error) {
+              if ((window as any).debugLog) {
+                (window as any).debugLog('button_click', { action: 'video-upload', error: String(error), stack: (error as Error)?.stack });
+              }
+            }
+            break;
+          case 'audio-upload':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'audio-upload', handling: true, hasNLE: !!nle, hasCSInterface: !!(window as any).CSInterface });
+            }
+            try {
+              // Call from window to ensure we get the latest function (not stale closure)
+              if (typeof (window as any).selectAudio === 'function') {
+                await (window as any).selectAudio();
+                if ((window as any).debugLog) {
+                  (window as any).debugLog('button_click', { action: 'audio-upload', completed: true });
+                }
+              } else {
+                if ((window as any).debugLog) {
+                  (window as any).debugLog('button_click', { action: 'audio-upload', error: 'selectAudio function not available on window' });
+                }
+              }
+            } catch (error) {
+              if ((window as any).debugLog) {
+                (window as any).debugLog('button_click', { action: 'audio-upload', error: String(error), stack: (error as Error)?.stack });
+              }
+            }
+            break;
+          case 'video-record':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'video-record', handling: true });
+            }
+            if ((window as any).startVideoRecording) {
+              await (window as any).startVideoRecording();
+            }
+            break;
+          case 'audio-record':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'audio-record', handling: true });
+            }
+            if ((window as any).startAudioRecording) {
+              await (window as any).startAudioRecording();
+            }
+            break;
+          case 'video-link':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'video-link', handling: true });
+            }
+            if ((window as any).selectVideoUrl) {
+              (window as any).selectVideoUrl();
+            }
+            break;
+          case 'audio-link':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'audio-link', handling: true });
+            }
+            if ((window as any).selectAudioUrl) {
+              (window as any).selectAudioUrl();
+            }
+            break;
+          }
+        } catch (error) {
+          if ((window as any).debugLog) {
+            (window as any).debugLog('button_click', { error: String(error), action });
+          }
+        }
+      };
+      
+      // Test: log all clicks on the container to see if events are reaching it
+      const testClick = (e: MouseEvent) => {
+        if ((window as any).debugLog) {
+          const button = (e.target as HTMLElement)?.closest('button');
+          (window as any).debugLog('sources_tab_click', {
+            hasButton: !!button,
+            buttonAction: button?.getAttribute('data-action') || null,
+          });
+        }
+      };
+      sourcesContainer.addEventListener('click', testClick, true);
+      
+      // Use capture phase AND bubble phase to ensure we catch the event
+      sourcesContainer.addEventListener('click', handleClick, true);
+      sourcesContainer.addEventListener('click', handleClick, false);
+      
+      cleanupHandlers = () => {
+        sourcesContainer.removeEventListener('click', testClick, true);
+        sourcesContainer.removeEventListener('click', handleClick, true);
+        sourcesContainer.removeEventListener('click', handleClick, false);
+      };
+        };
+    
+    trySetup();
+    
+    // Also set up a MutationObserver to re-attach if DOM changes
+    const observer = new MutationObserver(() => {
+      const container = document.getElementById('sources');
+      if (container && container.classList.contains('active')) {
+        // DOM changed, handlers should still work with delegation but log it
+        if ((window as any).debugLog) {
+          const buttons = container.querySelectorAll('button[data-action]');
+          (window as any).debugLog('dom_changed', { buttonCount: buttons.length });
+        }
+      }
+    });
+    
+    const sourcesContainer = document.getElementById('sources');
+    if (sourcesContainer) {
+      observer.observe(sourcesContainer, { childList: true, subtree: true });
+      }
+    
+    return () => {
+      observer.disconnect();
+      if (cleanupHandlers) {
+        cleanupHandlers();
+      }
+    };
+  }, [activeTab, selectVideo, selectAudio, nle]);
   
   // Re-initialize Lucide icons when tab becomes active
   useEffect(() => {
@@ -755,21 +961,122 @@ const SourcesTab: React.FC = () => {
               </div>
               <div className="upload-actions" id="videoUploadActions">
                 <div className="action-row">
-                  <button type="button" draggable="false" className="action-btn" data-action="video-upload">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className="action-btn" 
+                    data-action="video-upload"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if ((window as any).debugLog) {
+                        (window as any).debugLog('button_click', { action: 'video-upload', source: 'react_onclick' });
+                      }
+                      if (typeof (window as any).selectVideo === 'function') {
+                        try {
+                          await (window as any).selectVideo();
+                        } catch (error) {
+                          if ((window as any).debugLog) {
+                            (window as any).debugLog('button_click', { action: 'video-upload', error: String(error) });
+                          }
+                        }
+                      }
+                    }}
+                  >
                     <Upload size={16} />
                     <span>upload</span>
                   </button>
-                  <button type="button" draggable="false" className="action-btn" data-action="video-inout">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className="action-btn" 
+                    data-action="video-inout"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      debugLog('[SourcesTab] Video in/out button clicked', { nle: !!nle, settings });
+                      if ((window as any).selectVideoInOut) {
+                        await (window as any).selectVideoInOut();
+                      } else if (nle?.exportInOutVideo) {
+                        // Map settings.renderVideo to codec value
+                        // For Premiere: mp4 -> h264, prores_422 -> prores_422, prores_422hq -> prores_422_hq
+                        // For After Effects: mp4 -> h264, anything else -> prores (handled in aeft.ts)
+                        let codec = "h264"; // default
+                        if (settings.renderVideo === "mp4" || settings.renderVideo === "h264") {
+                          codec = "h264";
+                        } else if (settings.renderVideo === "prores_422") {
+                          codec = "prores_422";
+                        } else if (settings.renderVideo === "prores_422hq") {
+                          // Premiere expects prores_422_hq (with underscore), settings use prores_422hq
+                          codec = "prores_422_hq";
+                        }
+                        
+                        debugLog('[SourcesTab] Calling exportInOutVideo with codec', { codec });
+                        const result = await nle.exportInOutVideo({ codec });
+                        debugLog('[SourcesTab] exportInOutVideo result', { result });
+                        if (result?.ok && result?.path) {
+                          if ((window as any).selectVideo) {
+                            await (window as any).selectVideo();
+                          }
+                        } else if (result?.error && (window as any).showToast) {
+                          (window as any).showToast(result.error, "error");
+                        } else if (!result?.ok && (window as any).showToast) {
+                          (window as any).showToast("Failed to export video in/out", "error");
+                        }
+                      } else {
+                        debugError('[SourcesTab] nle.exportInOutVideo not available');
+                        if ((window as any).showToast) {
+                          (window as any).showToast("Video export not available. Please ensure you have an active sequence/composition.", "error");
+                        }
+                      }
+                    }}
+                  >
                     <MousePointerSquareDashed size={16} />
                     <span>use in/out</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button type="button" draggable="false" className={`action-btn ${isRecording && recordingType === "video" ? "recording" : ""}`} data-action="video-record">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className={`action-btn ${isRecording && recordingType === "video" ? "recording" : ""}`} 
+                    data-action="video-record"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if ((window as any).debugLog) {
+                        (window as any).debugLog('button_click', { action: 'video-record', source: 'react_onclick' });
+                      }
+                      if ((window as any).startVideoRecording) {
+                        try {
+                          await (window as any).startVideoRecording();
+                        } catch (error) {
+                          if ((window as any).debugLog) {
+                            (window as any).debugLog('button_click', { action: 'video-record', error: String(error) });
+                          }
+                        }
+                      }
+                    }}
+                  >
                     <Webcam size={16} />
                     <span>{isRecording && recordingType === "video" ? "stop" : "record"}</span>
                   </button>
-                  <button type="button" draggable="false" className="action-btn" data-action="video-link">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className="action-btn" 
+                    data-action="video-link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if ((window as any).debugLog) {
+                        (window as any).debugLog('button_click', { action: 'video-link', source: 'react_onclick' });
+                      }
+                      if ((window as any).selectVideoUrl) {
+                        (window as any).selectVideoUrl();
+                      }
+                    }}
+                  >
                     <Link size={16} />
                     <span>link url</span>
                   </button>
@@ -857,9 +1164,21 @@ const SourcesTab: React.FC = () => {
                       });
                       const data = await response.json().catch(() => null);
                       if (response.ok && data?.ok && data?.path) {
-                        (window as any).selectedVideoUrl = videoUrlValue.trim();
-                        (window as any).selectedVideoIsUrl = true;
-                        setVideoPath(data.path);
+                        const url = videoUrlValue.trim();
+                        // Set the video path and URL
+                        await setVideoPath(data.path, url);
+                        
+                        // Update UI state
+                        if (typeof (window as any).updateLipsyncButton === "function") {
+                          (window as any).updateLipsyncButton();
+                        }
+                        if (typeof (window as any).renderInputPreview === "function") {
+                          (window as any).renderInputPreview("url-load");
+                        }
+                        if (typeof (window as any).updateInputStatus === "function") {
+                          (window as any).updateInputStatus();
+                        }
+                        
                         setUrlInputMode(null);
                         setVideoUrlValue("");
                         // Close URL input
@@ -874,6 +1193,12 @@ const SourcesTab: React.FC = () => {
                             if (videoSection) videoSection.classList.remove('url-input-active');
                           }, 200);
                         }
+                      } else {
+                        // Show error toast
+                        const errorMsg = data?.error || "Failed to download video from URL";
+                        if ((window as any).showToast) {
+                          (window as any).showToast(errorMsg, "error");
+                        }
                       }
                     } catch (_) {}
                   }}>
@@ -882,57 +1207,56 @@ const SourcesTab: React.FC = () => {
                 </div>
               </div>
             </div>
-            {(selection.video || selection.videoUrl) && (
-              <div id="videoPreview" style={{ display: "flex" }}>
-                <div className="custom-video-player">
-                  <video 
-                    id="mainVideo" 
-                    className="video-element" 
-                    src={selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? `file://${selection.video.replace(/ /g, '%20')}` : '')} 
-                    preload="metadata" 
-                    playsInline
-                  >
-                    <source src={selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? `file://${selection.video.replace(/ /g, '%20')}` : '')} type="video/mp4" />
-                  </video>
-                  {/* Center play button overlay */}
-                  <div className="video-play-overlay" id="videoPlayOverlay">
-                    <button className="center-play-btn" id="centerPlayBtn">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                        <polygon points="5,3 19,12 5,21"/>
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="video-controls">
-                    <div className="video-progress-container">
-                      <div className="video-progress-bar">
-                        <div className="video-progress-fill" id="videoProgress"></div>
-                        <div className="video-progress-thumb" id="videoThumb"></div>
-                      </div>
-                    </div>
-                    <div className="video-control-buttons">
-                      <div className="video-left-controls">
-                        <button className="video-control-btn volume-btn" id="volumeBtn">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                            <polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/>
-                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                          </svg>
-                        </button>
-                        <input type="range" className="volume-slider" id="volumeSlider" min="0" max="100" defaultValue="100" />
-                      </div>
-                      <div className="video-center-controls">
-                        <div className="video-time" id="videoTime">00:00 / 00:00</div>
-                        <div className="video-frame-info" id="videoFrameInfo">0 / 0</div>
-                      </div>
-                      <div className="video-right-controls">
-                        <button className="video-control-btn video-delete-btn" onClick={clearVideo}>
-                          <Trash2 size={18} />
+            {/* Always render videoPreview so it's available for output videos from history */}
+            <div id="videoPreview" style={{ display: (selection.video || selection.videoUrl) ? "flex" : "none" }}>
+              <div className="custom-video-player">
+                <video 
+                  id="mainVideo" 
+                  className="video-element" 
+                  src={selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? `file://${selection.video.replace(/ /g, '%20')}` : '')} 
+                  preload="metadata" 
+                  playsInline
+                >
+                  <source src={selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? `file://${selection.video.replace(/ /g, '%20')}` : '')} type="video/mp4" />
+                </video>
+                {/* Center play button overlay */}
+                <div className="video-play-overlay" id="videoPlayOverlay">
+                  <button className="center-play-btn" id="centerPlayBtn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="5,3 19,12 5,21"/>
+                    </svg>
                   </button>
-                      </div>
+                </div>
+                <div className="video-controls">
+                  <div className="video-progress-container">
+                    <div className="video-progress-bar">
+                      <div className="video-progress-fill" id="videoProgress"></div>
+                      <div className="video-progress-thumb" id="videoThumb"></div>
+                    </div>
+                  </div>
+                  <div className="video-control-buttons">
+                    <div className="video-left-controls">
+                      <button className="video-control-btn volume-btn" id="volumeBtn">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                          <polygon points="11,5 6,9 2,9 2,15 6,15 11,19 11,5"/>
+                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                      </button>
+                      <input type="range" className="volume-slider" id="volumeSlider" min="0" max="100" defaultValue="100" />
+                    </div>
+                    <div className="video-center-controls">
+                      <div className="video-time" id="videoTime">00:00 / 00:00</div>
+                      <div className="video-frame-info" id="videoFrameInfo">0 / 0</div>
+                    </div>
+                    <div className="video-right-controls">
+                      <button className="video-control-btn video-delete-btn" onClick={clearVideo}>
+                        <Trash2 size={18} />
+                  </button>
                     </div>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Audio Upload Section */}
@@ -945,7 +1269,10 @@ const SourcesTab: React.FC = () => {
               <TTSInterface
                 isOpen={ttsInterfaceOpen}
                 onClose={() => setTtsInterfaceOpen(false)}
-                onVoiceSelectClick={() => setTtsVoiceSelectorOpen(true)}
+                onVoiceSelectClick={() => {
+                  debugLog('[SourcesTab] Voice select clicked, opening selector');
+                  setTtsVoiceSelectorOpen(true);
+                }}
               />
             ) : (
             <div id="audioDropzone" className="upload-content" style={{ display: (selection.audio || selection.audioUrl) ? "none" : "flex" }}>
@@ -968,27 +1295,163 @@ const SourcesTab: React.FC = () => {
               </div>
               <div className="upload-actions" id="audioUploadActions">
                 <div className="action-row">
-                  <button type="button" draggable="false" className="action-btn" data-action="audio-upload">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className="action-btn" 
+                    data-action="audio-upload"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if ((window as any).debugLog) {
+                        (window as any).debugLog('button_click', { action: 'audio-upload', source: 'react_onclick' });
+                      }
+                      if (typeof (window as any).selectAudio === 'function') {
+                        try {
+                          await (window as any).selectAudio();
+                        } catch (error) {
+                          if ((window as any).debugLog) {
+                            (window as any).debugLog('button_click', { action: 'audio-upload', error: String(error) });
+                          }
+                        }
+                      }
+                    }}
+                  >
                     <Upload size={16} />
                     <span>upload</span>
                   </button>
-                  <button type="button" draggable="false" className="action-btn" data-action="audio-inout">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className="action-btn" 
+                    data-action="audio-inout"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      debugLog('[SourcesTab] Audio in/out button clicked', { nle: !!nle, settings });
+                      if ((window as any).selectAudioInOut) {
+                        await (window as any).selectAudioInOut();
+                      } else if (nle?.exportInOutAudio) {
+                        // Use settings.renderAudio directly (wav or mp3)
+                        const format = settings.renderAudio || "wav";
+                        
+                        debugLog('[SourcesTab] Calling exportInOutAudio with format', { format });
+                        const result = await nle.exportInOutAudio({ format });
+                        debugLog('[SourcesTab] exportInOutAudio result', { result });
+                        if (result?.ok && result?.path) {
+                          if ((window as any).selectAudio) {
+                            await (window as any).selectAudio();
+                          }
+                        } else if (result?.error && (window as any).showToast) {
+                          (window as any).showToast(result.error, "error");
+                        } else if (!result?.ok && (window as any).showToast) {
+                          (window as any).showToast("Failed to export audio in/out", "error");
+                        }
+                      } else {
+                        debugError('[SourcesTab] nle.exportInOutAudio not available');
+                        if ((window as any).showToast) {
+                          (window as any).showToast("Audio export not available. Please ensure you have an active sequence/composition.", "error");
+                        }
+                      }
+                    }}
+                  >
                     <MousePointerSquareDashed size={16} />
                     <span>use in/out</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button type="button" draggable="false" className={`action-btn ${isRecording && recordingType === "audio" ? "recording" : ""}`} data-action="audio-record">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className={`action-btn ${isRecording && recordingType === "audio" ? "recording" : ""}`} 
+                    data-action="audio-record"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if ((window as any).debugLog) {
+                        (window as any).debugLog('button_click', { action: 'audio-record', source: 'react_onclick' });
+                      }
+                      if ((window as any).startAudioRecording) {
+                        try {
+                          await (window as any).startAudioRecording();
+                        } catch (error) {
+                          if ((window as any).debugLog) {
+                            (window as any).debugLog('button_click', { action: 'audio-record', error: String(error) });
+                          }
+                        }
+                      }
+                    }}
+                  >
                     <Mic size={16} />
                     <span>{isRecording && recordingType === "audio" ? "stop" : "record"}</span>
                   </button>
-                  <button type="button" draggable="false" className="action-btn" data-action="audio-link">
+                  <button 
+                    type="button" 
+                    draggable="false" 
+                    className="action-btn" 
+                    data-action="audio-link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if ((window as any).debugLog) {
+                        (window as any).debugLog('button_click', { action: 'audio-link', source: 'react_onclick' });
+                      }
+                      if ((window as any).selectAudioUrl) {
+                        (window as any).selectAudioUrl();
+                      }
+                    }}
+                  >
                     <Link size={16} />
                     <span>link url</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button type="button" draggable="false" className="action-btn" data-action="audio-from-video" onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if (!selection.video && !selection.videoUrl) return; try { const videoPath = selection.video || selection.videoUrl; if (!videoPath) return; const response = await fetch(getApiUrl("/audio/extract"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoPath, format: "wav" }), }); const data = await response.json().catch(() => null); if (response.ok && data?.ok && data?.path) { await selectAudio(); } } catch (error) { console.error("Error extracting audio from video:", error); } }}>
+                  <button type="button" draggable="false" className="action-btn" data-action="audio-from-video" onClick={async (e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
+                    if (!selection.video && !selection.videoUrl) return; 
+                    try { 
+                      const videoPath = selection.video;
+                      const videoUrl = selection.videoUrl;
+                      if (!videoPath && !videoUrl) return; 
+                      const response = await fetch(getApiUrl("/extract-audio"), { 
+                        method: "POST", 
+                        headers: { "Content-Type": "application/json" }, 
+                        body: JSON.stringify({ videoPath, videoUrl, format: "wav" }), 
+                      }); 
+                      const data = await response.json().catch(() => null); 
+                      if (response.ok && data?.ok && data?.audioPath) { 
+                        await setAudioPath(data.audioPath);
+                        
+                        // Update UI state
+                        if (typeof (window as any).updateLipsyncButton === "function") {
+                          (window as any).updateLipsyncButton();
+                        }
+                        if (typeof (window as any).renderInputPreview === "function") {
+                          (window as any).renderInputPreview("extract-audio");
+                        }
+                        if (typeof (window as any).updateInputStatus === "function") {
+                          (window as any).updateInputStatus();
+                        }
+                        
+                        // Show success toast
+                        if ((window as any).showToast) {
+                          (window as any).showToast("Audio extracted from video", "success");
+                        }
+                      } else {
+                        // Show error toast
+                        const errorMsg = data?.error || "Failed to extract audio from video";
+                        if ((window as any).showToast) {
+                          (window as any).showToast(errorMsg, "error");
+                        }
+                      }
+                    } catch (error) { 
+                      debugError("Error extracting audio from video", error); 
+                      if ((window as any).showToast) {
+                        (window as any).showToast("Error extracting audio: " + (error as Error).message, "error");
+                      }
+                    } 
+                  }}>
                     <MousePointerClick size={16} />
                     <span>from video</span>
                   </button>
@@ -1120,9 +1583,21 @@ const SourcesTab: React.FC = () => {
                       });
                       const data = await response.json().catch(() => null);
                       if (response.ok && data?.ok && data?.path) {
-                        (window as any).selectedAudioUrl = audioUrlValue.trim();
-                        (window as any).selectedAudioIsUrl = true;
-                        setAudioPath(data.path);
+                        const url = audioUrlValue.trim();
+                        // Set the audio path and URL
+                        await setAudioPath(data.path, url);
+                        
+                        // Update UI state
+                        if (typeof (window as any).updateLipsyncButton === "function") {
+                          (window as any).updateLipsyncButton();
+                        }
+                        if (typeof (window as any).renderInputPreview === "function") {
+                          (window as any).renderInputPreview("url-load");
+                        }
+                        if (typeof (window as any).updateInputStatus === "function") {
+                          (window as any).updateInputStatus();
+                        }
+                        
                         setUrlInputMode(null);
                         setAudioUrlValue("");
                         // Close URL input
@@ -1136,6 +1611,12 @@ const SourcesTab: React.FC = () => {
                             const audioSection = document.getElementById('audioSection');
                             if (audioSection) audioSection.classList.remove('url-input-active');
                           }, 200);
+                        }
+                      } else {
+                        // Show error toast
+                        const errorMsg = data?.error || "Failed to download audio from URL";
+                        if ((window as any).showToast) {
+                          (window as any).showToast(errorMsg, "error");
                         }
                       }
                     } catch (_) {}
@@ -1225,7 +1706,21 @@ const SourcesTab: React.FC = () => {
         </div>
         )}
       </div>
-      <TTSVoiceSelector isOpen={ttsVoiceSelectorOpen} onClose={() => setTtsVoiceSelectorOpen(false)} />
+      <TTSVoiceSelector
+        isOpen={ttsVoiceSelectorOpen}
+        onClose={() => setTtsVoiceSelectorOpen(false)}
+        onCloneClick={() => {
+          setTtsVoiceSelectorOpen(false);
+          setTtsVoiceCloneModalOpen(true);
+        }}
+      />
+      <TTSVoiceCloneModal
+        isOpen={ttsVoiceCloneModalOpen}
+        onClose={() => setTtsVoiceCloneModalOpen(false)}
+        onVoiceCreated={(voiceId, voiceName) => {
+          // Voice is already selected in the modal
+        }}
+      />
     </>
   );
 };

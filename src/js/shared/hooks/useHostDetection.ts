@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getHostConfig, type HostConfig } from "../utils/host";
+import { getHostConfig, type HostConfig } from "../utils/clientHostDetection";
+import { debugLog, debugWarn } from "../utils/debugLog";
 
 export type { HostConfig };
 
@@ -11,9 +12,9 @@ export const useHostDetection = () => {
     const config = getHostConfig();
     if (config) {
       setHostConfig(config);
-      console.log("[host-detection] Detected host:", config.hostId, config.hostName);
+      debugLog("[host-detection] Detected host", { hostId: config.hostId, hostName: config.hostName });
     } else {
-      console.warn("[host-detection] Could not detect host");
+      debugWarn("[host-detection] Could not detect host");
     }
   }, []);
 

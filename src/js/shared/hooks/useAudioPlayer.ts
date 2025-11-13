@@ -3,6 +3,7 @@ import { formatTime } from "../utils/formatTime";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import { loaderHTML } from "../utils/loader";
+import { debugLog, debugError, debugWarn } from "../utils/debugLog";
 
 interface WaveformBar {
   x: number;
@@ -92,13 +93,13 @@ function renderWaveform(
   displayHeightOverride?: number
 ) {
   if (!canvas) {
-    console.error("[Waveform] Canvas is null or undefined");
+    debugError("[Waveform] Canvas is null or undefined");
     return;
   }
 
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    console.error("[Waveform] Could not get canvas context");
+    debugError("[Waveform] Could not get canvas context");
     return;
   }
 
@@ -106,7 +107,7 @@ function renderWaveform(
   const displayHeight = displayHeightOverride || canvas.clientHeight || canvas.offsetHeight || 40;
 
   if (displayWidth <= 0 || displayHeight <= 0) {
-    console.error("[Waveform] Invalid canvas dimensions:", displayWidth, displayHeight);
+    debugError("[Waveform] Invalid canvas dimensions", { displayWidth, displayHeight });
     return;
   }
 
@@ -116,7 +117,7 @@ function renderWaveform(
   const progressX = progress * displayWidth;
 
   if (!Array.isArray(bars)) {
-    console.error("[Waveform] Bars is not an array:", bars);
+    debugError("[Waveform] Bars is not an array", { bars });
     return;
   }
 
@@ -193,7 +194,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         // If we already have the audio buffer, rebuild bars with new dimensions
         if (audioBufferRef) {
           waveformBarsRef.current = buildBarsFromBuffer(audioBufferRef, canvas, displayWidth, displayHeight);
-          console.log("[Waveform] Rebuilt", waveformBarsRef.current.length, "bars for size", displayWidth, "x", displayHeight);
+          debugLog("[Waveform] Rebuilt", { bars: waveformBarsRef.current.length, size: `${displayWidth}x${displayHeight}` });
           renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
           return;
         }
@@ -220,11 +221,9 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             localPath = u;
           } catch (_) {}
         }
-        console.log("[Waveform] selectedAudio:", (window as any).selectedAudio);
-        console.log("[Waveform] audio.src:", audio.getAttribute("src"));
-        console.log("[Waveform] Normalized path:", localPath);
+        debugLog("[Waveform] Audio info", { selectedAudio: (window as any).selectedAudio, src: audio.getAttribute("src"), localPath });
         if (!localPath) {
-          console.warn("[Waveform] No path found, using placeholder");
+          debugWarn("[Waveform] No path found, using placeholder");
           waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
           renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
           return;
@@ -232,24 +231,24 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         // This endpoint is now public to avoid blank waveform when token fails
         await ensureAuthToken();
         const waveformUrl = `${getApiUrl("/waveform/file")}?${new URLSearchParams({ path: localPath })}`;
-        console.log("[Waveform] Fetching from:", waveformUrl);
+        debugLog("[Waveform] Fetching from", { waveformUrl });
         const resp = await fetch(waveformUrl, {
           headers: authHeaders(),
           cache: "no-store",
         }).catch((e) => {
-          console.error("[Waveform] Fetch exception:", e);
+          debugError("[Waveform] Fetch exception", e);
           return null;
         });
         if (!resp || !resp.ok) {
           // Fallback: draw placeholder waveform so UI isn't blank
-          console.error("[Waveform] Fetch failed:", resp ? resp.status : "no response");
+          debugError("[Waveform] Fetch failed", { status: resp ? resp.status : "no response" });
           waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
           renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
           return;
         }
-        console.log("[Waveform] Fetch successful, decoding...");
+        debugLog("[Waveform] Fetch successful, decoding");
         const ab = await resp.arrayBuffer();
-        console.log("[Waveform] ArrayBuffer size:", ab ? ab.byteLength : 0);
+        debugLog("[Waveform] ArrayBuffer size", { size: ab ? ab.byteLength : 0 });
         const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
         let buf: AudioBuffer | null = null;
         try {
@@ -265,7 +264,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           }
         }
         if (!buf) {
-          console.error("[Waveform] Decode failed");
+          debugError("[Waveform] Decode failed");
           waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
           renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
           try {
@@ -275,15 +274,15 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         }
         // Store the buffer for future resizes
         audioBufferRef = buf;
-        console.log("[Waveform] Decoded successfully - sampleRate:", buf.sampleRate, "length:", buf.length);
+        debugLog("[Waveform] Decoded successfully", { sampleRate: buf.sampleRate, length: buf.length });
         waveformBarsRef.current = buildBarsFromBuffer(buf, canvas, displayWidth, displayHeight);
-        console.log("[Waveform] Generated", waveformBarsRef.current.length, "bars");
+        debugLog("[Waveform] Generated", { bars: waveformBarsRef.current.length });
         renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
         try {
           ac.close();
         } catch (_) {}
       } catch (err) {
-        console.error("[Waveform] Exception:", err);
+        debugError("[Waveform] Exception", err);
         waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
         renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
       }
@@ -310,7 +309,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         
         await buildWaveformForSize(displayWidth, displayHeight);
       } catch (err) {
-        console.error("[Waveform] Build exception:", err);
+        debugError("[Waveform] Build exception", err);
         const w = canvas.clientWidth || 600;
         const h = canvas.clientHeight || 80;
         waveformBarsRef.current = buildPlaceholderBars(w, h);
@@ -657,7 +656,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             dubbingSubmitBtn.setAttribute("data-lang-name", langName);
           }
 
-          console.log("Selected language:", lang, langName);
+          debugLog("Selected language", { lang, langName });
         };
 
         option.addEventListener("click", handleOptionClick);
@@ -837,7 +836,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
 
               // Upload dubbed audio to R2 for lipsync
               try {
-                console.log("[Dubbing] Starting R2 upload for dubbed audio:", result.audioPath);
+                debugLog("[Dubbing] Starting R2 upload for dubbed audio", { audioPath: result.audioPath });
                 const uploadBody = { path: result.audioPath, apiKey: settings.syncApiKey || "" };
                 const uploadResponse = await fetch(getApiUrl("/upload"), {
                   method: "POST",
@@ -846,17 +845,17 @@ export const useAudioPlayer = (audioSrc: string | null) => {
                 });
 
                 const uploadResult = await uploadResponse.json().catch(() => null);
-                console.log("[Dubbing] R2 upload response:", uploadResponse.ok, uploadResult);
+                debugLog("[Dubbing] R2 upload response", { ok: uploadResponse.ok, result: uploadResult });
 
                 if (uploadResponse.ok && uploadResult && uploadResult.ok && uploadResult.url) {
                   (window as any).uploadedAudioUrl = uploadResult.url;
                   localStorage.setItem("uploadedAudioUrl", uploadResult.url);
-                  console.log("[Dubbing] Uploaded dubbed audio to R2:", uploadResult.url);
+                  debugLog("[Dubbing] Uploaded dubbed audio to R2", { url: uploadResult.url });
                 } else {
-                  console.warn("[Dubbing] R2 upload failed:", uploadResponse.status, uploadResult);
+                  debugWarn("[Dubbing] R2 upload failed", { status: uploadResponse.status, result: uploadResult });
                 }
               } catch (uploadError) {
-                console.warn("[Dubbing] Upload of dubbed audio failed:", uploadError);
+                debugWarn("[Dubbing] Upload of dubbed audio failed", uploadError);
               }
 
               // Re-render the audio preview with the new dubbed audio
@@ -869,7 +868,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
               }
             }
           } catch (error: any) {
-            console.error("Dubbing error:", error);
+            debugError("Dubbing error", error);
             if ((window as any).showToast) {
               (window as any).showToast(`dubbing failed: ${error.message}`, "error");
             }

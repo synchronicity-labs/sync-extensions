@@ -29,6 +29,8 @@ export const setupWindowGlobals = (
 
   // Media functions
   (window as any).openFileDialog = media.openFileDialog;
+  (window as any).selectVideo = media.selectVideo;
+  (window as any).selectAudio = media.selectAudio;
   (window as any).selectedVideo = media.selection.video;
   (window as any).selectedVideoUrl = media.selection.videoUrl;
   (window as any).selectedAudio = media.selection.audio;
@@ -244,6 +246,8 @@ export const setupWindowGlobals = (
     const videoDropzone = document.getElementById('videoDropzone');
     const postLipsyncActions = document.getElementById('postLipsyncActions');
     const sourcesContainer = document.querySelector('.sources-container');
+    const lipsyncBtn = document.getElementById('lipsyncBtn');
+    const audioSection = document.getElementById('audioSection');
     
     // Remove post-lipsync actions
     if (postLipsyncActions) {
@@ -278,6 +282,28 @@ export const setupWindowGlobals = (
       (outputVideo as HTMLVideoElement).currentTime = 0;
       (outputVideo as HTMLVideoElement).removeAttribute('src');
       (outputVideo as HTMLVideoElement).load();
+    }
+    
+    // Keep lipsync button DISABLED (default state is nothing loaded)
+    // Don't re-enable - default state has no media, so button should be disabled
+    if (lipsyncBtn) {
+      (lipsyncBtn as HTMLButtonElement).disabled = true;
+    }
+    if (audioSection) {
+      audioSection.style.display = '';
+    }
+    
+    // Clear media selection to reset to standard state
+    if (media.clearVideo) {
+      media.clearVideo();
+    }
+    if (media.clearAudio) {
+      media.clearAudio();
+    }
+    
+    // Update button state after clearing
+    if (typeof (window as any).updateLipsyncButton === "function") {
+      (window as any).updateLipsyncButton();
     }
   };
 
@@ -407,6 +433,7 @@ export const setupWindowGlobals = (
   };
 
   // Expose evalExtendScript for backward compatibility (host-specific function calls)
+  // Updated to use bolt-cep namespace approach
   (window as any).evalExtendScript = async (fn: string, payload?: any) => {
     try {
       if (typeof window === "undefined" || !window.CSInterface) {
@@ -414,29 +441,46 @@ export const setupWindowGlobals = (
       }
 
       const cs = new window.CSInterface();
-      const arg = JSON.stringify(payload || {});
-      const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || "EXTENSION");
+      const ns = "com.sync.extension"; // Match the namespace from jsx/index.ts
       
-      // Determine host file based on function name (AEFT_ vs PPRO_)
-      const isAE = String(fn || "").indexOf("AEFT_") === 0;
-      const hostFile = isAE ? "/host/ae.jsx" : "/host/ppro.jsx";
-      
-      // Build code that ensures host is loaded before invoking
-      function esc(s: string) {
-        return String(s || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      // Format arguments - handle both string and object payloads
+      let formattedArg: string;
+      if (payload === undefined || payload === null) {
+        formattedArg = "";
+      } else if (typeof payload === "string") {
+        // If payload is already a JSON string (starts with { or [), use it directly
+        // Otherwise, stringify it (for plain strings like file paths)
+        const trimmed = payload.trim();
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || 
+            (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+          // Already a JSON string, use as-is
+          formattedArg = payload;
+        } else {
+          // Plain string, stringify it
+          formattedArg = JSON.stringify(payload);
+        }
+      } else {
+        // If payload is an object, stringify it
+        formattedArg = JSON.stringify(payload);
       }
       
-      const call = fn + "(" + JSON.stringify(arg) + ")";
+      // Build code using namespace approach (like evalTS in bolt.ts)
+      // Try namespace first, then fallback to global
+      const fnName = fn; // Store function name for error message
       const code = [
         "(function(){",
         "  try {",
-        "    if (typeof " + fn + " !== 'function') {",
-        '      $.evalFile("' + esc(extPath + hostFile) + '");',
+        "    var host = typeof $ !== 'undefined' ? $ : window;",
+        "    var fn = host['" + ns + "'] && host['" + ns + "']['" + fnName + "']",
+        "      ? host['" + ns + "']['" + fnName + "']",
+        "      : (typeof " + fnName + " !== 'undefined' ? " + fnName + " : null);",
+        "    if (!fn || typeof fn !== 'function') {",
+        "      return JSON.stringify({ ok: false, error: 'Function not found: " + fnName + "' });",
         "    }",
-        "    var r = " + call + ";",
-        "    return r;",
+        "    var r = fn(" + (formattedArg ? formattedArg : "") + ");",
+        "    return typeof r === 'string' ? r : JSON.stringify(r);",
         "  } catch(e) {",
-        "    return String(e);",
+        "    return JSON.stringify({ ok: false, error: String(e) });",
         "  }",
         "})()",
       ].join("\n");
@@ -445,13 +489,39 @@ export const setupWindowGlobals = (
         cs.evalScript(code, (res: string) => {
           let out = null;
           try {
-            out = typeof res === "string" ? JSON.parse(res) : res;
-          } catch (_) {}
+            // Try to parse as JSON first
+            if (res && typeof res === "string") {
+              out = JSON.parse(res);
+            } else {
+              out = res;
+            }
+          } catch (parseErr) {
+            // If parsing fails, try to handle as string response
+            if (res && typeof res === "string") {
+              // Check if it looks like a path
+              if (res.indexOf("/") !== -1 || res.indexOf("\\") !== -1) {
+                resolve({ ok: true, path: res, _local: true });
+                return;
+              }
+              // Otherwise treat as error
+              resolve({ ok: false, error: res, _local: true });
+              return;
+            }
+            resolve({ ok: false, error: String(res || "no response"), _local: true });
+            return;
+          }
           
-          if (!out || typeof out !== "object" || (out as any).ok === undefined) {
-            // Fallback: treat raw string as a selected path
-            if (res && typeof res === "string" && res.indexOf("/") !== -1) {
-              resolve({ ok: true, path: res, _local: true });
+          // Validate response structure
+          if (!out || typeof out !== "object") {
+            resolve({ ok: false, error: String(res || "invalid response"), _local: true });
+            return;
+          }
+          
+          // If response doesn't have 'ok' property, assume it's an error
+          if ((out as any).ok === undefined) {
+            // Check if it's a valid response object that just lacks 'ok'
+            if (typeof (out as any).error === "string") {
+              resolve(out);
               return;
             }
             resolve({ ok: false, error: String(res || "no response"), _local: true });

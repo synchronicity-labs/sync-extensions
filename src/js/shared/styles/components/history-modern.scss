@@ -30,9 +30,9 @@
 .history-card {
   background: var(--bg-secondary);
   border: 1px solid var(--bg-button);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 1px;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   cursor: pointer;
 }
 
@@ -55,7 +55,7 @@
   width: 131px;
   height: 74px;
   flex-shrink: 0;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg-tertiary);
   display: flex;
@@ -106,7 +106,7 @@
   bottom: 8px;
   left: 8px;
   padding: 1px 8px 0px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   font-size: 10px;
   line-height: 11.5px;
   font-family: var(--font-family);
@@ -185,13 +185,13 @@
 
 .history-actions-left {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   align-items: center;
 }
 
 .history-actions-right {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   align-items: center;
 }
 
@@ -200,11 +200,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   height: 32px;
   min-height: 32px;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -213,7 +213,7 @@
   font-weight: 500;
   line-height: 15px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .history-btn:hover:not(:disabled) {
@@ -237,8 +237,8 @@
 }
 
 .history-btn i {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 /* Icon Buttons */
@@ -248,13 +248,13 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  padding: 8px;
-  border-radius: 6px;
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
   border: none;
   background: var(--bg-button);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .history-btn-icon:hover:not(:disabled) {
@@ -267,8 +267,8 @@
 }
 
 .history-btn-icon i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 /* Set API key icon in history tab - outline style with stroke-width 3 */
@@ -461,13 +461,13 @@
 /* Toast Notifications */
 .history-toast {
   position: fixed;
-  bottom: 24px;
+  bottom: var(--spacing-xl);
   left: 50%;
   transform: translateX(-50%) translateY(100px);
   background: var(--bg-secondary);
   border: 1px solid var(--bg-button);
-  border-radius: 6px;
-  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-lg);
   color: var(--text-primary);
   font-family: var(--font-family);
   font-size: 14px;
@@ -475,7 +475,7 @@
   text-align: center;
   z-index: 10000;
   opacity: 0;
-  transition: all 0.3s ease;
+  transition: all var(--transition-slow);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 

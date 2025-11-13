@@ -81,10 +81,17 @@ npm run build
 ```
 
 This will:
-- Build React components to `dist/cep/`
+- Build React components to `dist/cep/` (Adobe) and `dist/resolve/` (DaVinci Resolve)
 - Compile ExtendScript files to JSXBIN format
 - Copy assets, server, and binaries to output directories
+- Install dependencies only when needed (cached for faster rebuilds)
 - Create a symlink to the extension folder
+
+**Performance Optimizations:**
+- **Dependency caching**: Dependencies are cached and only reinstalled when `package.json` changes, saving significant time on rebuilds
+- **Incremental file copying**: File operations skip unchanged files based on modification times
+- **Smart dependency checks**: npm install only runs when node_modules is missing or dependencies have changed
+- **Parallel build option**: Use `npm run build:parallel` to attempt parallel builds (Resolve build will wait for CEP if needed)
 
 ### Build ZXP Package
 
@@ -194,16 +201,18 @@ POSTHOG_HOST=https://us.i.posthog.com
    - Upload the ZXP to GitHub Releases
    - Include checksums for verification
 
-### DaVinci Resolve Build (WIP)
+### DaVinci Resolve Build
 
 For the DaVinci Resolve workflow integration:
 
 ```bash
-./bin/local-resolve-release.sh
+npm run build:davinci
 ```
 
-This installs the Resolve plugin to:
+This builds and installs the Resolve plugin to:
 `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/sync.resolve`
+
+The build process is handled by `vite.config.ts` which compiles TypeScript files and copies all necessary assets to `dist/resolve/`, then installs to the Resolve plugin directory.
 
 ## Project Structure Details
 

@@ -263,16 +263,16 @@ export function PPRO_showFileDialog(payloadJson) {
     try { p = JSON.parse(payloadJson); } catch(e) {}
     var kind = p.kind || 'video';
     var allow = (kind === 'audio')
-      ? { wav:1, mp3:1, aac:1, aif:1, aiff:1, m4a:1 }
-      : { mov:1, mp4:1, mxf:1, mkv:1, avi:1, m4v:1, mpg:1, mpeg:1 };
+      ? { wav:1, mp3:1 }
+      : { mov:1, mp4:1 };
 
     var file = null;
     try {
       if ($.os && $.os.toString().indexOf('Windows') !== -1) {
         // Windows can honor filter strings
         var filterStr = (kind === 'audio')
-          ? 'Audio files:*.wav;*.mp3;*.aac;*.aif;*.aiff;*.m4a'
-          : 'Video files:*.mov;*.mp4;*.mxf;*.mkv;*.avi;*.m4v;*.mpg;*.mpeg';
+          ? 'Audio files:*.wav;*.mp3'
+          : 'Video files:*.mov;*.mp4';
         file = File.openDialog('Select ' + kind + ' file', filterStr);
       } else {
         // macOS: use function filter to hide non-matching files
@@ -297,6 +297,19 @@ export function PPRO_showFileDialog(payloadJson) {
         var ext = (i >= 0) ? n.substring(i+1) : '';
         if (allow[ext] !== 1) { return _respond({ ok:false, error:'Invalid file type' }); }
       } catch(e) {}
+      
+      // Check file size - reject if over 1GB
+      var fileSize = 0;
+      try {
+        if (file && file.length) {
+          fileSize = file.length;
+        }
+      } catch(e) {}
+      if (fileSize > 1024 * 1024 * 1024) {
+        try { _hostLog('PPRO_showFileDialog rejected: file size exceeds 1GB (' + String(fileSize) + ' bytes)'); } catch(_){ }
+        return _respond({ ok:false, error:'File size exceeds 1GB limit' });
+      }
+      
       try { _hostLog('PPRO_showFileDialog selected: ' + file.fsName); } catch(_){ }
       return _respond({ ok: true, path: file.fsName });
     }
@@ -1038,14 +1051,14 @@ export function PPRO_startBackend() {
         }
       } catch(e) {}
       
-      var serverPath = extPath + (isWindows ? "\\server\\server.js" : "/server/server.js");
+      var serverPath = extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts");
       var serverFile = new File(serverPath);
       if (!serverFile.exists) {
         // Try dist/server path
-        serverPath = extPath + (isWindows ? "\\dist\\server\\server.js" : "/dist/server/server.js");
+        serverPath = extPath + (isWindows ? "\\dist\\server\\server.ts" : "/dist/server/server.ts");
         serverFile = new File(serverPath);
         if (!serverFile.exists) {
-          var errorMsg = "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\server.js" : "/server/server.js") + " and " + serverPath;
+          var errorMsg = "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts") + " and " + serverPath;
           try {
             var logFile = _pproDebugLogFile();
             if (logFile && logFile.fsName) {
@@ -1123,23 +1136,29 @@ export function PPRO_startBackend() {
       var spawnCmd;
       if (isWindows) {
         // Windows: use start with /B to run in background, pass HOST_APP environment variable
-        spawnCmd = 'cmd.exe /c "set HOST_APP=PPRO && start /B "' + nodeBin.replace(/\\/g, '\\\\') + '" "' + serverPath.replace(/\\/g, '\\\\') + '"';
+        // Use tsx to run TypeScript directly
+        var serverDir = serverPath.replace(/\\server\.ts$/, '').replace(/\/server\.ts$/, '');
+        var tsxBin = serverDir + "\\node_modules\\.bin\\tsx.cmd";
+        spawnCmd = 'cmd.exe /c "set HOST_APP=PPRO && start /B "' + tsxBin.replace(/\\/g, '\\\\') + '" "' + serverPath.replace(/\\/g, '\\\\') + '"';
       } else {
         // macOS: use nohup to run in background and redirect output
         // Determine server directory from serverPath
         var serverDir = serverPath;
-        if (serverDir.indexOf("/server/server.js") !== -1) {
-          serverDir = serverDir.replace("/server/server.js", "/server");
-        } else if (serverDir.indexOf("/dist/server/server.js") !== -1) {
-          serverDir = serverDir.replace("/dist/server/server.js", "/dist/server");
+        if (serverDir.indexOf("/server/server.ts") !== -1) {
+          serverDir = serverDir.replace("/server/server.ts", "/server");
+        } else if (serverDir.indexOf("/dist/server/server.ts") !== -1) {
+          serverDir = serverDir.replace("/dist/server/server.ts", "/dist/server");
         } else {
           // Fallback: just use extPath + "/server"
           serverDir = extPath + "/server";
         }
+        // Use tsx to run TypeScript directly - tsx is in dependencies
+        var tsxBin = serverDir + (isWindows ? "\\node_modules\\.bin\\tsx.cmd" : "/node_modules/.bin/tsx");
+        var serverFile = serverDir + (isWindows ? "\\server.ts" : "/server.ts");
         // Redirect stderr to log file instead of /dev/null
         var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
-        // Pass HOST_APP environment variable for macOS
-        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && HOST_APP=PPRO nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" server.js >/dev/null" + redirectErr + " &'";
+        // Pass HOST_APP environment variable for macOS, use tsx to run TypeScript
+        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && HOST_APP=PPRO nohup \"" + tsxBin.replace(/"/g, '\\"') + "\" server.ts >/dev/null" + redirectErr + " &'";
       }
       
       try {
@@ -1298,7 +1317,23 @@ export function PPRO_ensureDir(dirPath) {
   try {
     var folder = new Folder(dirPath);
     if (!folder.exists) {
-      folder.create();
+      // Create parent directories recursively
+      // Use recursive approach: ensure parent exists, then create this directory
+      function ensureDirRecursive(path) {
+        var f = new Folder(path);
+        if (f.exists) return true;
+        var parent = f.parent;
+        if (parent && !parent.exists) {
+          ensureDirRecursive(parent.fsName);
+        }
+        try {
+          f.create();
+          return f.exists;
+        } catch(e) {
+          return false;
+        }
+      }
+      ensureDirRecursive(dirPath);
     }
     return _respond({ ok: folder.exists });
   } catch(e) {
@@ -1345,15 +1380,44 @@ export function PPRO_saveThumbnail(payload) {
     var path = data.path;
     var dataUrl = data.dataUrl;
     
+    // Ensure directory exists before writing
+    var file = new File(path);
+    var parentFolder = file.parent;
+    if (parentFolder && !parentFolder.exists) {
+      // Use recursive directory creation
+      function ensureDirRecursive(dirPath) {
+        var f = new Folder(dirPath);
+        if (f.exists) return true;
+        var p = f.parent;
+        if (p && !p.exists) {
+          ensureDirRecursive(p.fsName);
+        }
+        try {
+          f.create();
+          return f.exists;
+        } catch(e) {
+          return false;
+        }
+      }
+      ensureDirRecursive(parentFolder.fsName);
+    }
+    
     // Extract base64 data from data URL
     var base64Data = dataUrl.split(',')[1];
+    if (!base64Data) {
+      return _respond({ ok: false, error: 'Invalid data URL format' });
+    }
     
     // Decode base64 and write to file
-    var file = new File(path);
     file.encoding = 'BINARY';
     file.open('w');
     file.write(base64Decode(base64Data));
     file.close();
+    
+    // Verify file was created
+    if (!file.exists) {
+      return _respond({ ok: false, error: 'File was not created' });
+    }
     
     return _respond({ ok: true, path: path });
   } catch(e) {

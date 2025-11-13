@@ -5,7 +5,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 24px;
+  gap: var(--spacing-xl);
   padding: 16px 24px;
   margin: 0;
   width: 100%;
@@ -25,8 +25,8 @@
 .sources-container.has-both {
   flex: 1;
   overflow: hidden;
-  padding: 16px 24px 16px 24px;
-  gap: 24px;
+  padding: 16px 24px 0 24px; /* No bottom padding - buttons handle spacing */
+  gap: 0; /* No gap - video fills space, buttons stick to bottom */
   align-items: stretch;
   display: flex;
   flex-direction: column;
@@ -35,12 +35,12 @@
 
 .upload-box {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 0;
   position: relative;
   display: flex;
   flex-direction: column;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   min-width: 0;
 }
 
@@ -48,7 +48,7 @@
   border: none;
   padding: 0;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .video-upload {
@@ -57,7 +57,7 @@
   min-height: 277px;
   height: 277px;
   border: 1px dashed #3b3b40;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   max-height: none;
   position: relative;
   display: flex;
@@ -76,7 +76,7 @@
   min-height: 0;
   height: auto;
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--bg-black);
   display: flex;
   flex-direction: column;
@@ -147,7 +147,7 @@
 /* Post-lipsync actions should stick to bottom with audio preview */
 .sources-container.has-both .post-lipsync-actions {
   margin-top: 16px; /* 16px above actions */
-  margin-bottom: 24px; /* 24px below actions (before bottom bar) */
+  margin-bottom: 20px; /* 20px below actions (before bottom bar) */
   position: sticky;
   bottom: 0;
   z-index: 10;
@@ -160,7 +160,7 @@
   height: 159px;
   min-height: 159px;
   border: 1px dashed #3b3b40;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
   position: relative;
   max-height: none;
@@ -241,7 +241,7 @@
   right: 0;
   bottom: 0;
   background: var(--color-primary-bg-light);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   pointer-events: none;
   z-index: 1;
 }
@@ -256,7 +256,7 @@
   width: 100%;
   height: 100%;
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
   align-items: center;
   justify-content: center;
   padding: 16px;
@@ -277,7 +277,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: 16px 58px;
 }
 
@@ -286,7 +286,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   flex-shrink: 0;
   overflow: visible;
   box-sizing: border-box;
@@ -297,7 +297,7 @@
 
 /* Ensure audio section has matching spacing */
 .audio-upload .upload-visual {
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .icon-group,
@@ -458,7 +458,7 @@
 .upload-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
   width: 240px;
   min-width: 240px;
   max-width: 240px;
@@ -477,13 +477,13 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
   margin-right: -1px;
 }
 
 .action-row {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
   min-width: 0;
   flex-wrap: wrap;
   width: 100%;
@@ -494,7 +494,7 @@
 
 .url-input-container {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
   align-items: center;
   margin-top: 8px;
   width: 100%;
@@ -507,9 +507,9 @@
   align-items: center;
   background: var(--bg-black);
   border: 1px solid var(--border-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   height: 32px;
-  padding: 8px 12px;
+  padding: var(--spacing-sm) var(--spacing-md);
 }
 
 .url-input-field {
@@ -561,8 +561,8 @@
   right: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-secondary);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
   z-index: 1000;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
@@ -570,13 +570,13 @@
 .custom-dropdown-option {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
   border-radius: 4px;
   color: var(--text-tertiary);
   font-size: 14px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--transition-base);
 }
 
 .custom-dropdown-option:hover {
@@ -591,7 +591,7 @@
 /* ===== POST-LIPSYNC ACTIONS ===== */
 .post-lipsync-actions {
   display: flex;
-  gap: 24px;
+  gap: var(--spacing-xl);
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -603,7 +603,7 @@
 /* Buttons section spacing - fixed height, never shrink */
 .sources-container.has-both .post-lipsync-actions {
   margin-top: 16px; /* 16px above actions */
-  margin-bottom: 24px; /* 24px below actions (before bottom bar) */
+  margin-bottom: 20px; /* 20px below actions (before bottom bar) */
   padding: 0;
   flex: 0 0 auto;
   background: transparent;
@@ -614,14 +614,14 @@
 
 .post-lipsync-actions-left {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   align-items: center;
   flex-shrink: 0;
 }
 
 .post-lipsync-actions-right {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   align-items: center;
   justify-content: flex-end;
   flex-shrink: 0;
@@ -630,16 +630,16 @@
 .post-action-btn {
   background: var(--bg-button);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   height: 32px;
   min-height: 32px;
-  padding: 8px 12px;
+  padding: var(--spacing-sm) var(--spacing-md);
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 500;
@@ -657,14 +657,14 @@
 }
 
 .post-action-btn i {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   flex-shrink: 0;
 }
 
 .post-action-btn i svg {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   stroke-width: 2;
 }
 
@@ -684,17 +684,17 @@
 .post-action-btn-icon {
   background: var(--bg-button);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   width: 32px;
   height: 32px;
   min-width: 32px;
   min-height: 32px;
-  padding: 8px;
+  padding: var(--spacing-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 .post-action-btn-icon:hover {
@@ -706,14 +706,14 @@
 }
 
 .post-action-btn-icon i {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
   color: var(--text-primary);
 }
 
 .post-action-btn-icon i svg {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
   stroke-width: 2;
 }
 
@@ -768,7 +768,7 @@
   z-index: 10;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0.2s ease;
+  transition: opacity var(--transition-base), visibility var(--transition-base);
 }
 
 .container-url-input.show {
@@ -784,11 +784,11 @@
   border: none;
   color: var(--text-primary);
   cursor: pointer;
-  padding: 8px;
+  padding: var(--spacing-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--transition-base);
   width: 32px;
   height: 32px;
   z-index: 11;
@@ -807,7 +807,7 @@
 .container-url-input-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   width: 100%;
   max-width: 488px;
 }
@@ -815,12 +815,12 @@
 .container-url-input-wrapper {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   background: var(--bg-button);
   border: 1px solid var(--border-secondary);
-  border-radius: 8px;
-  padding: 8px 12px;
-  transition: border-color 0.2s ease;
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: border-color var(--transition-base);
   flex: 1;
   min-width: 0;
   height: 40px;
@@ -876,14 +876,14 @@
 .container-url-submit {
   background: var(--bg-button);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   cursor: pointer;
-  padding: 8px;
+  padding: var(--spacing-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--transition-base);
   min-width: 40px;
   width: 40px;
   height: 40px;
@@ -891,8 +891,8 @@
 }
 
 .container-url-submit i {
-  width: 20px;
-  height: 20px;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
 }
 
 .container-url-submit:hover {

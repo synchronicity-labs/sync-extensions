@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
+import { debugLog, debugError } from "../utils/debugLog";
 
 interface UseDragAndDropOptions {
   onVideoSelected: (path: string) => void;
@@ -229,10 +230,10 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         (window as any).showToast("validating video…", "info");
       }
       const ext = raw.split(".").pop()?.toLowerCase() || "";
-      const ok = { mov: 1, mp4: 1, mxf: 1, mkv: 1, avi: 1, m4v: 1, mpg: 1, mpeg: 1 }[ext] === 1;
+      const ok = { mov: 1, mp4: 1 }[ext] === 1;
       if (!ok) {
         if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("please drop a video file", "error");
+          (window as any).showToast("only mp4 and mov supported", "error");
         }
         return;
       }
@@ -247,7 +248,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       // Set video selection
       (window as any).selectedVideoIsTemp = false;
       (window as any).selectedVideo = raw;
-      console.log("[Video Selection] Drag & drop selected:", (window as any).selectedVideo);
+      debugLog("[Video Selection] Drag & drop selected", { video: (window as any).selectedVideo });
 
       // Notify parent component
       onVideoSelected(raw);
@@ -310,10 +311,10 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         (window as any).showToast("validating audio…", "info");
       }
       const ext = raw.split(".").pop()?.toLowerCase() || "";
-      const ok = { wav: 1, mp3: 1, aac: 1, aif: 1, aiff: 1, m4a: 1 }[ext] === 1;
+      const ok = { wav: 1, mp3: 1 }[ext] === 1;
       if (!ok) {
         if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("please drop an audio file", "error");
+          (window as any).showToast("only mp3 and wav supported", "error");
         }
         return;
       }
@@ -475,8 +476,8 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
                   if (result.ok && result.path) {
                     // Validate the path matches the kind
                     const ext = result.path.split(".").pop()?.toLowerCase() || "";
-                    const videoExtOk = { mov: 1, mp4: 1, mxf: 1, mkv: 1, avi: 1, m4v: 1, mpg: 1, mpeg: 1 }[ext] === 1;
-                    const audioExtOk = { wav: 1, mp3: 1, aac: 1, aif: 1, aiff: 1, m4a: 1 }[ext] === 1;
+                    const videoExtOk = { mov: 1, mp4: 1 }[ext] === 1;
+                    const audioExtOk = { wav: 1, mp3: 1 }[ext] === 1;
                     
                     if ((kind === "video" && videoExtOk) || (kind === "audio" && audioExtOk)) {
                       if (kind === "video") {
@@ -549,7 +550,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         await handleDroppedAudio(picked);
       }
     } catch (err) {
-      console.error("[DnD] Error in handleDropEvent:", err);
+      debugError("[DnD] Error in handleDropEvent", err);
     }
   }, [extractFilePathsFromDrop, checkForFileReferences, pickFirstMatchingByKind, handleDroppedVideo, handleDroppedAudio, onVideoSelected, onAudioSelected]);
 
@@ -622,7 +623,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         // Delegate to the main drop handler
         await handleDropEvent(e, kind);
       } catch (err) {
-        console.error("[DnD] Error in drop handler:", err);
+        debugError("[DnD] Error in drop handler", err);
       }
     };
 

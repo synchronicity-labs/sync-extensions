@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
+import { debugLog, debugError } from "../utils/debugLog";
 
 interface Job {
   id: string;
@@ -23,7 +24,7 @@ export const useHistory = () => {
     try {
       window.jobs = jobs;
     } catch (error) {
-      console.error("[useHistory] Error setting global jobs:", error);
+      debugError("[useHistory] Error setting global jobs", error);
     }
   }, [jobs]);
 
@@ -143,7 +144,7 @@ export const useHistory = () => {
             // Debug: log first completed job structure
             if (job.status === 'completed' && !job._logged) {
               job._logged = true;
-              console.log('[useHistory] Sample completed job structure:', {
+              debugLog('[useHistory] Sample completed job structure', {
                 id: job.id,
                 status: job.status,
                 hasOutputPath: !!job.outputPath,
@@ -209,7 +210,7 @@ export const useHistory = () => {
         setServerError(`Server returned error ${response.status}`);
       }
     } catch (error: any) {
-      console.error("[History] Failed to load jobs:", error);
+      debugError("[History] Failed to load jobs", error);
       
       // Log catch error
       try {
@@ -237,11 +238,10 @@ export const useHistory = () => {
         error?.name === "TypeError" ||
         error?.message?.includes("fetch");
       
-      if (isNetworkError) {
-        setServerError("cannot connect to server. the server may not be running.");
-      } else {
+      if (!isNetworkError) {
         setServerError(`failed to load history: ${errorMessage.substring(0, 100).toLowerCase()}`);
       }
+      // Network errors are handled by offline state, don't set serverError
       
       // Set empty array on error to prevent crashes
       setJobs([]);
@@ -261,7 +261,7 @@ export const useHistory = () => {
         return Math.min(next, jobs.length);
       });
     } catch (error) {
-      console.error("[useHistory] Error in loadMore:", error);
+      debugError("[useHistory] Error in loadMore", error);
     }
   }, [jobs.length, pageSize]);
 
@@ -275,7 +275,7 @@ export const useHistory = () => {
     };
     window.loadJobsFromServer = loadJobsFromServer;
     } catch (error) {
-      console.error("[useHistory] Error setting global functions:", error);
+      debugError("[useHistory] Error setting global functions", error);
     }
   }, [loadJobsFromServer]);
 

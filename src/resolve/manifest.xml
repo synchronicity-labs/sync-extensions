@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.sync.extension.resolve</Id>
+        <Name>sync.</Name>
+        <Version>0.1.0</Version>
+        <Description>sync. Resolve integration</Description>
+        <FilePath>backend.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>
+

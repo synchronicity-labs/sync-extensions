@@ -1,0 +1,30 @@
+{
+  "WorkflowIntegrationType": "Panel",
+  "Id": "com.sync.extension.resolve",
+  "Name": "sync.",
+  "Version": "0.1.0",
+  "Description": "sync. Resolve integration",
+  "Author": "sync.",
+  "InfoUrl": "https://sync.so",
+  "IconPath": "static/icons/white_icon.png",
+  "MainScript": "backend.js",
+  "Process": {
+    "Executable": "./node_modules/.bin/electron",
+    "Arguments": [
+      "backend.js"
+    ]
+  },
+  "Panels": [
+    {
+      "Id": "sync.resolve.panel",
+      "Name": "sync.",
+      "IconPath": "static/icons/white_icon.png",
+      "TargetPages": [
+        "edit",
+        "cut",
+        "fairlight"
+      ]
+    }
+  ]
+}
+
