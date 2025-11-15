@@ -1,3 +1,7 @@
+// Load CSInterface shim FIRST - must be available before any code tries to use it
+// This ensures CSInterface is available even if Adobe CEP runtime hasn't fully initialized
+import "../lib/CSInterface";
+
 // Host detection - runs synchronously before React loads
 // This ensures HOST_CONFIG is available immediately for all code
 // Uses centralized host detection from shared/utils/clientHostDetection.ts
@@ -118,9 +122,7 @@ const mountReactApp = () => {
       try {
         const root = ReactDOM.createRoot(rootElement);
         root.render(
-          <React.StrictMode>
-            <App />
-          </React.StrictMode>
+          <App />
         );
         debugLog("[main] React app mounted successfully");
       } catch (error) {

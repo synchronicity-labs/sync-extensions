@@ -6,7 +6,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: var(--spacing-xl);
-  padding: 16px 24px;
+  padding: var(--spacing-lg) var(--spacing-xl);
   margin: 0;
   width: 100%;
   overflow-y: auto;
@@ -17,7 +17,7 @@
 
 /* When video is loaded, keep horizontal padding */
 .sources-container.has-video {
-  padding: 16px 24px;
+  padding: var(--spacing-lg) var(--spacing-xl);
   align-items: stretch;
 }
 
@@ -25,7 +25,7 @@
 .sources-container.has-both {
   flex: 1;
   overflow: hidden;
-  padding: 16px 24px 0 24px; /* No bottom padding - buttons handle spacing */
+  padding: var(--spacing-lg) var(--spacing-xl) 0 var(--spacing-xl); /* No bottom padding - buttons handle spacing */
   gap: 0; /* No gap - video fills space, buttons stick to bottom */
   align-items: stretch;
   display: flex;
@@ -51,12 +51,11 @@
   border-radius: var(--radius-lg);
 }
 
-.video-upload {
-  background: var(--bg-black);
+/* Base styles shared by both video and audio upload sections */
+.video-upload,
+.audio-upload {
   flex: 1;
-  min-height: 277px;
-  height: 277px;
-  border: 1px dashed #3b3b40;
+  border: 1px dashed var(--border-tertiary);
   border-radius: var(--radius-lg);
   max-height: none;
   position: relative;
@@ -64,6 +63,19 @@
   flex-direction: column;
 }
 
+/* Video: 2 rows of buttons = 277px */
+.video-upload {
+  background: var(--bg-black);
+  min-height: 277px;
+  height: 277px;
+}
+
+/* Audio: 3 rows of buttons = video height + 1 button row + 1 gap = 325px */
+.audio-upload {
+  background: var(--bg-secondary);
+  min-height: 325px;
+  height: 325px;
+}
 
 .video-upload.has-media,
 .audio-upload.has-media {
@@ -155,23 +167,8 @@
   padding: 0;
 }
 
-.audio-upload {
-  background: var(--bg-secondary);
-  height: 159px;
-  min-height: 159px;
-  border: 1px dashed #3b3b40;
-  border-radius: var(--radius-lg);
-  flex-shrink: 0;
-  position: relative;
-  max-height: none;
-  width: 100%;
-  min-width: 0;
-  overflow: visible;
-  box-sizing: border-box;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
+/* Audio upload now shares base styles with video-upload above */
+/* Only specific overrides needed here */
 
 
 
@@ -220,7 +217,7 @@
 
 /* Ensure audio dropzone doesn't clip content */
 #audioDropzone {
-  min-height: 120px;
+  min-height: calc(var(--spacing-xl) * 5); /* 120px */
   align-items: center;
 }
 
@@ -256,18 +253,35 @@
   width: 100%;
   height: 100%;
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xl);
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: var(--spacing-lg);
   min-width: 0;
   flex-wrap: nowrap;
   overflow: visible;
   box-sizing: border-box;
-  max-width: 488px;
+  max-width: 100%;
   position: relative;
   z-index: 1;
   margin: 0 auto;
+}
+
+/* Ensure both flex children maintain balanced sizing and centering */
+.upload-content > * {
+  flex-shrink: 1;
+}
+
+/* Compressed panel view - matches history breakpoint */
+@media (max-width: 520px) {
+  .upload-content {
+    padding: var(--spacing-md);
+    gap: var(--spacing-md);
+  }
+  
+  .action-row {
+    gap: var(--spacing-sm);
+  }
 }
 
 
@@ -278,7 +292,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  padding: 16px 58px;
+  padding: var(--spacing-lg) 58px;
 }
 
 .upload-visual {
@@ -286,25 +300,27 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
-  flex-shrink: 0;
+  gap: var(--spacing-md);
+  flex: 0 1 var(--upload-visual-width);
   overflow: visible;
   box-sizing: border-box;
   padding: 0;
   position: relative;
-  width: 240px;
+  min-width: 0;
+  max-width: 100%;
+  align-self: center;
 }
 
 /* Ensure audio section has matching spacing */
 .audio-upload .upload-visual {
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
 }
 
 .icon-group,
 .icon-group-audio {
   position: relative;
-  width: 240px;
-  height: 64px;
+  width: var(--icon-group-width);
+  height: var(--icon-group-height);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -319,7 +335,7 @@
 }
 
 .icon-group-audio {
-  height: 64px;
+  height: var(--icon-group-height);
 }
 
 .icon-group-audio .icon-float {
@@ -370,20 +386,20 @@
 
 .icon-bg {
   position: absolute;
-  width: 48px;
-  height: 48px;
+  width: var(--icon-bg-size);
+  height: var(--icon-bg-size);
   left: 94px;
-  top: 8px;
+  top: var(--spacing-sm);
   background: var(--bg-black);
   z-index: 1;
 }
 
 .icon-bg-audio {
   position: absolute;
-  width: 48px;
-  height: 48px;
+  width: var(--icon-bg-size);
+  height: var(--icon-bg-size);
   left: 94px;
-  top: 8px;
+  top: var(--spacing-sm);
   background: var(--bg-secondary);
   z-index: 1;
 }
@@ -391,9 +407,9 @@
 .icon-main-wrapper {
   position: absolute;
   left: 94px;
-  top: 8px;
-  width: 48px;
-  height: 48px;
+  top: var(--spacing-sm);
+  width: var(--icon-bg-size);
+  height: var(--icon-bg-size);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -401,7 +417,7 @@
 }
 
 .icon-main-wrapper-audio {
-  top: 8px;
+  top: var(--spacing-sm);
 }
 
 .icon-main {
@@ -443,14 +459,14 @@
 }
 
 .upload-text {
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 15px;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
   color: var(--text-tertiary);
   text-transform: lowercase;
   text-align: center;
   margin: 0;
-  width: 240px;
+  width: var(--upload-visual-width);
   max-width: 100%;
   white-space: nowrap;
 }
@@ -458,22 +474,24 @@
 .upload-actions {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
-  flex-shrink: 0;
+  gap: var(--spacing-md);
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 var(--container-width-md);
   box-sizing: border-box;
   justify-content: center;
+  align-items: stretch;
   padding: 0;
   margin: 0;
   position: relative;
   z-index: 100;
   pointer-events: auto;
+  align-self: center;
+  overflow: visible;
 }
       
 .upload-actions-compact {
-  width: 316px;
+  width: var(--container-width-md);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -488,8 +506,10 @@
   flex-wrap: wrap;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
   box-sizing: border-box;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .url-input-container {
@@ -508,7 +528,7 @@
   background: var(--bg-black);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
-  height: 32px;
+  height: var(--button-height-sm);
   padding: var(--spacing-sm) var(--spacing-md);
 }
 
@@ -517,11 +537,11 @@
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
   outline: none;
-  font-weight: 500;
-  line-height: 15px;
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
 }
 
 .url-input-field::placeholder {
@@ -529,8 +549,8 @@
 }
 
 .url-clear-btn {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   background: transparent;
   border: none;
   color: var(--text-tertiary);
@@ -538,7 +558,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-left: 8px;
+  margin-left: var(--spacing-sm);
   transition: color 0.2s ease;
 }
 
@@ -547,8 +567,8 @@
 }
 
 .url-clear-btn i {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 /* Button styles moved to components/buttons.css */
@@ -572,9 +592,9 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-tertiary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition: background-color var(--transition-base);
 }
@@ -584,8 +604,8 @@
 }
 
 .custom-dropdown-option i {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 /* ===== POST-LIPSYNC ACTIONS ===== */
@@ -627,68 +647,78 @@
   flex-shrink: 0;
 }
 
+/* Post-action buttons - EXACT copy of action-btn styles */
 .post-action-btn {
-  background: var(--bg-button);
-  border: none;
-  border-radius: var(--radius-md);
-  height: 32px;
-  min-height: 32px;
-  padding: var(--spacing-sm) var(--spacing-md);
   display: flex;
-  gap: var(--spacing-sm);
   align-items: center;
   justify-content: center;
+  gap: var(--spacing-sm);
+  height: var(--button-height-sm);
+  min-height: var(--button-height-sm);
+  max-height: var(--button-height-sm);
+  background: var(--bg-button);
+  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  text-transform: lowercase;
   cursor: pointer;
   transition: all var(--transition-base);
-  font-family: var(--font-family);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 15px;
-  color: var(--text-secondary);
-  text-transform: lowercase;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .post-action-btn:hover {
   background: var(--bg-button-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .post-action-btn:active {
-  transform: scale(0.98);
+  transform: translateY(0);
+  box-shadow: none;
 }
 
+.post-action-btn span {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Explicit icon sizing - matches base button rules exactly */
 .post-action-btn i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: var(--icon-sm);
   height: var(--icon-sm);
   flex-shrink: 0;
 }
 
 .post-action-btn i svg {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-  stroke-width: 2;
-}
-
-.post-action-btn i svg path,
-.post-action-btn i svg circle,
-.post-action-btn i svg rect,
-.post-action-btn i svg line,
-.post-action-btn i svg polyline,
-.post-action-btn i svg polygon {
-  stroke-width: 2;
-}
-
-.post-action-btn span {
+  width: var(--icon-sm) !important;
+  height: var(--icon-sm) !important;
   flex-shrink: 0;
+  stroke-width: 2;
+  display: block;
+  max-width: var(--icon-sm) !important;
+  max-height: var(--icon-sm) !important;
 }
 
 .post-action-btn-icon {
   background: var(--bg-button);
   border: none;
   border-radius: var(--radius-md);
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
+  min-width: var(--button-height-sm);
+  min-height: var(--button-height-sm);
   padding: var(--spacing-sm);
   display: flex;
   align-items: center;
@@ -699,30 +729,28 @@
 
 .post-action-btn-icon:hover {
   background: var(--bg-button-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .post-action-btn-icon:active {
-  transform: scale(0.98);
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 .post-action-btn-icon i {
-  width: var(--icon-md);
-  height: var(--icon-md);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   color: var(--text-primary);
 }
 
 .post-action-btn-icon i svg {
-  width: var(--icon-md);
-  height: var(--icon-md);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   stroke-width: 2;
 }
 
-.post-action-btn-icon i svg path,
-.post-action-btn-icon i svg circle,
-.post-action-btn-icon i svg rect,
-.post-action-btn-icon i svg line,
-.post-action-btn-icon i svg polyline,
-.post-action-btn-icon i svg polygon {
+.post-action-btn-icon i svg * {
   stroke-width: 2;
 }
 
@@ -734,9 +762,9 @@
 
 .post-action-btn-id-text {
   font-family: var(--font-family-mono);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 24px;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
   color: var(--text-primary);
   text-transform: lowercase;
 }
@@ -749,9 +777,9 @@
 }
 
 .audio-upload.url-input-active {
-  height: 159px !important;
-  min-height: 159px !important;
-  flex: 0 0 159px !important;
+  height: 325px !important;
+  min-height: 325px !important;
+  flex: 0 0 325px !important;
 }
 
 /* Container URL Input Mode */
@@ -764,7 +792,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: var(--spacing-lg);
   z-index: 10;
   opacity: 0;
   visibility: hidden;
@@ -778,8 +806,8 @@
 
 .url-input-close-btn {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: var(--spacing-lg);
+  right: var(--spacing-lg);
   background: transparent;
   border: none;
   color: var(--text-primary);
@@ -789,58 +817,65 @@
   align-items: center;
   justify-content: center;
   transition: background-color var(--transition-base);
-  width: 32px;
-  height: 32px;
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
   z-index: 11;
-}
-
-.url-input-close-btn i {
-  width: 16px;
-  height: 16px;
+  border-radius: var(--radius-md);
 }
 
 .url-input-close-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
+  background: var(--overlay-white-10);
 }
+
+.url-input-close-btn:active {
+  transform: scale(0.95);
+}
+
+.url-input-close-btn i {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
 
 .container-url-input-group {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
-  max-width: 488px;
+  max-width: var(--container-width-lg);
 }
 
 .container-url-input-wrapper {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   background: var(--bg-button);
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-lg);
   padding: var(--spacing-sm) var(--spacing-md);
-  transition: border-color var(--transition-base);
+  transition: all var(--transition-base);
   flex: 1;
   min-width: 0;
-  height: 40px;
+  height: var(--button-height-md);
   box-sizing: border-box;
 }
 
 .container-url-input-wrapper:focus-within {
-  border-color: var(--border-secondary);
+  border-color: var(--border-tertiary);
+  box-shadow: 0 0 0 1px var(--border-tertiary);
 }
+
 
 .container-url-input-field {
   flex: 1;
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   outline: none;
-  font-family: inherit;
-  font-weight: 500;
-  line-height: 15px;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
   min-width: 0;
   padding: 0;
 }
@@ -854,19 +889,19 @@
   border: none;
   color: var(--text-tertiary);
   cursor: pointer;
-  padding: 4px;
+  padding: var(--spacing-xs);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: color 0.2s ease;
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   flex-shrink: 0;
 }
 
 .container-url-clear i {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 .container-url-clear:hover {
@@ -883,10 +918,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color var(--transition-base);
-  min-width: 40px;
-  width: 40px;
-  height: 40px;
+  transition: all var(--transition-base);
+  min-width: var(--button-height-md);
+  width: var(--button-height-md);
+  height: var(--button-height-md);
   flex-shrink: 0;
 }
 
@@ -897,11 +932,21 @@
 
 .container-url-submit:hover {
   background: var(--bg-button-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.container-url-submit:active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 .container-url-submit:disabled {
   background: var(--border-tertiary);
   cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Hide upload visual and actions when URL input is active */

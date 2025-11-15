@@ -289,6 +289,7 @@ app.use((req, res, next) => {
     '/upload',
     '/debug',
     '/costs',
+    '/cost/estimate',
     '/dubbing',
     '/tts/generate',
     '/tts/voices',

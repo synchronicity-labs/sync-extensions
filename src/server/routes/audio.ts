@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import fetch from 'node-fetch';
-import { tlog } from '../utils/log';
+import { tlog, sanitizeForLogging } from '../utils/log';
 import { convertAudio } from '../services/audio';
 import { extractAudioFromVideo } from '../services/video';
 import { DIRS } from '../serverConfig';
@@ -46,7 +46,7 @@ router.post('/audio/convert', async (req, res) => {
 router.post('/extract-audio', async (req, res) => {
   try {
     const { videoPath, videoUrl, format } = req.body || {};
-    tlog('POST /extract-audio', 'format=' + format, 'videoPath=' + videoPath, 'videoUrl=' + videoUrl, 'body=' + JSON.stringify(req.body));
+    tlog('POST /extract-audio', 'format=' + format, 'videoPath=' + videoPath, 'videoUrl=' + videoUrl, 'body=' + JSON.stringify(sanitizeForLogging(req.body)));
 
     if (!videoPath && !videoUrl) {
       return res.status(400).json({ error: 'Video path or URL required' });

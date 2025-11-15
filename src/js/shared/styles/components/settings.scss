@@ -185,8 +185,8 @@
 }
 
 .api-key-btn i {
-  width: var(--icon-md);
-  height: var(--icon-md);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 /* api-key-btn styles moved to components/buttons.css */
@@ -418,185 +418,6 @@
   }
 }
 
-/* Responsive - Mobile (all small screens) */
-@media (max-width: 520px) {
-  .app-header {
-    padding: 0 10px;
-    height: 48px;
-    gap: var(--spacing-sm);
-  }
-  
-  .logo {
-    width: 24px;
-    height: 24px;
-  }
-  
-  .logo img {
-    width: 14px;
-    height: 18px;
-  }
-  
-  .tab-switcher {
-    padding: 2px;
-    gap: 2px;
-  }
-  
-  .tab-switch {
-    min-width: 60px;
-    padding: 5px;
-    font-size: 11px;
-    gap: 4px;
-  }
-  
-  .tab-switch i {
-    width: 12px;
-    height: 12px;
-  }
-  
-  .profile-btn {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .avatar {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .sources-container {
-    padding: 10px;
-    gap: 10px;
-  }
-  
-  .upload-box {
-    padding: 10px;
-    height: auto !important;
-    min-height: auto !important;
-  }
-  
-  .video-upload {
-    height: auto;
-    min-height: 220px;
-  }
-  
-  .audio-upload {
-    height: auto;
-    min-height: 100px;
-  }
-  
-  .upload-content {
-    flex-direction: column;
-    padding: 12px 8px;
-    gap: 12px;
-  }
-  
-  .upload-visual {
-    max-width: 100%;
-    order: 1;
-    flex: none;
-    width: 100%;
-  }
-  
-  .upload-actions {
-    width: 100%;
-    max-width: 100%;
-    order: 2;
-    flex: none;
-  }
-  
-  .upload-content {
-    flex-wrap: nowrap;
-  }
-  
-  .icon-group,
-  .icon-group-audio {
-    width: 180px;
-    height: 56px;
-  }
-  
-  .icon-group-audio {
-    height: 94px;
-  }
-  
-  /* Icons should remain visible in responsive mode */
-  /* .icon-group .icon-float {
-    display: none;
-  }
-  
-  .icon-bg {
-    display: none;
-  }
-  
-  .icon-bg-audio {
-    display: none;
-  } */
-  
-  .action-row {
-    gap: 6px;
-  }
-  
-  .action-btn {
-    flex: 1;
-    min-width: 0;
-    height: 32px;
-    font-size: 12px;
-    padding: 8px 6px;
-    gap: 4px;
-  }
-  
-  .action-btn i {
-    width: 14px;
-    height: 14px;
-  }
-  
-  .action-btn span {
-    font-size: 12px;
-  }
-  
-  .upload-text {
-    font-size: 12px;
-  }
-  
-  .settings-container {
-    padding: 12px;
-  }
-  
-  .settings-section {
-    width: 100%;
-  }
-  
-  .api-keys-wrapper {
-    width: 100%;
-  }
-  
-  .api-key-row {
-    width: 100%;
-  }
-  
-  .api-key-input {
-    width: 100%;
-    padding-right: 100px;
-    font-size: 13px;
-  }
-  
-  .save-files-grid {
-    flex-direction: column;
-  }
-  
-  .save-option {
-    width: 100%;
-    padding: 16px 10px;
-  }
-  
-  .render-grid {
-    flex-direction: column;
-  }
-  
-  .render-option {
-    width: 100%;
-    padding: 16px 10px;
-  }
-}
 
 /* Render Formats */
 .format-grid {
@@ -758,7 +579,7 @@
 }
 
 .url-input-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--overlay-white-10);
 }
 
 .url-input-field-wrapper {
@@ -1185,63 +1006,6 @@
   height: var(--icon-sm);
   color: var(--text-secondary);
   pointer-events: none;
-}
-
-.custom-dropdown-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--bg-button);
-  border-radius: var(--radius-md);
-  padding: 10px 1px 16px 1px;
-  display: none;
-  flex-direction: column;
-  gap: 0;
-  z-index: 1000;
-  min-width: 140px;
-}
-
-.custom-dropdown-menu.show {
-  display: flex;
-}
-
-.custom-dropdown-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.custom-dropdown-option:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.custom-dropdown-option.active {
-  background: var(--color-primary);
-  border-radius: 4px;
-}
-
-.model-setting-dropdown {
-  margin-bottom: 8px;
-}
-
-.custom-dropdown-option i {
-  width: 19px;
-  height: 19px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.custom-dropdown-option span {
-  font-family: var(--font-family);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  line-height: 24px;
-  text-transform: lowercase;
 }
 
 /* Model Toggle Switch */

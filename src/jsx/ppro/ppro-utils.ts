@@ -78,15 +78,4 @@ export const forEachClip = (
   }
 };
 
-export const getProjectDir = () => {
-  if (app.project.documentID) {
-    try {
-      const projectPath = app.project.path;
-      return projectPath || "";
-    } catch (e) {
-      return "";
-    }
-  }
-  return "";
-};
 

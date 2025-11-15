@@ -84,8 +84,6 @@ export function detectHost(): HostConfig | null {
         }
       } catch {
         // CSInterface failed, try next method
-        // Don't log here - let caller handle logging
-        // console.error("[host-detection] CSInterface method failed:", e);
       }
     }
 
@@ -130,8 +128,6 @@ export function detectHost(): HostConfig | null {
         }
       } catch {
         // Method 2 failed, try next method
-        // Don't log here - let caller handle logging
-        // console.error("[host-detection] __adobe_cep__ method failed:", e);
       }
     }
 

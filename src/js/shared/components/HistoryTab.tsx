@@ -248,20 +248,29 @@ const HistoryTabContent: React.FC = () => {
             jobIds: renderedJobs.slice(0, 5).map(j => j?.id).join(',')
           });
           
-          // First, try to load any cached thumbnails immediately
-          const cachedUrls: Record<string, string> = {};
-          for (const job of renderedJobs) {
-            if (job?.id && job.status === 'COMPLETED') {
+          // First, try to load any cached thumbnails immediately in parallel
+          const loadPromises = renderedJobs
+            .filter(job => job?.id && job.status === 'COMPLETED')
+            .map(async (job) => {
               try {
                 const cached = await (window as any).loadThumbnail?.(job.id);
-                if (cached) {
-                  cachedUrls[job.id] = cached;
-                }
+                return { jobId: job.id, thumbnail: cached };
               } catch (e) {
                 // Ignore errors loading individual thumbnails
+                return { jobId: job.id, thumbnail: null };
               }
+            });
+          
+          // Wait for all cached thumbnails to load in parallel
+          const loadResults = await Promise.all(loadPromises);
+          
+          // Collect successfully loaded thumbnails
+          const cachedUrls: Record<string, string> = {};
+          loadResults.forEach(result => {
+            if (result.thumbnail) {
+              cachedUrls[result.jobId] = result.thumbnail;
             }
-          }
+          });
           
           // Update state with cached thumbnails
           if (Object.keys(cachedUrls).length > 0) {
@@ -349,16 +358,80 @@ const HistoryTabContent: React.FC = () => {
   const prevDisplayedCountForIconsRef = useRef(displayedCount);
   useEffect(() => {
     if (activeTab === "history" && window.lucide && window.lucide.createIcons) {
+      // Aggressive icon normalization function
+      const normalizeIcons = () => {
+        document.querySelectorAll('.history-btn i').forEach((icon: any) => {
+          const svg = icon.querySelector('svg');
+          if (svg) {
+            // Force size attributes
+            svg.setAttribute('width', '16');
+            svg.setAttribute('height', '16');
+            svg.style.width = '16px';
+            svg.style.height = '16px';
+            svg.style.maxWidth = '16px';
+            svg.style.maxHeight = '16px';
+            svg.style.minWidth = '16px';
+            svg.style.minHeight = '16px';
+            svg.setAttribute('stroke-width', '2');
+            // Force size on all child elements
+            svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
+              el.setAttribute('stroke-width', '2');
+            });
+          }
+        });
+      };
+      
       // Only re-initialize if displayedCount actually changed (new items added)
       if (displayedCount !== prevDisplayedCountForIconsRef.current) {
         prevDisplayedCountForIconsRef.current = displayedCount;
         const timer = setTimeout(() => {
           window.lucide.createIcons();
-        }, 200); // Slight delay to ensure DOM is updated
+          normalizeIcons();
+          // Run again after a short delay to catch any late-rendered icons
+          setTimeout(normalizeIcons, 100);
+        }, 200);
+        return () => clearTimeout(timer);
+      } else {
+        // Still normalize existing icons even if count didn't change
+        normalizeIcons();
+        const timer = setTimeout(normalizeIcons, 100);
         return () => clearTimeout(timer);
       }
     }
   }, [activeTab, displayedCount]);
+
+  // Use MutationObserver to catch icons created dynamically
+  useEffect(() => {
+    if (activeTab === "history") {
+      const observer = new MutationObserver(() => {
+        document.querySelectorAll('.history-btn i svg').forEach((svg: any) => {
+          if (svg.getAttribute('width') !== '16' || svg.getAttribute('height') !== '16') {
+            svg.setAttribute('width', '16');
+            svg.setAttribute('height', '16');
+            svg.style.width = '16px';
+            svg.style.height = '16px';
+            svg.style.maxWidth = '16px';
+            svg.style.maxHeight = '16px';
+            svg.style.minWidth = '16px';
+            svg.style.minHeight = '16px';
+            svg.setAttribute('stroke-width', '2');
+            svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
+              el.setAttribute('stroke-width', '2');
+            });
+          }
+        });
+      });
+
+      const historyWrapper = document.querySelector('.history-wrapper');
+      if (historyWrapper) {
+        observer.observe(historyWrapper, {
+          childList: true,
+          subtree: true
+        });
+        return () => observer.disconnect();
+      }
+    }
+  }, [activeTab]);
 
   // Infinite scroll using IntersectionObserver - matching main branch
   const isLoadingMoreRef = useRef(false);
@@ -450,35 +523,30 @@ const HistoryTabContent: React.FC = () => {
       
       if (location === 'project') {
         try {
-          if (nle && typeof nle.getProjectDir === 'function') {
-            const r = await nle.getProjectDir();
-            if (r && r.ok && r.outputDir) targetDir = r.outputDir;
-          } else if (window.CSInterface) {
-            const cs = new window.CSInterface();
-            await new Promise((resolve) => {
-              cs.evalScript('PPRO_getProjectDir()', (resp: string) => {
-                try { 
-                  const r = JSON.parse(resp || '{}'); 
-                  if (r && r.ok && r.outputDir) targetDir = r.outputDir; 
-                } catch(_) {}
-                resolve(undefined);
-              });
-            });
+          const nleToUse = (window as any).nle || nle;
+          if (nleToUse && typeof nleToUse.getProjectDir === 'function') {
+            const r = await nleToUse.getProjectDir();
+            if (r && r.ok) {
+              targetDir = r.outputDir || r.projectDir;
+            } else if (r && r.error) {
+              debugError('[handleSaveJob] getProjectDir error:', r.error);
+            }
           }
-        } catch(_) {}
+        } catch(err) {
+          debugError('[handleSaveJob] Error getting project directory', err);
+        }
         
-        // If project selected but host didn't resolve, fallback to Documents in AE
-        try {
-          if (!targetDir && window.HOST_CONFIG && window.HOST_CONFIG.isAE) {
-            location = 'documents';
-          }
-        } catch(_) {}
+        if (!targetDir) {
+          if (window.showToast) window.showToast('could not resolve project folder; open/switch to a saved project and try again', 'error');
+          return;
+        }
       }
       
       const apiKey = settings.syncApiKey || '';
       let savedPath = '';
       
-      // Mark button as working
+      // Show toast and mark button as working
+      if (window.showToast) window.showToast('saving…', 'info');
       const saveBtn = document.getElementById(`save-${jobId}`);
       const originalText = saveBtn?.querySelector('span')?.textContent || 'save';
       if (saveBtn) {
@@ -507,13 +575,8 @@ const HistoryTabContent: React.FC = () => {
             if (span) span.textContent = originalText;
             (saveBtn as HTMLButtonElement).disabled = false;
           }
-          const errorMsg = data?.error || `Server returned error ${response.status}`;
-          debugError('[handleSaveJob] Save failed', { errorMsg, data });
-          if (window.showToast) window.showToast(`failed to save: ${errorMsg}`, 'error');
+          if (window.showToast) window.showToast('failed to save', 'error');
           return;
-        } else {
-          // Response OK but no outputPath - might still be processing
-          debugWarn('[handleSaveJob] Save response OK but no outputPath', { data });
         }
       } catch(_) {
         if (saveBtn) {
@@ -534,27 +597,6 @@ const HistoryTabContent: React.FC = () => {
         } catch(_) {}
       }
       
-      // Wait briefly for file to exist on disk if path looks local
-      try {
-        if (savedPath && savedPath.indexOf('://') === -1 && window.CSInterface) {
-          const cs = new window.CSInterface();
-          const safe = String(savedPath).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-          let tries = 0;
-          let exists = false;
-          while (tries < 20 && !exists) {
-            await new Promise(resolve => {
-              const es = `(function(){try{var f=new File("${safe}");return (f&&f.exists)?'1':'0';}catch(e){return '0';}})()`;
-              cs.evalScript(es, (r: string) => {
-                exists = String(r || '0') === '1';
-                resolve(undefined);
-              });
-            });
-            if (!exists) await new Promise(r => setTimeout(r, 250));
-            tries++;
-          }
-        }
-      } catch(_) {}
-      
       // Reset button
       if (saveBtn) {
         const span = saveBtn.querySelector('span');
@@ -563,77 +605,23 @@ const HistoryTabContent: React.FC = () => {
       }
       
       if (savedPath) {
-        const fp = savedPath.replace(/"/g, '\\"');
         try {
-          if (!window.CSInterface) {
-            if (window.showToast) window.showToast('saved to ' + location, 'success');
-            return;
-          }
-          
-          const cs = new window.CSInterface();
-          const isAE = window.HOST_CONFIG ? window.HOST_CONFIG.isAE : false;
-          const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
-          const isAEConfirmed = isAE && hostId !== 'PPRO';
-          
-          if (isAEConfirmed) {
-            try {
-              const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || 'EXTENSION').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-              const payload = JSON.stringify({ path: savedPath, binName: 'sync. outputs' }).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-              cs.evalScript(`$.evalFile("${extPath}/host/ae.jsx"); AEFT_importFileToBin("${payload}")`, (r: string) => {
-                try {
-                  let ok = false;
-                  let out: any = null;
-                  if (typeof r === 'string') {
-                    try {
-                      out = JSON.parse(r || '{}');
-                    } catch(parseErr) {
-                      if (r === '[object Object]' || r.indexOf('ok') !== -1) {
-                        out = { ok: true };
-      } else {
-                        out = { ok: false, error: r };
-                      }
-                    }
-                  } else if (typeof r === 'object' && r !== null) {
-                    out = r;
-                  } else {
-                    out = { ok: false, error: String(r) };
-                  }
-                  ok = !!(out && out.ok);
-                  
-                  if (ok) {
-                    if (window.showToast) window.showToast('saved to project', 'success');
-                  } else {
-                    if (window.showToast) window.showToast('save failed', 'error');
-                  }
-                } catch(_) {
-                  if (window.showToast) window.showToast('saved to ' + location, 'success');
-                }
-              });
-            } catch(e) {
+          const nleToUse = (window as any).nle || nle;
+          if (nleToUse && typeof nleToUse.importFileToBin === 'function') {
+            const result = await nleToUse.importFileToBin(savedPath, 'sync. outputs');
+            if (result && result.ok) {
+              if (window.showToast) window.showToast('saved to project', 'success');
+            } else {
               if (window.showToast) window.showToast('saved to ' + location, 'success');
             }
           } else {
-            // PPro - import to bin
-            try {
-              if (nle && typeof nle.importFileToBin === 'function') {
-                const result = await nle.importFileToBin(savedPath, 'sync. outputs');
-                if (result?.ok) {
-                  if (window.showToast) window.showToast('saved to project', 'success');
-                } else {
-                  if (window.showToast) window.showToast('saved to ' + location, 'success');
-                }
-              } else {
-                if (window.showToast) window.showToast('saved to ' + location, 'success');
-              }
-            } catch(_) {
-              if (window.showToast) window.showToast('saved to ' + location, 'success');
-            }
+            if (window.showToast) window.showToast('saved to ' + location, 'success');
           }
         } catch(_) {
           if (window.showToast) window.showToast('saved to ' + location, 'success');
         }
       } else {
-        if (window.showToast) window.showToast('failed to save', 'error');
+        if (window.showToast) window.showToast('not ready', 'error');
       }
     } catch (e) {
       if (window.showToast) window.showToast('failed to save', 'error');
@@ -653,35 +641,38 @@ const HistoryTabContent: React.FC = () => {
       
       if (location === 'project') {
         try {
-          if (nle && typeof nle.getProjectDir === 'function') {
-            const r = await nle.getProjectDir();
-            if (r && r.ok && r.outputDir) targetDir = r.outputDir;
-          } else if (window.CSInterface) {
-            const cs = new window.CSInterface();
-            await new Promise((resolve) => {
-              cs.evalScript('PPRO_getProjectDir()', (resp: string) => {
-                try { 
-                  const r = JSON.parse(resp || '{}'); 
-                  if (r && r.ok && r.outputDir) targetDir = r.outputDir; 
-                } catch(_) {}
-                resolve(undefined);
-              });
-            });
+          const nleToUse = (window as any).nle || nle;
+          if (nleToUse && typeof nleToUse.getProjectDir === 'function') {
+            const r = await nleToUse.getProjectDir();
+            if (r && r.ok) {
+              targetDir = r.outputDir || r.projectDir;
+            } else if (r && r.error) {
+              debugError('[handleInsertJob] getProjectDir error:', r.error);
+            }
           }
-        } catch(_) {}
+        } catch(err) {
+          debugError('[handleInsertJob] Error getting project directory', err);
+        }
         
-        // If project selected but host didn't resolve, fallback to Documents in AE
-        try {
-          if (!targetDir && window.HOST_CONFIG && window.HOST_CONFIG.isAE) {
-            location = 'documents';
+        if (!targetDir) {
+          if (window.showToast) window.showToast('could not resolve project folder; open/switch to a saved project and try again', 'error');
+          const mainInsertBtn = document.getElementById('insertBtn');
+          const mainInsertWasDisabled = mainInsertBtn ? (mainInsertBtn as HTMLButtonElement).disabled : false;
+          if (mainInsertBtn) {
+            const span = mainInsertBtn.querySelector('span');
+            if (span) span.textContent = 'insert';
+            (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
           }
-        } catch(_) {}
+          (window as any).__insertingGuard = false;
+          return;
+        }
       }
       
       const apiKey = settings.syncApiKey || '';
       let savedPath = '';
       
-      // Mark button as working
+      // Show toast and mark button as working
+      if (window.showToast) window.showToast('inserting…', 'info');
       const insertBtn = document.getElementById(`insert-${jobId}`);
       const mainInsertBtn = document.getElementById('insertBtn');
       const originalText = insertBtn?.querySelector('span')?.textContent || 'insert';
@@ -713,8 +704,6 @@ const HistoryTabContent: React.FC = () => {
         if (response.ok && data && data.outputPath) {
           savedPath = data.outputPath;
         } else if (!response.ok) {
-          const errorMsg = data?.error || `Server returned error ${response.status}`;
-          debugError('[handleInsertJob] Insert failed', { errorMsg, data });
           if (insertBtn) {
             const span = insertBtn.querySelector('span');
             if (span) span.textContent = originalText;
@@ -772,111 +761,38 @@ const HistoryTabContent: React.FC = () => {
         return;
       }
 
-      const fp = savedPath.replace(/"/g, '\\"');
       try {
-        if (!window.CSInterface) {
+        const nleToUse = (window as any).nle || nle;
+        if (nleToUse && typeof nleToUse.insertFileAtPlayhead === 'function') {
+          const result = await nleToUse.insertFileAtPlayhead(savedPath);
           if (mainInsertBtn) {
             (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
             const span = mainInsertBtn.querySelector('span');
             if (span) span.textContent = 'insert';
           }
           (window as any).__insertingGuard = false;
-          if (window.showToast) window.showToast('insert failed', 'error');
-          return;
-        }
-        
-        const cs = new window.CSInterface();
-        const isAE = window.HOST_CONFIG ? window.HOST_CONFIG.isAE : false;
-        const hostId = window.HOST_CONFIG ? window.HOST_CONFIG.hostId : null;
-        const isAEConfirmed = isAE && hostId !== 'PPRO';
-        
-        if (isAEConfirmed) {
-          try {
-            const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || 'EXTENSION').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            cs.evalScript(`$.evalFile("${extPath}/host/ae.jsx"); AEFT_insertFileAtPlayhead("${fp.replace(/\\/g, '\\\\')}")`, (r: string) => {
-              try {
-                let out: any = null;
-                if (typeof r === 'string') {
-                  try {
-                    out = JSON.parse(r || '{}');
-                  } catch(parseErr) {
-                    if (r === '[object Object]' || r.indexOf('ok') !== -1) {
-                      out = { ok: true };
-      } else {
-                      out = { ok: false, error: r };
-                    }
-                  }
-                } else if (typeof r === 'object' && r !== null) {
-                  out = r;
-                } else {
-                  out = { ok: false, error: String(r) };
-                }
-                
-                if (out && out.ok === true) {
-                  if (window.showToast) window.showToast('inserted' + (out.diag ? ' [' + out.diag + ']' : ''), 'success');
-                } else {
-                  if (window.showToast) window.showToast('insert failed' + (out && out.error ? ' (' + out.error + ')' : ''), 'error');
-                }
-              } catch(_) {
-                if (window.showToast) window.showToast('insert failed', 'error');
-              }
-              if (mainInsertBtn) {
-                (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
-                const span = mainInsertBtn.querySelector('span');
-                if (span) span.textContent = 'insert';
-              }
-              (window as any).__insertingGuard = false;
-            });
-          } catch(e) {
-            if (window.showToast) window.showToast('insert failed (error)', 'error');
-            if (mainInsertBtn) {
-              (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
-              const span = mainInsertBtn.querySelector('span');
-              if (span) span.textContent = 'insert';
-            }
-            (window as any).__insertingGuard = false;
+          if (result && result.ok) {
+            if (window.showToast) window.showToast('inserted' + (result.diag ? ' [' + result.diag + ']' : ''), 'success');
+        } else {
+            if (window.showToast) window.showToast('insert failed' + (result && result.error ? ' (' + result.error + ')' : ''), 'error');
           }
         } else {
-          // PPro fallback
-          try {
-            const extPath = cs.getSystemPath(window.CSInterface.SystemPath?.EXTENSION || 'EXTENSION').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            const payload = JSON.stringify({ path: savedPath }).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            cs.evalScript(`$.evalFile("${extPath}/host/ppro.jsx"); PPRO_insertFileAtPlayhead("${payload}")`, (r: string) => {
-              try {
-                const out = (typeof r === 'string') ? JSON.parse(r || '{}') : r;
-                if (out && out.ok === true) {
-                  if (window.showToast) window.showToast('inserted' + (out.diag ? ' [' + out.diag + ']' : ''), 'success');
-                } else {
-                  if (window.showToast) window.showToast('insert failed' + (out && out.error ? ' (' + out.error + ')' : ''), 'error');
-                }
-              } catch(_) {
-                if (window.showToast) window.showToast('insert failed', 'error');
-              }
               if (mainInsertBtn) {
                 (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
                 const span = mainInsertBtn.querySelector('span');
                 if (span) span.textContent = 'insert';
               }
               (window as any).__insertingGuard = false;
-            });
-          } catch(e) {
-            if (window.showToast) window.showToast('insert failed', 'error');
-            if (mainInsertBtn) {
-              (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
-              const span = mainInsertBtn.querySelector('span');
-              if (span) span.textContent = 'insert';
-            }
-            (window as any).__insertingGuard = false;
-          }
+          if (window.showToast) window.showToast('insert failed', 'error');
         }
       } catch(_) {
-        if (window.showToast) window.showToast('insert failed', 'error');
         if (mainInsertBtn) {
           (mainInsertBtn as HTMLButtonElement).disabled = mainInsertWasDisabled;
           const span = mainInsertBtn.querySelector('span');
           if (span) span.textContent = 'insert';
         }
         (window as any).__insertingGuard = false;
+        if (window.showToast) window.showToast('insert failed', 'error');
       }
     } catch (e) {
       if (window.showToast) window.showToast('failed to insert', 'error');
@@ -910,51 +826,23 @@ const HistoryTabContent: React.FC = () => {
   };
 
   const handleLoadJobIntoSources = useCallback((jobId: string) => {
-    debugLog('[loadJobIntoSources] Called', { jobId, jobsCount: jobs.length });
     const job = jobs.find(j => String(j.id) === String(jobId));
     
-    debugLog('[loadJobIntoSources] Job lookup', { 
-      found: !!job, 
-      jobId: job?.id, 
-      status: job?.status, 
-      outputUrl: job?.outputUrl 
-    });
-    
     if (!job) {
-      debugError('[loadJobIntoSources] Job not found', { 
-        jobId, 
-        availableIds: jobs.slice(0, 5).map(j => j.id) 
-      });
       if ((window as any).showToast) {
         (window as any).showToast('job not found', 'error');
       }
       return;
     }
     
-    debugLog('[loadJobIntoSources] Found job', {
-      id: job.id,
-      status: job.status,
-      outputPath: job.outputPath,
-      outputUrl: job.outputUrl
-    });
-    
     const outputPath = job.outputPath || job.outputUrl;
-    // Sync API returns "COMPLETED" (uppercase), check for both
     const isCompleted = job.status === 'COMPLETED' || job.status === 'completed';
     if (!isCompleted || !outputPath) {
-      debugWarn('[loadJobIntoSources] Job not ready', {
-        status: job.status,
-        hasOutputPath: !!job.outputPath,
-        hasOutputUrl: !!job.outputUrl,
-        isCompleted
-      });
       if ((window as any).showToast) {
         (window as any).showToast('job is not completed yet', 'error');
       }
       return;
     }
-    
-    debugLog('[loadJobIntoSources] Loading job into sources tab');
     
     // Disable lipsync button (keep visible, greyed out) and hide audio section
     const lipsyncBtn = document.getElementById('lipsyncBtn');
@@ -990,11 +878,9 @@ const HistoryTabContent: React.FC = () => {
       (window as any).showPostLipsyncActions(job);
     }
     
-    // Show toast
     if ((window as any).showToast) {
       (window as any).showToast('generation loaded', 'success');
     }
-    debugLog('[loadJobIntoSources] Function completed');
   }, [jobs, setActiveTab]);
 
   // Expose window functions for backward compatibility (AFTER handlers are defined)
@@ -1210,6 +1096,7 @@ const HistoryTabContent: React.FC = () => {
                         e.stopPropagation();
                         handleSaveJob(job.id);
                       }}
+                      title="save to disk"
                     >
                       <i data-lucide="cloud-download"></i>
                       <span>save</span>
@@ -1220,6 +1107,7 @@ const HistoryTabContent: React.FC = () => {
                         e.stopPropagation();
                         handleInsertJob(job.id);
                       }}
+                      title="insert into timeline"
                     >
                       <i data-lucide="copy-plus"></i>
                       <span>insert</span>
@@ -1227,11 +1115,11 @@ const HistoryTabContent: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <button className="history-btn history-btn-disabled" disabled>
+                    <button className="history-btn history-btn-disabled" disabled title="save to disk">
                       <i data-lucide="cloud-download"></i>
                       <span>save</span>
                     </button>
-                    <button className="history-btn history-btn-disabled" disabled>
+                    <button className="history-btn history-btn-disabled" disabled title="insert into timeline">
                       <i data-lucide="copy-plus"></i>
                       <span>insert</span>
                     </button>

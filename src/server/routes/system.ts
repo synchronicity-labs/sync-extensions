@@ -14,7 +14,6 @@ import { URL } from 'url';
 
 const router = express.Router();
 
-// Check if debug logging is enabled
 function isDebugEnabled() {
   try {
     return fs.existsSync(DEBUG_FLAG_FILE);
@@ -23,13 +22,10 @@ function isDebugEnabled() {
   }
 }
 
-// Always-log error function for critical errors (doesn't require DEBUG flag)
-// Follows debug.md conventions: writes to debug log when enabled, always writes to posthog-errors.log
 function logCriticalError(...args) {
   const timestamp = new Date().toISOString();
   const message = `[${timestamp}] [CRITICAL ERROR] ` + args.map(a => String(a)).join(' ') + '\n';
   
-  // Method 1: Always write to dedicated error log file (critical errors always logged)
   try {
     const errorLogPath = path.join(DIRS.logs, 'posthog-errors.log');
     fs.appendFileSync(errorLogPath, message);
@@ -41,8 +37,6 @@ function logCriticalError(...args) {
     } catch (e2) {}
   }
   
-  // Method 2: Also write to debug log following debug.md naming convention (when debug enabled)
-  // Uses DEBUG_LOG which follows pattern: sync_ae_debug.log, sync_ppro_debug.log, sync_server_debug.log
   if (isDebugEnabled()) {
     try {
       rotateLogIfNeeded(DEBUG_LOG);
@@ -50,12 +44,10 @@ function logCriticalError(...args) {
     } catch (e) {}
   }
   
-  // Method 3: Use tlog if DEBUG is enabled (for consistency with existing logging)
   try {
     tlog(...args);
   } catch (e) {}
   
-  // Method 4: Console (only if not in CEP mode)
   try {
     if (process.stdout.isTTY !== false) {
       console.error(message.trim());

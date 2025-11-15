@@ -1,263 +1,142 @@
-/* Responsive - Tablet and Medium Screens */
-@media (max-width: 900px) {
-  .upload-actions {
-    width: 100%;
-    max-width: 240px;
-  }
-  
-  .icon-group,
-  .icon-group-audio {
-    width: 100%;
-    max-width: 240px;
-  }
-  
-  .upload-visual {
-    max-width: 100%;
-  }
-}
+/* ============================================
+   RESPONSIVE DESIGN SYSTEM
+   ============================================ */
 
-/* Responsive - Mobile (all small screens) */
+/* Compressed panel view (up to 520px) - For narrow CEP panels */
 @media (max-width: 520px) {
-  .app-header {
-    padding: 0 10px;
-    height: 48px;
-    gap: 8px;
-  }
-  
-  .logo {
-    width: 24px;
-    height: 24px;
-  }
-  
-  .logo img {
-    width: 14px;
-    height: 18px;
-  }
-  
-  .tab-switcher {
-    padding: 2px;
-    gap: 2px;
-  }
-  
-  .tab-switch {
-    min-width: 60px;
-    padding: 5px;
-    font-size: 11px;
-    gap: 4px;
-  }
-  
-  .tab-switch i {
-    width: 12px;
-    height: 12px;
-  }
-  
-  .profile-btn {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .avatar {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .sources-container {
-    padding: 10px;
-    gap: 10px;
-  }
-  
-  .upload-box {
-    padding: 10px;
-    height: auto !important;
-    min-height: auto !important;
-  }
-  
-  .video-upload {
-    height: auto;
-    min-height: 220px;
-  }
-  
-  .audio-upload {
-    height: auto;
-    min-height: 100px;
-  }
-  
+  /* Sources tab adjustments */
   .upload-content {
     flex-direction: column;
-    padding: 12px 8px;
-    gap: 12px;
+    gap: var(--spacing-lg);
   }
   
   .upload-visual {
-    max-width: 100%;
-    order: 1;
-    flex: none;
     width: 100%;
+    max-width: 240px;
   }
   
   .upload-actions {
     width: 100%;
     max-width: 100%;
-    order: 2;
-    flex: none;
-  }
-  
-  .upload-content {
-    flex-wrap: nowrap;
-  }
-  
-  .icon-group,
-  .icon-group-audio {
-    width: 180px;
-    height: 56px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  
-  .icon-group-audio {
-    height: 94px;
-  }
-  
-  /* Scale icon positioning for smaller screens */
-  .icon-group .icon-float.rotate-15,
-  .icon-group-audio .icon-float.rotate-15 {
-    left: 93.47px !important;
-    top: 11.72px !important;
-  }
-  
-  .icon-group .icon-float.rotate-neg-15,
-  .icon-group-audio .icon-float.rotate-neg-15 {
-    left: 52.05px !important;
-    top: 18.31px !important;
-  }
-  
-  .icon-group .icon-bg {
-    left: 70.5px !important;
-    top: 6px !important;
-    width: 36px;
-    height: 36px;
-  }
-  
-  .icon-group-audio .icon-bg-audio {
-    left: 70.5px !important;
-    top: 32.25px !important;
-    width: 36px;
-    height: 36px;
-  }
-  
-  .icon-group .icon-main-wrapper {
-    left: 70.5px !important;
-    top: 6px !important;
-    width: 36px;
-    height: 36px;
-  }
-  
-  .icon-group-audio .icon-main-wrapper-audio {
-    left: 70.5px !important;
-    top: 32.25px !important;
-    width: 36px;
-    height: 36px;
-  }
-  
-  .icon-group .icon-main-wrapper i,
-  .icon-group-audio .icon-main-wrapper-audio i {
-    width: 36px;
-    height: 36px;
-  }
-  
-  .icon-group .icon-float i,
-  .icon-group-audio .icon-float i {
-    width: 29.25px;
-    height: 29.25px;
-  }
-  
-  .icon-group-audio .icon-float.rotate-15 {
-    top: 37.97px !important;
-  }
-  
-  .icon-group-audio .icon-float.rotate-neg-15 {
-    top: 44.56px !important;
-  }
-  
-  .upload-text {
-    width: 180px;
-    margin-left: auto;
-    margin-right: auto;
   }
   
   .action-row {
-    gap: 6px;
+    gap: var(--spacing-sm);
+    overflow: visible;
   }
   
   .action-btn {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 70px;
+    max-width: calc((100% - var(--spacing-sm)) / 2);
+  }
+  
+  /* History card adjustments for compressed panels */
+  .history-card-inner {
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+  }
+  
+  .history-thumbnail-wrapper {
+    width: var(--thumbnail-width-sm);
+    height: var(--thumbnail-height-sm);
+  }
+  
+  .history-card-actions {
+    flex-wrap: nowrap;
+    overflow: visible;
+    gap: var(--spacing-sm);
+    justify-content: space-between;
+    padding: 0 var(--spacing-sm);
+  }
+  
+  .history-actions-left,
+  .history-actions-right {
+    flex-shrink: 0;
     min-width: 0;
-    height: 32px;
-    font-size: 12px;
-    padding: 8px 6px;
-    gap: 4px;
+    gap: var(--spacing-sm);
   }
   
-  .action-btn i {
-    width: 14px;
-    height: 14px;
-    min-width: 14px;
-    min-height: 14px;
+  /* Hide button text, make all buttons icon-only for uniform sizing */
+  .history-btn span {
+    display: none;
   }
   
-  .action-btn i svg {
-    width: 14px;
-    height: 14px;
-    min-width: 14px;
-    min-height: 14px;
+  /* Make text buttons same size as icon buttons */
+  .history-btn {
+    width: var(--button-height-sm);
+    min-width: var(--button-height-sm);
+    padding: var(--spacing-sm);
+    justify-content: center;
   }
   
-  .action-btn span {
-    font-size: 12px;
+  /* Icon sizing handled by base rule in buttons.scss */
+  
+  .history-btn,
+  .history-btn-icon {
+    flex-shrink: 0;
+  }
+}
+
+/* Small Tablet (600px - 768px) */
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0 clamp(12px, 3vw, 20px);
+    height: clamp(56px, 8vh, 64px);
   }
   
-  .upload-text {
-    font-size: 12px;
+  .tab-switch {
+    min-width: clamp(80px, 12vw, 96px);
+    padding: clamp(6px, 1vw, 8px);
+    font-size: clamp(12px, 1.5vw, 14px);
   }
   
-  .settings-container {
-    padding: 12px;
+  .sources-container {
+    padding: clamp(10px, 2vw, 16px);
+    gap: clamp(16px, 3vw, 24px);
   }
   
-  .settings-section {
-    width: 100%;
+  .upload-box {
+    padding: clamp(10px, 2vw, 16px);
   }
   
-  .api-keys-wrapper {
-    width: 100%;
+  .bottom-bar {
+    padding: clamp(12px, 2vw, 16px) clamp(16px, 3vw, 24px);
+  }
+}
+
+/* High DPI / Retina displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .logo img,
+  .avatar {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Landscape mobile orientation */
+@media (max-width: 900px) and (orientation: landscape) {
+  .app-header {
+    height: clamp(48px, 8vh, 56px);
   }
   
-  .api-key-row {
-    width: 100%;
+  .video-upload {
+    min-height: clamp(180px, 35vh, 220px);
   }
   
-  .api-key-input {
-    width: 100%;
-    padding-right: 100px;
-    font-size: 13px;
+  .sources-container {
+    gap: clamp(12px, 2vh, 16px);
   }
-  
-  .save-files-grid {
-    flex-direction: column;
-  }
-  
-  .save-option {
-    width: 100%;
-    padding: 16px 10px;
-  }
-  
-  .render-grid {
-    flex-direction: column;
-  }
-  
-  .render-option {
-    width: 100%;
-    padding: 16px 10px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -1,14 +1,12 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { DEBUG_LOG, DEBUG_FLAG_FILE, rotateLogIfNeeded } from '../utils/log';
+import { DEBUG_LOG, DEBUG_FLAG_FILE, rotateLogIfNeeded, sanitizeForLogging } from '../utils/log';
 import { DIRS } from '../serverConfig';
 import { HOST_IDS } from '../../shared/host';
 
 const router = express.Router();
 
-// Check if debug logging is enabled
-// Per debug.md: Debug logging is disabled by default. Enable it by creating logs/.debug flag file.
 function isDebugEnabled(): boolean {
   try {
     return fs.existsSync(DEBUG_FLAG_FILE);
@@ -19,7 +17,6 @@ function isDebugEnabled(): boolean {
 
 router.post('/debug', async (req, res) => {
   try {
-    // Only log if debug flag file exists
     if (!isDebugEnabled()) {
       return res.json({ ok: true, logged: false, message: 'Debug logging disabled' });
     }
@@ -35,14 +32,16 @@ router.post('/debug', async (req, res) => {
       logFile = path.join(DIRS.logs, 'sync_ppro_debug.log');
     }
     
-    const message = body.message || JSON.stringify(body);
-    const logMsg = `[${timestamp}] ${message}\n`;
+    const message = body.message || '';
+    const data = body.data ? JSON.stringify(sanitizeForLogging(body.data)) : '';
+    const error = body.error ? String(body.error) : '';
+    const logMsg = `[${timestamp}] ${message}${data ? ' ' + data : ''}${error ? ' Error: ' + error : ''}\n`;
     
     try {
       rotateLogIfNeeded(logFile);
       fs.appendFileSync(logFile, logMsg);
     } catch (err) {
-      // Silent failure - logging infrastructure issue shouldn't break the app
+      // Ignore logging errors
     }
     
     res.json({ ok: true, logged: true });

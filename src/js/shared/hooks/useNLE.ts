@@ -92,6 +92,8 @@ export const useNLE = () => {
           
           return new Promise((resolve) => {
             try {
+              // Force reload JSX file by clearing any cached version first
+              // This ensures we get the latest version even if Premiere cached it
               cs.evalScript("$.evalFile('" + escPath + "')", (result: string) => {
                 // Check for errors in result
                 if (result && (result.includes("error") || result.includes("Error") || result.includes("27"))) {
@@ -155,8 +157,10 @@ export const useNLE = () => {
           return new Promise((resolve) => {
             try {
               const cs = new window.CSInterface();
-              const arg = JSON.stringify(payload || {}).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
               
+              const hasPayload = payload !== undefined && payload !== null && (typeof payload === 'object' ? Object.keys(payload).length > 0 : true);
+              const payloadJsonStr = hasPayload ? JSON.stringify(payload) : '';
+              const payloadStrForCode = hasPayload ? JSON.stringify(payloadJsonStr) : '';
               const code = [
                 "(function(){",
                 "  try {",
@@ -167,19 +171,22 @@ export const useNLE = () => {
                 "",
                 "    // Try 1: host[ns][fn]",
                 "    if (host && host[ns] && typeof host[ns][fnName] === 'function') {",
-                "      result = host[ns][fnName](" + JSON.stringify(payload || {}) + ");",
+                hasPayload ? `      result = host[ns][fnName](${payloadStrForCode});` : "      result = host[ns][fnName]();",
+                "      if (typeof result === 'string') return result;",
                 "      return JSON.stringify(result);",
                 "    }",
                 "",
                 "    // Try 2: Global function",
                 "    if (typeof window[fnName] === 'function') {",
-                "      result = window[fnName](" + JSON.stringify(payload || {}) + ");",
+                hasPayload ? `      result = window[fnName](${payloadStrForCode});` : "      result = window[fnName]();",
+                "      if (typeof result === 'string') return result;",
                 "      return JSON.stringify(result);",
                 "    }",
                 "",
                 "    // Try 3: Direct call",
                 "    try {",
-                "      result = eval(fnName + '(' + " + JSON.stringify(JSON.stringify(payload || {})) + " + ')');",
+                hasPayload ? `      result = eval(fnName + '(' + ${payloadStrForCode} + ')');` : "      result = eval(fnName + '()');",
+                "      if (typeof result === 'string') return result;",
                 "      return JSON.stringify(result);",
                 "    } catch(e3) {}",
                 "",
@@ -192,9 +199,22 @@ export const useNLE = () => {
               
               cs.evalScript(code, (r: string) => {
                 try {
-                  const parsed = typeof r === 'string' ? JSON.parse(r || "{}") : r;
+                  let parsed: any;
+                  if (typeof r === 'string') {
+                    try {
+                      parsed = JSON.parse(r);
+                      if (typeof parsed === 'string') {
+                        parsed = JSON.parse(parsed);
+                      }
+                    } catch(e) {
+                      parsed = { ok: false, error: 'Parse error: ' + String(e) };
+                    }
+                  } else {
+                    parsed = r;
+                  }
                   resolve(parsed);
-                } catch (_) {
+                } catch (e: any) {
+                  debugError(`[useNLE] call parse error for ${fnTail}`, { error: String(e), raw: String(r).substring(0, 500) });
                   resolve({ ok: false, error: String(r || "no response") });
                 }
               });
@@ -211,7 +231,7 @@ export const useNLE = () => {
         getHostId: () => getHostId(),
         loadHostScript: ensureHostLoaded,
         startBackend: () => call("startBackend", {}),
-        getProjectDir: () => call("getProjectDir", {}),
+        getProjectDir: () => call("getProjectDir"),
         exportInOutVideo: (opts?: any) => call("exportInOutVideo", opts || {}),
         exportInOutAudio: (opts?: any) => call("exportInOutAudio", opts || {}),
         insertFileAtPlayhead: (fsPath?: string) => call("insertFileAtPlayhead", fsPath ? { path: fsPath } : {}),

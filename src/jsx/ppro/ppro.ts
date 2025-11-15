@@ -12,9 +12,6 @@ function _callSystem(cmd) {
   } catch(e2) { /* ignore */ }
   return '';
 }
-// Central app-data directory resolver for ExtendScript (Premiere)
-// NOTE: This function is duplicated in host/ae.jsx and server/audio.cjs
-// ExtendScript does not support imports, so duplication is necessary
 function SYNC_getBaseDirs(){
   try{
     var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
@@ -47,9 +44,21 @@ function _pproDebugLogFile(){ try{ return new File(_pproDebugLogPath()); }catch(
 
 var __showDialogBusy = false;
 
+// Polyfill String.trim() for ExtendScript (must be before JSON.parse)
+if (typeof String.prototype.trim !== 'function') {
+  String.prototype.trim = function() {
+    return this.replace(/^\s+|\s+$/g, '');
+  };
+}
+
 // Minimal JSON polyfill for ExtendScript environments lacking JSON
 try {
   if (typeof JSON === 'undefined') { JSON = {}; }
+  // Check if native JSON.parse exists - if so, use it (more reliable than polyfill)
+  if (typeof JSON.parse === 'function') {
+    // Native JSON.parse exists - keep it, but ensure trim polyfill is available
+    // The polyfill above should handle trim if needed
+  }
   if (typeof JSON.stringify !== 'function') {
     JSON.stringify = function(value){
       function escStr(s){ return String(s).replace(/[\\"\n\r\t\b\f]/g, function(ch){
@@ -84,173 +93,34 @@ try {
     };
   }
   if (typeof JSON.parse !== 'function') {
+    // Use eval() as JSON parser - simpler and more reliable than polyfill for ExtendScript
     JSON.parse = function(text){
-      // Safe recursive JSON parser - no eval required
-      var s = String(text || '').trim();
-      if (s.length > 1048576) { // 1MB limit
-        try { var log = _pproDebugLogFile(); log.open('a'); log.writeln('[JSON.parse] rejected oversized input: ' + s.length + ' bytes'); log.close(); } catch(_){}
-        throw new Error('JSON input too large');
-      }
-      
-      var pos = 0;
-      var len = s.length;
-      
-      function skipWhitespace() {
-        while (pos < len && (s.charAt(pos) === ' ' || s.charAt(pos) === '\t' || s.charAt(pos) === '\n' || s.charAt(pos) === '\r')) {
-          pos++;
-        }
-      }
-      
-      function parseValue() {
-        skipWhitespace();
-        if (pos >= len) throw new Error('Unexpected end of input');
-        
-        var ch = s.charAt(pos);
-        if (ch === '{') return parseObject();
-        if (ch === '[') return parseArray();
-        if (ch === '"') return parseString();
-        if (ch === '-' || (ch >= '0' && ch <= '9')) return parseNumber();
-        if (s.substr(pos, 4) === 'true') { pos += 4; return true; }
-        if (s.substr(pos, 5) === 'false') { pos += 5; return false; }
-        if (s.substr(pos, 4) === 'null') { pos += 4; return null; }
-        throw new Error('Unexpected character: ' + ch);
-      }
-      
-      function parseObject() {
-        var obj = {};
-        pos++; // skip '{'
-        skipWhitespace();
-        
-        if (s.charAt(pos) === '}') {
-          pos++;
-          return obj;
-        }
-        
-        while (pos < len) {
-          skipWhitespace();
-          var key = parseString();
-          skipWhitespace();
-          if (s.charAt(pos) !== ':') throw new Error('Expected colon');
-          pos++;
-          var value = parseValue();
-          obj[key] = value;
-          skipWhitespace();
-          if (s.charAt(pos) === '}') {
-            pos++;
-            return obj;
-          }
-          if (s.charAt(pos) !== ',') throw new Error('Expected comma or closing brace');
-          pos++;
-        }
-        throw new Error('Unclosed object');
-      }
-      
-      function parseArray() {
-        var arr = [];
-        pos++; // skip '['
-        skipWhitespace();
-        
-        if (s.charAt(pos) === ']') {
-          pos++;
-          return arr;
-        }
-        
-        while (pos < len) {
-          arr.push(parseValue());
-          skipWhitespace();
-          if (s.charAt(pos) === ']') {
-            pos++;
-            return arr;
-          }
-          if (s.charAt(pos) !== ',') throw new Error('Expected comma or closing bracket');
-          pos++;
-        }
-        throw new Error('Unclosed array');
-      }
-      
-      function parseString() {
-        if (s.charAt(pos) !== '"') throw new Error('Expected string');
-        pos++;
-        var result = '';
-        
-        while (pos < len) {
-          var ch = s.charAt(pos);
-          if (ch === '"') {
-            pos++;
-            return result;
-          }
-          if (ch === '\\') {
-            pos++;
-            if (pos >= len) throw new Error('Unterminated escape sequence');
-            var esc = s.charAt(pos);
-            if (esc === '"') { result += '"'; pos++; }
-            else if (esc === '\\') { result += '\\'; pos++; }
-            else if (esc === '/') { result += '/'; pos++; }
-            else if (esc === 'b') { result += '\b'; pos++; }
-            else if (esc === 'f') { result += '\f'; pos++; }
-            else if (esc === 'n') { result += '\n'; pos++; }
-            else if (esc === 'r') { result += '\r'; pos++; }
-            else if (esc === 't') { result += '\t'; pos++; }
-            else if (esc === 'u') {
-              // Unicode escape - 4 hex digits
-              pos++;
-              if (pos + 3 >= len) throw new Error('Invalid unicode escape');
-              var hex = s.substr(pos, 4);
-              var code = parseInt(hex, 16);
-              if (isNaN(code)) throw new Error('Invalid unicode escape');
-              result += String.fromCharCode(code);
-              pos += 4;
-            } else {
-              result += esc; // Unknown escape, include as-is
-              pos++;
-            }
-          } else {
-            result += ch;
-            pos++;
-          }
-        }
-        throw new Error('Unterminated string');
-      }
-      
-      function parseNumber() {
-        var start = pos;
-        if (s.charAt(pos) === '-') pos++;
-        if (pos >= len) throw new Error('Invalid number');
-        if (s.charAt(pos) === '0') {
-          pos++;
-        } else if (s.charAt(pos) >= '1' && s.charAt(pos) <= '9') {
-          pos++;
-          while (pos < len && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;
-        } else {
-          throw new Error('Invalid number');
-        }
-        if (pos < len && s.charAt(pos) === '.') {
-          pos++;
-          if (pos >= len || s.charAt(pos) < '0' || s.charAt(pos) > '9') throw new Error('Invalid number');
-          while (pos < len && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;
-        }
-        if (pos < len && (s.charAt(pos) === 'e' || s.charAt(pos) === 'E')) {
-          pos++;
-          if (pos < len && (s.charAt(pos) === '+' || s.charAt(pos) === '-')) pos++;
-          if (pos >= len || s.charAt(pos) < '0' || s.charAt(pos) > '9') throw new Error('Invalid number');
-          while (pos < len && s.charAt(pos) >= '0' && s.charAt(pos) <= '9') pos++;
-        }
-        var numStr = s.substr(start, pos - start);
-        var num = parseFloat(numStr);
-        if (isNaN(num)) throw new Error('Invalid number');
-        return num;
-      }
-      
       try {
-        var result = parseValue();
-        skipWhitespace();
-        if (pos < len) throw new Error('Unexpected trailing characters');
-        return result;
+        // eval() can safely parse JSON in ExtendScript
+        return eval('(' + String(text || '') + ')');
       } catch(e) {
-        try { var log = _pproDebugLogFile(); log.open('a'); log.writeln('[JSON.parse] parse error: ' + String(e)); log.close(); } catch(_){}
-        throw e;
+        throw new Error('JSON parse error: ' + String(e));
       }
     };
+  } else {
+    // Native JSON.parse exists - test if it works, if not use eval fallback
+    try {
+      JSON.parse('{"test":true}');
+    } catch(e) {
+      // Native JSON.parse exists but doesn't work - use eval fallback
+      var nativeParse = JSON.parse;
+      JSON.parse = function(text) {
+        try {
+          return nativeParse(text);
+        } catch(e1) {
+          try {
+            return eval('(' + String(text || '') + ')');
+          } catch(e2) {
+            throw new Error('JSON parse failed: ' + String(e1));
+          }
+        }
+      };
+    }
   }
 } catch(e) { /* ignore */ }
 
@@ -323,13 +193,11 @@ export function PPRO_showFileDialog(payloadJson) {
 }
 
 function _hostLog(msg){
-  // File-based logging only (per debug.md)
   try{
     var s = String(msg||'');
     var timestamp = new Date().toISOString();
     var logLine = `[${timestamp}] [ppro] ${s}\n`;
     
-    // Write to debug log
     try {
       var logFile = _pproDebugLogFile();
       logFile.open('a');
@@ -345,7 +213,6 @@ export function PPRO_insertAtPlayhead(jobId) {
     var outputPath = SYNC_getUploadsDir() + "/" + jobId + "_output.mp4";
     var outputFile = new File(outputPath);
     
-    // Log to temp file for debugging
     try {
       var logFile = _pproDebugLogFile();
       logFile.open("a");
@@ -382,7 +249,6 @@ export function PPRO_insertFileAtPlayhead(payloadJson) {
     var fsPath = String((p && (p.path||p)) || '');
     var file = new File(fsPath);
     
-    // Log to temp file for debugging
     try {
       var logFile = _pproDebugLogFile();
       logFile.open("a");
@@ -480,7 +346,6 @@ export function PPRO_importIntoBin(jobId) {
     var outputPath = SYNC_getUploadsDir() + "/" + jobId + "_output.mp4";
     var outputFile = new File(outputPath);
     
-    // Log to temp file for debugging
     try {
       var logFile = _pproDebugLogFile();
       logFile.open("a");
@@ -513,7 +378,7 @@ export function PPRO_getProjectDir() {
       var projPath = app.project.path;
       if (projPath) {
         var f = new File(projPath);
-        var parent = f.parent; // project folder
+        var parent = f.parent;
         if (parent && parent.exists) {
           var outFolder = new Folder(parent.fsName + "/sync. outputs");
           if (!outFolder.exists) { outFolder.create(); }
@@ -533,7 +398,6 @@ export function PPRO_importFileToBin(payloadJson) {
     var fsPath = String(p.path||'');
     var binName = String(p.binName||'');
     
-    // Log to temp file for debugging
     try {
       var logFile = _pproDebugLogFile();
       logFile.open("a");
@@ -839,7 +703,6 @@ export function PPRO_exportInOutVideo(payloadJson){
   try{
     var p={}; try{ p=JSON.parse(payloadJson||'{}'); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     
-    // Log to temp file for debugging
     try {
       var logFile = _pproDebugLogFile();
       logFile.open("a");
@@ -889,7 +752,6 @@ export function PPRO_exportInOutAudio(payloadJson){
   try{
     var p={}; try{ p=JSON.parse(payloadJson||'{}'); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     
-    // Log to temp file for debugging
     try {
       var logFile = _pproDebugLogFile();
       logFile.open("a");
@@ -983,7 +845,6 @@ export function PPRO_startBackend() {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
-    // Log startup attempt to debug log (if debug flag exists)
     try {
       var logFile = _pproDebugLogFile();
       if (logFile && logFile.fsName) {
@@ -1376,9 +1237,47 @@ export function PPRO_readThumbnail(filePath) {
 
 export function PPRO_saveThumbnail(payload) {
   try {
-    var data = JSON.parse(payload);
+    try {
+      var log = _pproDebugLogFile();
+      log.open('a');
+      log.writeln('[PPRO_saveThumbnail] Payload type: ' + typeof payload);
+      log.writeln('[PPRO_saveThumbnail] Payload length: ' + String(payload ? payload.length : 0));
+      log.writeln('[PPRO_saveThumbnail] Payload first 200 chars: ' + String(payload || '').substring(0, 200));
+      log.close();
+    } catch(_) {}
+    
+    // Parse JSON - try native JSON.parse first, fallback to eval if polyfill fails
+    var data;
+    try {
+      data = JSON.parse(payload);
+    } catch(parseError) {
+      // If JSON.parse fails, try eval() as fallback (works in ExtendScript)
+      // This handles cases where the polyfill has bugs with large base64 strings
+      try {
+        // eval() can parse JSON in ExtendScript
+        data = eval('(' + payload + ')');
+      } catch(evalError) {
+        // Both failed - return error
+        try {
+          var log = _pproDebugLogFile();
+          log.open('a');
+          log.writeln('[PPRO_saveThumbnail] JSON.parse failed: ' + String(parseError));
+          log.writeln('[PPRO_saveThumbnail] eval() fallback also failed: ' + String(evalError));
+          log.writeln('[PPRO_saveThumbnail] Payload sample (chars 0-500): ' + String(payload || '').substring(0, 500));
+          log.close();
+        } catch(_) {}
+        return _respond({ ok: false, error: 'JSON parse failed: ' + String(parseError) });
+      }
+    }
     var path = data.path;
     var dataUrl = data.dataUrl;
+    
+    // Clean up path: remove file:// prefix and decode URL encoding
+    if (path.indexOf('file://') === 0) {
+      path = path.substring(7); // Remove 'file://'
+    }
+    // Decode URL encoding (e.g., %20 -> space)
+    path = decodeURIComponent(path);
     
     // Ensure directory exists before writing
     var file = new File(path);
@@ -1425,7 +1324,6 @@ export function PPRO_saveThumbnail(payload) {
   }
 }
 
-// Base64 decoder for ExtendScript
 function base64Decode(input) {
   var keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   var output = "";

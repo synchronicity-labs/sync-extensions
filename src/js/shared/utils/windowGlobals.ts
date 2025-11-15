@@ -228,16 +228,27 @@ export const setupWindowGlobals = (
   };
 
   // Post-lipsync action functions (for sources tab)
+  // These directly call the HistoryTab handlers if available
   (window as any).saveCompletedJob = async (jobId: string) => {
+    if ((window as any).__historySaveJob) {
+      return (window as any).__historySaveJob(jobId);
+    }
+    // Fallback to saveJob if __historySaveJob not available
     if ((window as any).saveJob) {
       return (window as any).saveJob(jobId);
     }
+    if (window.showToast) window.showToast('save function not available', 'error');
   };
 
   (window as any).insertCompletedJob = async (jobId: string) => {
+    if ((window as any).__historyInsertJob) {
+      return (window as any).__historyInsertJob(jobId);
+    }
+    // Fallback to insertJob if __historyInsertJob not available
     if ((window as any).insertJob) {
       return (window as any).insertJob(jobId);
     }
+    if (window.showToast) window.showToast('insert function not available', 'error');
   };
 
   (window as any).clearCompletedJob = () => {
@@ -467,6 +478,27 @@ export const setupWindowGlobals = (
       // Build code using namespace approach (like evalTS in bolt.ts)
       // Try namespace first, then fallback to global
       const fnName = fn; // Store function name for error message
+      
+      // Escape the formattedArg for safe insertion into JavaScript code
+      // If it's a JSON string, we need to escape it properly as a string literal
+      let escapedArg: string;
+      if (!formattedArg) {
+        escapedArg = "";
+      } else if (formattedArg.startsWith("{") || formattedArg.startsWith("[")) {
+        // It's a JSON string - escape it as a JavaScript string literal
+        // Replace backslashes, quotes, and newlines
+        escapedArg = formattedArg
+          .replace(/\\/g, "\\\\")  // Escape backslashes first
+          .replace(/"/g, '\\"')     // Escape double quotes
+          .replace(/\n/g, "\\n")    // Escape newlines
+          .replace(/\r/g, "\\r")    // Escape carriage returns
+          .replace(/\t/g, "\\t");    // Escape tabs
+        escapedArg = '"' + escapedArg + '"'; // Wrap in quotes
+      } else {
+        // Plain string - escape it
+        escapedArg = JSON.stringify(formattedArg);
+      }
+      
       const code = [
         "(function(){",
         "  try {",
@@ -477,7 +509,8 @@ export const setupWindowGlobals = (
         "    if (!fn || typeof fn !== 'function') {",
         "      return JSON.stringify({ ok: false, error: 'Function not found: " + fnName + "' });",
         "    }",
-        "    var r = fn(" + (formattedArg ? formattedArg : "") + ");",
+        "    var payload = " + escapedArg + ";",
+        "    var r = fn(payload);",
         "    return typeof r === 'string' ? r : JSON.stringify(r);",
         "  } catch(e) {",
         "    return JSON.stringify({ ok: false, error: String(e) });",

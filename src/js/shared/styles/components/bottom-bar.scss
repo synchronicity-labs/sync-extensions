@@ -1,14 +1,15 @@
 /* ===== BOTTOM BAR ===== */
 .bottom-bar {
   background: var(--bg-dark);
-  border-top: 1px solid var(--bg-button);
+  border-top: 1px solid var(--border-primary);
   padding: var(--spacing-lg) var(--spacing-xl);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
   min-width: 0;
   overflow: visible;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .bottom-content {
@@ -23,10 +24,10 @@
 
 .update-dot {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 8px;
-  height: 8px;
+  top: calc(var(--spacing-xs) * -1);
+  right: calc(var(--spacing-xs) * -1);
+  width: var(--spacing-sm);
+  height: var(--spacing-sm);
   background: var(--color-primary);
   border-radius: var(--radius-full);
   z-index: 10;
@@ -35,14 +36,15 @@
 /* Button styles moved to components/buttons.css */
 
 .cost-display {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
   color: var(--text-secondary);
   text-align: right;
   margin: 0;
   align-self: flex-end;
   font-family: var(--font-family);
+  transition: color var(--transition-base);
 }
 
 .cost-label {

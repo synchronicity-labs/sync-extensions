@@ -98,11 +98,11 @@ const BottomBar: React.FC = () => {
         <div className="bottom-content">
           <button className="model-btn" id="modelSelectorBtn" onClick={() => setModelSelectorOpen(true)}>
             <span id="currentModel">{displayName}</span>
-            <ChevronDown size={16} />
+            <ChevronDown size={20} />
             <div className="update-dot"></div>
           </button>
           <button className="lipsync-btn" id="lipsyncBtn" disabled={!canLipsync} onClick={handleLipsync}>
-            <img src={whiteIcon} alt="sync." width="16" height="16" />
+            <img src={whiteIcon} alt="sync." />
             <span>lipsync</span>
           </button>
         </div>

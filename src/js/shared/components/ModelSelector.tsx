@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, HelpCircle, ChevronUp } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
+import "../styles/components/model-selector.scss";
 
 interface ModelSelectorProps {
   isOpen: boolean;
@@ -20,20 +21,23 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
     setSyncModeValue(settings.syncMode);
     setActiveSpeakerOnly(settings.activeSpeakerOnly);
     setDetectObstructions(settings.detectObstructions);
+    // Initialize slider fill percentage
+    const percent = (settings.temperature / 1) * 100;
+    document.documentElement.style.setProperty('--slider-percent', `${percent}%`);
   }, [settings]);
 
   const models = [
-    { id: "lipsync-1.9.0-beta", name: "lipsync 1.9", description: "our fastest lipsync model yet" },
-    { id: "lipsync-2", name: "lipsync 2", description: "our best model yet: high-res + matches speaker style" },
-    { id: "lipsync-2-pro", name: "lipsync 2 pro", description: "lipsync 2, optimized for the highest resolution" },
+    { id: "lipsync-2-pro", name: "lipsync 2 pro", description: "our best model: optimized for highest resolution" },
+    { id: "lipsync-2", name: "lipsync 2", description: "high-res lipsync that matches speaker style" },
+    { id: "lipsync-1.9.0-beta", name: "lipsync 1.9", description: "fastest lipsync model" },
   ];
 
   const syncModes = [
-    { id: "bounce", name: "bounce" },
-    { id: "loop", name: "loop" },
-    { id: "cutoff", name: "cut off" },
-    { id: "silence", name: "silence" },
-    { id: "remap", name: "remap" },
+    { id: "loop", name: "loop", tooltip: "repeats video segment to match audio length" },
+    { id: "bounce", name: "bounce", tooltip: "plays video forward then backward" },
+    { id: "cutoff", name: "cut off", tooltip: "ends video when audio ends" },
+    { id: "silence", name: "silence", tooltip: "adds silent padding to match audio" },
+    { id: "remap", name: "remap", tooltip: "dynamically adjusts video timing" },
   ];
 
   const handleSelectModel = (modelId: string) => {
@@ -43,6 +47,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
   const handleTemperatureChange = (value: number) => {
     setTempValue(value);
     setTemperature(value);
+    // Update CSS variable for slider fill
+    const percent = (value / 1) * 100;
+    document.documentElement.style.setProperty('--slider-percent', `${percent}%`);
   };
 
   const handleSyncModeChange = (mode: string) => {
@@ -74,12 +81,17 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (syncModeMenuOpen && !(e.target as Element).closest(".custom-dropdown-wrapper")) {
+      const target = e.target as Element;
+      if (syncModeMenuOpen && !target.closest(".custom-dropdown-wrapper")) {
         setSyncModeMenuOpen(false);
       }
     };
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
+    if (syncModeMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, [syncModeMenuOpen]);
 
   if (!isOpen) return null;
@@ -126,9 +138,20 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
 
         <div className="model-settings">
           <div className="model-setting-row">
-            <label className="model-setting-label">
+            <div className="model-setting-label">
+              <div className="tooltip-wrapper">
               <span>temperature: <span id="modelTempValue">{tempValue.toFixed(1)}</span></span>
-            </label>
+                <button className="model-setting-help" type="button">
+                  <HelpCircle size={16} />
+                </button>
+                <div className="tooltip">
+                  <strong>temperature</strong>
+                  controls the randomness and creativity of the lipsync output. lower values produce more consistent results, while higher values add more variation.
+                </div>
+              </div>
+            </div>
+            <div className="model-slider-container">
+              <span className="model-slider-min">0</span>
             <div className="model-slider-wrapper">
               <input
                 type="range"
@@ -140,24 +163,40 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
                 value={tempValue}
                 onChange={(e) => handleTemperatureChange(parseFloat(e.target.value))}
               />
+              </div>
+              <span className="model-slider-max">1</span>
             </div>
           </div>
 
           <div className="model-setting-row model-setting-switch model-setting-dropdown">
-            <label className="model-setting-label">
+            <div className="model-setting-label">
+              <div className="tooltip-wrapper">
               <span>sync mode</span>
-            </label>
+                <button 
+                  className="model-setting-help" 
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <HelpCircle size={16} />
+                </button>
+                <div className="tooltip">
+                  <strong>sync mode</strong>
+                  determines how the video is synchronized with the audio when lengths don't match. choose the mode that best fits your editing workflow.
+                </div>
+              </div>
+            </div>
             <div className="custom-dropdown-wrapper">
               <button
                 type="button"
                 className="custom-dropdown-trigger"
                 id="syncModeBtn"
-                onClick={() => setSyncModeMenuOpen(!syncModeMenuOpen)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSyncModeMenuOpen(!syncModeMenuOpen);
+                }}
               >
-                <span id="syncModeValue">{syncModeValue}</span>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M7 10l5 5 5-5z" />
-                </svg>
+                <span id="syncModeValue">{syncModes.find(m => m.id === syncModeValue)?.name || syncModeValue}</span>
+                <ChevronUp size={16} style={{ transform: syncModeMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
               </button>
               {syncModeMenuOpen && (
                 <div className="custom-dropdown-menu show" id="syncModeMenu">
@@ -165,9 +204,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
                     <div
                       key={mode.id}
                       className={`custom-dropdown-option ${syncModeValue === mode.id ? "active" : ""}`}
-                      onClick={() => handleSyncModeChange(mode.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSyncModeChange(mode.id);
+                      }}
                     >
                       <span>{mode.name}</span>
+                      {mode.tooltip && (
+                        <div className="custom-dropdown-tooltip">{mode.tooltip}</div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -176,9 +221,18 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
           </div>
 
           <div className="model-setting-row model-setting-switch">
-            <label className="model-setting-label">
+            <div className="model-setting-label">
+              <div className="tooltip-wrapper">
               <span>lipsync only active speaker</span>
-            </label>
+                <button className="model-setting-help" type="button">
+                  <HelpCircle size={16} />
+                </button>
+                <div className="tooltip">
+                  <strong>lipsync only active speaker</strong>
+                  when enabled, only the person currently speaking will be lipsynced. useful for multi-person videos where you want to focus on the active speaker.
+                </div>
+              </div>
+            </div>
             <label className="model-toggle">
               <input
                 type="checkbox"
@@ -191,9 +245,18 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
           </div>
 
           <div className="model-setting-row model-setting-switch">
-            <label className="model-setting-label">
+            <div className="model-setting-label">
+              <div className="tooltip-wrapper">
               <span>detect obstructions</span>
-            </label>
+                <button className="model-setting-help" type="button">
+                  <HelpCircle size={16} />
+                </button>
+                <div className="tooltip">
+                  <strong>detect obstructions</strong>
+                  when enabled, the model will detect and account for objects that may obstruct the mouth area (like hands, microphones, etc.) for more accurate lipsync results.
+                </div>
+              </div>
+            </div>
             <label className="model-toggle">
               <input
                 type="checkbox"

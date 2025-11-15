@@ -68,11 +68,6 @@ export default class Vulcan {
    */
   getAppPathEx(): any;
 
-  //   OLD FUNCTIONS
-  //   OLD FUNCTIONS
-  //   OLD FUNCTIONS
-  //   OLD FUNCTIONS
-
   /**
    * Gets all available application specifiers on the local machine.
    * @returns The array of all available application specifiers.

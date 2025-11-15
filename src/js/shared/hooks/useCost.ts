@@ -28,6 +28,7 @@ export const useCost = () => {
               videoUrl,
               audioUrl,
               model: settings.model || "lipsync-2-pro",
+              syncApiKey: settings.syncApiKey || "",
             }),
           },
           10000

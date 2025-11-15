@@ -39,7 +39,16 @@ try {
       // Safe recursive JSON parser - no eval required
       var s = String(text || '').trim();
       if (s.length > 1048576) { // 1MB limit
-        try { var log = _syncDebugLogFile(); log.open('a'); log.writeln('[JSON.parse] rejected oversized input: ' + s.length + ' bytes'); log.close(); } catch(_){}
+        try { 
+          var appName = '';
+          try { if (app && app.appName) appName = String(app.appName).toLowerCase(); } catch(_){}
+          if (appName.indexOf('after effects') !== -1) {
+            var log = _syncDebugLogFile(); 
+            log.open('a'); 
+            log.writeln('[JSON.parse] rejected oversized input: ' + s.length + ' bytes'); 
+            log.close();
+          }
+        } catch(_){}
         throw new Error('JSON input too large');
       }
       
@@ -198,7 +207,16 @@ try {
         if (pos < len) throw new Error('Unexpected trailing characters');
         return result;
       } catch(e) {
-        try { var log = _syncDebugLogFile(); log.open('a'); log.writeln('[JSON.parse] parse error: ' + String(e)); log.close(); } catch(_){}
+        try { 
+          var appName = '';
+          try { if (app && app.appName) appName = String(app.appName).toLowerCase(); } catch(_){}
+          if (appName.indexOf('after effects') !== -1) {
+            var log = _syncDebugLogFile(); 
+            log.open('a'); 
+            log.writeln('[JSON.parse] parse error: ' + String(e)); 
+            log.close();
+          }
+        } catch(_){}
         throw e;
       }
     };
@@ -215,7 +233,6 @@ function _hostLog(msg){
     var timestamp = new Date().toISOString();
     var logLine = `[${timestamp}] [aeft] ${s}\n`;
     
-    // Write to central debug log
     try {
       var logFile = _syncDebugLogFile();
       logFile.open('a');
@@ -241,10 +258,6 @@ function _shq(s) {
   try { return "'" + String(s || '').replace(/'/g, "'\\''") + "'"; } catch (e) { return "''"; }
 }
 
-// Central app-data directory resolver for ExtendScript
-// NOTE: This function is duplicated in host/ppro.jsx and server/audio.cjs
-// ExtendScript does not support imports, so duplication is necessary
-// Future: Consider extracting to shared .jsxinc file that both hosts can $.evalFile()
 function SYNC_getBaseDirs(){
   try{
     var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
@@ -274,7 +287,6 @@ function _syncDebugLogPath(){
   try{
     var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
     var dir = SYNC_getLogDir(); if (!dir) { dir = Folder.temp.fsName; }
-    // Respect debug flag file in logs (no UI toggle / env required)
     try{
       var flag = new File(dir + (isWindows?'\\':'/') + '.debug');
       var enabled = false;
@@ -397,7 +409,6 @@ export function AEFT_diagInOut() {
     try { info.projectOpen = !!(app && app.project); } catch (e) { info.projectOpen = false; info.error = String(e); }
     try { info.ffmpeg = false; } catch(_){ info.ffmpeg = false; } // ffmpeg no longer required
     
-    // Debug logging
     try {
       var logFile = _syncDebugLogFile();
       logFile.open("a");
@@ -419,7 +430,6 @@ export function AEFT_showFileDialog(payloadJson) {
     var p = {}; try { p = JSON.parse(payloadJson || '{}'); } catch (e) {}
     var kind = String(p.kind || 'video');
     
-    // Debug logging
     try {
       var logFile = _syncDebugLogFile();
       logFile.open("a");
@@ -536,7 +546,6 @@ export function AEFT_exportInOutVideo(payloadJson) {
   try {
     var p = {}; try { p = JSON.parse(payloadJson || '{}'); } catch (e) {}
     
-    // Log to temp file for debugging
     try {
       var logFile = _syncDebugLogFile();
       logFile.open("a");
@@ -628,7 +637,6 @@ export function AEFT_exportInOutAudio(payloadJson) {
   try {
     var p = {}; try { p = JSON.parse(payloadJson || '{}'); } catch (e) {}
     
-    // Log to temp file for debugging
     try {
       var logFile = _syncDebugLogFile();
       logFile.open("a");
@@ -1155,7 +1163,6 @@ export function AEFT_insertAtPlayhead(jobId) {
     var outputPath = SYNC_getUploadsDir() + "/" + jobId + "_output.mp4";
     var outputFile = new File(outputPath);
     
-    // Log to temp file for debugging
     try {
       var logFile = _syncDebugLogFile();
       logFile.open("a");
@@ -1278,7 +1285,6 @@ export function AEFT_insertFileAtPlayhead(payloadOrJson) {
     if (!path) return _respond({ ok: false, error: 'No path' });
     var f = new File(path);
     
-    // Log to temp file for debugging
     try {
       var logFile = _syncDebugLogFile();
       logFile.open("a");
@@ -1587,7 +1593,6 @@ export function AEFT_startBackend() {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
-    // Log startup attempt to debug log
     try {
       var logFile = _syncDebugLogFile();
       if (logFile && logFile.fsName) {
@@ -2006,7 +2011,6 @@ export function AEFT_saveThumbnail(payload) {
   }
 }
 
-// Base64 decoder for ExtendScript
 function base64Decode(input) {
   var keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   var output = "";

@@ -27,12 +27,6 @@ export const forEachComp = (
   }
 };
 
-export const getProjectDir = () => {
-  if (app.project.file !== null) {
-    return app.project.file.parent.fsName;
-  }
-  return "";
-};
 
 export const getActiveComp = () => {
   if (app.project.activeItem instanceof CompItem === false) {

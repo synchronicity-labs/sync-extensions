@@ -14,10 +14,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initial startup - use debugLog instead per debug.md
 debugLog('sync. Resolve plugin starting...');
 
-// Debug logging - per debug.md: only write when logs/.debug flag exists
 function debugLog(message: string, data: Record<string, unknown> = {}): void {
   try {
     // Determine base directory per platform (same as server/config.ts)
@@ -34,7 +32,6 @@ function debugLog(message: string, data: Record<string, unknown> = {}): void {
     const logsDir = path.join(baseDir, 'logs');
     const debugFlag = path.join(logsDir, '.debug');
 
-    // Per debug.md: Debug logging is disabled by default. Enable it by creating logs/.debug flag file.
     if (!fs.existsSync(debugFlag)) {
       return; // Don't log if flag doesn't exist
     }
@@ -49,7 +46,7 @@ function debugLog(message: string, data: Record<string, unknown> = {}): void {
     const logEntry = `[${timestamp}] [resolve] ${message} ${JSON.stringify(data)}\n`;
     fs.appendFileSync(debugFile, logEntry);
   } catch (error) {
-    // Silent failure - don't break the app if logging fails
+    // Ignore logging errors
   }
 }
 

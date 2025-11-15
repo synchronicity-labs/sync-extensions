@@ -445,6 +445,9 @@ const SourcesTab: React.FC = () => {
         setTtsInterfaceOpen(true);
       },
     };
+    (window as any).setTtsInterfaceOpen = setTtsInterfaceOpen;
+    (window as any).setActiveTab = setActiveTab;
+    (window as any).settings = settings;
 
     // Update from video button
     (window as any).updateFromVideoButton = () => {
@@ -477,23 +480,23 @@ const SourcesTab: React.FC = () => {
       const actionsHtml = `
         <div class="post-lipsync-actions" id="postLipsyncActions">
           <div class="post-lipsync-actions-left">
-            <button class="post-action-btn" id="save-${job.id}" onclick="saveCompletedJob('${job.id}')">
+            <button class="post-action-btn" id="save-${job.id}">
               <i data-lucide="cloud-download"></i>
               <span>save</span>
             </button>
-            <button class="post-action-btn" id="insert-${job.id}" onclick="insertCompletedJob('${job.id}')">
+            <button class="post-action-btn" id="insert-${job.id}">
               <i data-lucide="copy-plus"></i>
               <span>insert</span>
             </button>
           </div>
           <div class="post-lipsync-actions-right">
-            <button class="post-action-btn-icon" onclick="copyOutputLink('${job.id}')" title="copy output link">
+            <button class="post-action-btn-icon" id="copy-link-${job.id}" title="copy output link">
               <i data-lucide="link"></i>
             </button>
-            <button class="post-action-btn-icon" onclick="copyJobId('${job.syncJobId || job.id}')" title="copy job id">
+            <button class="post-action-btn-icon" id="copy-id-${job.syncJobId || job.id}" title="copy job id">
               <span class="post-action-btn-id-text">id</span>
             </button>
-            <button class="post-action-btn-icon" onclick="clearCompletedJob()" title="clear">
+            <button class="post-action-btn-icon" id="clear-completed" title="clear">
               <i data-lucide="eraser"></i>
             </button>
           </div>
@@ -502,41 +505,95 @@ const SourcesTab: React.FC = () => {
       // Insert as sibling after videoSection
       videoSection.insertAdjacentHTML('afterend', actionsHtml);
       
+      // Attach event listeners to buttons
+      const saveBtn = document.getElementById(`save-${job.id}`);
+      const insertBtn = document.getElementById(`insert-${job.id}`);
+      const copyLinkBtn = document.getElementById(`copy-link-${job.id}`);
+      const copyIdBtn = document.getElementById(`copy-id-${job.syncJobId || job.id}`);
+      const clearBtn = document.getElementById('clear-completed');
+      
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof (window as any).saveCompletedJob === 'function') {
+            await (window as any).saveCompletedJob(job.id);
+          } else {
+            if ((window as any).showToast) (window as any).showToast('save function not available', 'error');
+          }
+        });
+      }
+      
+      if (insertBtn) {
+        insertBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof (window as any).insertCompletedJob === 'function') {
+            await (window as any).insertCompletedJob(job.id);
+          } else {
+            if ((window as any).showToast) (window as any).showToast('insert function not available', 'error');
+          }
+        });
+      }
+      
+      if (copyLinkBtn) {
+        copyLinkBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof (window as any).copyOutputLink === 'function') {
+            (window as any).copyOutputLink(job.id);
+          }
+        });
+      }
+      
+      if (copyIdBtn) {
+        copyIdBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof (window as any).copyJobId === 'function') {
+            (window as any).copyJobId(job.syncJobId || job.id);
+          }
+        });
+      }
+      
+      if (clearBtn) {
+        clearBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof (window as any).clearCompletedJob === 'function') {
+            (window as any).clearCompletedJob();
+          }
+        });
+      }
+      
       // Initialize Lucide icons for the new buttons
       if ((window as any).lucide && (window as any).lucide.createIcons) {
         setTimeout(() => {
           (window as any).lucide.createIcons();
           
-          // Set stroke-width for action button icons (16px icons)
-          document.querySelectorAll('.post-action-btn i svg').forEach((svg: any) => {
-            svg.setAttribute('stroke-width', '2');
-            svg.setAttribute('width', '16');
-            svg.setAttribute('height', '16');
-            svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
-              el.setAttribute('stroke-width', '2');
-            });
-          });
-          
-          // Set stroke-width for icon button icons (18px icons)
-          const iconBtns = document.querySelectorAll('.post-action-btn-icon i');
-          iconBtns.forEach((icon: any) => {
+          // Ensure consistent icon sizing and styling
+          document.querySelectorAll('.post-action-btn i, .post-action-btn-icon i').forEach((icon: any) => {
+            // Constrain the <i> element itself
+            icon.style.width = '16px';
+            icon.style.height = '16px';
+            icon.style.minWidth = '16px';
+            icon.style.minHeight = '16px';
+            icon.style.maxWidth = '16px';
+            icon.style.maxHeight = '16px';
+            
             const svg = icon.querySelector('svg');
             if (svg) {
+              svg.setAttribute('width', '16');
+              svg.setAttribute('height', '16');
+              svg.style.width = '16px';
+              svg.style.height = '16px';
+              svg.style.minWidth = '16px';
+              svg.style.minHeight = '16px';
+              svg.style.maxWidth = '16px';
+              svg.style.maxHeight = '16px';
               svg.setAttribute('stroke-width', '2');
-              svg.setAttribute('width', '18');
-              svg.setAttribute('height', '18');
-              svg.style.color = 'var(--text-primary)';
-              svg.style.stroke = 'var(--text-primary)';
-              svg.style.fill = 'none';
-              const paths = svg.querySelectorAll('path, circle, line, polyline, polygon');
-              paths.forEach((path: any) => {
-                path.setAttribute('stroke-width', '2');
-                if (!path.getAttribute('stroke')) {
-                  path.setAttribute('stroke', 'var(--text-primary)');
-                }
-                if (!path.getAttribute('fill') || path.getAttribute('fill') === 'currentColor') {
-                  path.setAttribute('fill', 'none');
-                }
+              svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
+                el.setAttribute('stroke-width', '2');
               });
             }
           });
@@ -707,6 +764,8 @@ const SourcesTab: React.FC = () => {
   useEffect(() => {
     if (activeTab !== "sources") return;
     
+    let cleanupHandlers: (() => void) | null = null;
+    
     // Wait for tab to be visible and DOM to be ready
     const setupHandlers = () => {
       const sourcesContainer = document.getElementById('sources');
@@ -732,20 +791,6 @@ const SourcesTab: React.FC = () => {
       }
       return true;
     };
-    
-    // Try immediately, then retry if needed
-    let retries = 0;
-    const maxRetries = 10;
-    const trySetup = () => {
-      if (setupHandlers()) {
-        attachHandlers();
-      } else if (retries < maxRetries) {
-        retries++;
-        setTimeout(trySetup, 100);
-            }
-    };
-    
-    let cleanupHandlers: (() => void) | null = null;
     
     const attachHandlers = () => {
       const sourcesContainer = document.getElementById('sources');
@@ -849,6 +894,77 @@ const SourcesTab: React.FC = () => {
               (window as any).selectAudioUrl();
             }
             break;
+          case 'audio-from-video':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'audio-from-video', handling: true });
+            }
+            if ((window as any).selectAudioFromVideo) {
+              await (window as any).selectAudioFromVideo();
+            }
+            break;
+          case 'audio-tts':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'audio-tts', handling: true });
+            }
+            if ((window as any).TTSInterface && (window as any).TTSInterface.show) {
+              (window as any).TTSInterface.show();
+            } else if ((window as any).setTtsInterfaceOpen) {
+              // Fallback: check if API key is set
+              const settings = (window as any).settings || {};
+              if (!settings.elevenlabsApiKey || !settings.elevenlabsApiKey.trim()) {
+                if ((window as any).showToast) {
+                  const toast = document.createElement("div");
+                  toast.className = "history-toast history-toast-info";
+                  toast.innerHTML = 'please set your elevenlabs api key <a href="#" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">here</a>';
+                  const link = toast.querySelector('a');
+                  if (link) {
+                    link.addEventListener('click', (ev) => {
+                      ev.preventDefault();
+                      if ((window as any).setActiveTab) {
+                        (window as any).setActiveTab('settings');
+                      }
+                      setTimeout(() => {
+                        if (toast.parentNode) {
+                          toast.parentNode.removeChild(toast);
+                        }
+                      }, 100);
+                    });
+                  }
+                  document.body.appendChild(toast);
+                  requestAnimationFrame(() => {
+                    toast.classList.add("show");
+                  });
+                  setTimeout(() => {
+                    toast.classList.remove("show");
+                    setTimeout(() => {
+                      if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                      }
+                    }, 300);
+                  }, 5000);
+                }
+                return;
+              }
+              // Use React state setter via window
+              (window as any).setTtsInterfaceOpen(true);
+            }
+            break;
+          case 'video-inout':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'video-inout', handling: true });
+            }
+            if ((window as any).selectVideoInOut) {
+              await (window as any).selectVideoInOut();
+            }
+            break;
+          case 'audio-inout':
+            if ((window as any).debugLog) {
+              (window as any).debugLog('button_click', { action: 'audio-inout', handling: true });
+            }
+            if ((window as any).selectAudioInOut) {
+              await (window as any).selectAudioInOut();
+            }
+            break;
           }
         } catch (error) {
           if ((window as any).debugLog) {
@@ -878,7 +994,19 @@ const SourcesTab: React.FC = () => {
         sourcesContainer.removeEventListener('click', handleClick, true);
         sourcesContainer.removeEventListener('click', handleClick, false);
       };
-        };
+    };
+    
+    // Try immediately, then retry if needed
+    let retries = 0;
+    const maxRetries = 10;
+    const trySetup = () => {
+      if (setupHandlers()) {
+        attachHandlers();
+      } else if (retries < maxRetries) {
+        retries++;
+        setTimeout(trySetup, 100);
+      }
+    };
     
     trySetup();
     
@@ -966,22 +1094,6 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className="action-btn" 
                     data-action="video-upload"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if ((window as any).debugLog) {
-                        (window as any).debugLog('button_click', { action: 'video-upload', source: 'react_onclick' });
-                      }
-                      if (typeof (window as any).selectVideo === 'function') {
-                        try {
-                          await (window as any).selectVideo();
-                        } catch (error) {
-                          if ((window as any).debugLog) {
-                            (window as any).debugLog('button_click', { action: 'video-upload', error: String(error) });
-                          }
-                        }
-                      }
-                    }}
                   >
                     <Upload size={16} />
                     <span>upload</span>
@@ -991,48 +1103,9 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className="action-btn" 
                     data-action="video-inout"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      debugLog('[SourcesTab] Video in/out button clicked', { nle: !!nle, settings });
-                      if ((window as any).selectVideoInOut) {
-                        await (window as any).selectVideoInOut();
-                      } else if (nle?.exportInOutVideo) {
-                        // Map settings.renderVideo to codec value
-                        // For Premiere: mp4 -> h264, prores_422 -> prores_422, prores_422hq -> prores_422_hq
-                        // For After Effects: mp4 -> h264, anything else -> prores (handled in aeft.ts)
-                        let codec = "h264"; // default
-                        if (settings.renderVideo === "mp4" || settings.renderVideo === "h264") {
-                          codec = "h264";
-                        } else if (settings.renderVideo === "prores_422") {
-                          codec = "prores_422";
-                        } else if (settings.renderVideo === "prores_422hq") {
-                          // Premiere expects prores_422_hq (with underscore), settings use prores_422hq
-                          codec = "prores_422_hq";
-                        }
-                        
-                        debugLog('[SourcesTab] Calling exportInOutVideo with codec', { codec });
-                        const result = await nle.exportInOutVideo({ codec });
-                        debugLog('[SourcesTab] exportInOutVideo result', { result });
-                        if (result?.ok && result?.path) {
-                          if ((window as any).selectVideo) {
-                            await (window as any).selectVideo();
-                          }
-                        } else if (result?.error && (window as any).showToast) {
-                          (window as any).showToast(result.error, "error");
-                        } else if (!result?.ok && (window as any).showToast) {
-                          (window as any).showToast("Failed to export video in/out", "error");
-                        }
-                      } else {
-                        debugError('[SourcesTab] nle.exportInOutVideo not available');
-                        if ((window as any).showToast) {
-                          (window as any).showToast("Video export not available. Please ensure you have an active sequence/composition.", "error");
-                        }
-                      }
-                    }}
                   >
                     <MousePointerSquareDashed size={16} />
-                    <span>use in/out</span>
+                    <span>in/out</span>
                   </button>
                 </div>
                 <div className="action-row">
@@ -1041,22 +1114,6 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className={`action-btn ${isRecording && recordingType === "video" ? "recording" : ""}`} 
                     data-action="video-record"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if ((window as any).debugLog) {
-                        (window as any).debugLog('button_click', { action: 'video-record', source: 'react_onclick' });
-                      }
-                      if ((window as any).startVideoRecording) {
-                        try {
-                          await (window as any).startVideoRecording();
-                        } catch (error) {
-                          if ((window as any).debugLog) {
-                            (window as any).debugLog('button_click', { action: 'video-record', error: String(error) });
-                          }
-                        }
-                      }
-                    }}
                   >
                     <Webcam size={16} />
                     <span>{isRecording && recordingType === "video" ? "stop" : "record"}</span>
@@ -1066,16 +1123,6 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className="action-btn" 
                     data-action="video-link"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if ((window as any).debugLog) {
-                        (window as any).debugLog('button_click', { action: 'video-link', source: 'react_onclick' });
-                      }
-                      if ((window as any).selectVideoUrl) {
-                        (window as any).selectVideoUrl();
-                      }
-                    }}
                   >
                     <Link size={16} />
                     <span>link url</span>
@@ -1202,7 +1249,7 @@ const SourcesTab: React.FC = () => {
                       }
                     } catch (_) {}
                   }}>
-                    <DownloadCloud size={20} />
+                    <DownloadCloud size={16} />
                   </button>
                 </div>
               </div>
@@ -1250,7 +1297,7 @@ const SourcesTab: React.FC = () => {
                     </div>
                     <div className="video-right-controls">
                       <button className="video-control-btn video-delete-btn" onClick={clearVideo}>
-                        <Trash2 size={18} />
+                        <Trash2 size={16} />
                   </button>
                     </div>
                   </div>
@@ -1300,22 +1347,6 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className="action-btn" 
                     data-action="audio-upload"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if ((window as any).debugLog) {
-                        (window as any).debugLog('button_click', { action: 'audio-upload', source: 'react_onclick' });
-                      }
-                      if (typeof (window as any).selectAudio === 'function') {
-                        try {
-                          await (window as any).selectAudio();
-                        } catch (error) {
-                          if ((window as any).debugLog) {
-                            (window as any).debugLog('button_click', { action: 'audio-upload', error: String(error) });
-                          }
-                        }
-                      }
-                    }}
                   >
                     <Upload size={16} />
                     <span>upload</span>
@@ -1325,38 +1356,9 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className="action-btn" 
                     data-action="audio-inout"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      debugLog('[SourcesTab] Audio in/out button clicked', { nle: !!nle, settings });
-                      if ((window as any).selectAudioInOut) {
-                        await (window as any).selectAudioInOut();
-                      } else if (nle?.exportInOutAudio) {
-                        // Use settings.renderAudio directly (wav or mp3)
-                        const format = settings.renderAudio || "wav";
-                        
-                        debugLog('[SourcesTab] Calling exportInOutAudio with format', { format });
-                        const result = await nle.exportInOutAudio({ format });
-                        debugLog('[SourcesTab] exportInOutAudio result', { result });
-                        if (result?.ok && result?.path) {
-                          if ((window as any).selectAudio) {
-                            await (window as any).selectAudio();
-                          }
-                        } else if (result?.error && (window as any).showToast) {
-                          (window as any).showToast(result.error, "error");
-                        } else if (!result?.ok && (window as any).showToast) {
-                          (window as any).showToast("Failed to export audio in/out", "error");
-                        }
-                      } else {
-                        debugError('[SourcesTab] nle.exportInOutAudio not available');
-                        if ((window as any).showToast) {
-                          (window as any).showToast("Audio export not available. Please ensure you have an active sequence/composition.", "error");
-                        }
-                      }
-                    }}
                   >
                     <MousePointerSquareDashed size={16} />
-                    <span>use in/out</span>
+                    <span>in/out</span>
                   </button>
                 </div>
                 <div className="action-row">
@@ -1365,22 +1367,6 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className={`action-btn ${isRecording && recordingType === "audio" ? "recording" : ""}`} 
                     data-action="audio-record"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if ((window as any).debugLog) {
-                        (window as any).debugLog('button_click', { action: 'audio-record', source: 'react_onclick' });
-                      }
-                      if ((window as any).startAudioRecording) {
-                        try {
-                          await (window as any).startAudioRecording();
-                        } catch (error) {
-                          if ((window as any).debugLog) {
-                            (window as any).debugLog('button_click', { action: 'audio-record', error: String(error) });
-                          }
-                        }
-                      }
-                    }}
                   >
                     <Mic size={16} />
                     <span>{isRecording && recordingType === "audio" ? "stop" : "record"}</span>
@@ -1390,110 +1376,17 @@ const SourcesTab: React.FC = () => {
                     draggable="false" 
                     className="action-btn" 
                     data-action="audio-link"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if ((window as any).debugLog) {
-                        (window as any).debugLog('button_click', { action: 'audio-link', source: 'react_onclick' });
-                      }
-                      if ((window as any).selectAudioUrl) {
-                        (window as any).selectAudioUrl();
-                      }
-                    }}
                   >
                     <Link size={16} />
                     <span>link url</span>
                   </button>
                 </div>
                 <div className="action-row">
-                  <button type="button" draggable="false" className="action-btn" data-action="audio-from-video" onClick={async (e) => { 
-                    e.preventDefault(); 
-                    e.stopPropagation(); 
-                    if (!selection.video && !selection.videoUrl) return; 
-                    try { 
-                      const videoPath = selection.video;
-                      const videoUrl = selection.videoUrl;
-                      if (!videoPath && !videoUrl) return; 
-                      const response = await fetch(getApiUrl("/extract-audio"), { 
-                        method: "POST", 
-                        headers: { "Content-Type": "application/json" }, 
-                        body: JSON.stringify({ videoPath, videoUrl, format: "wav" }), 
-                      }); 
-                      const data = await response.json().catch(() => null); 
-                      if (response.ok && data?.ok && data?.audioPath) { 
-                        await setAudioPath(data.audioPath);
-                        
-                        // Update UI state
-                        if (typeof (window as any).updateLipsyncButton === "function") {
-                          (window as any).updateLipsyncButton();
-                        }
-                        if (typeof (window as any).renderInputPreview === "function") {
-                          (window as any).renderInputPreview("extract-audio");
-                        }
-                        if (typeof (window as any).updateInputStatus === "function") {
-                          (window as any).updateInputStatus();
-                        }
-                        
-                        // Show success toast
-                        if ((window as any).showToast) {
-                          (window as any).showToast("Audio extracted from video", "success");
-                        }
-                      } else {
-                        // Show error toast
-                        const errorMsg = data?.error || "Failed to extract audio from video";
-                        if ((window as any).showToast) {
-                          (window as any).showToast(errorMsg, "error");
-                        }
-                      }
-                    } catch (error) { 
-                      debugError("Error extracting audio from video", error); 
-                      if ((window as any).showToast) {
-                        (window as any).showToast("Error extracting audio: " + (error as Error).message, "error");
-                      }
-                    } 
-                  }}>
+                  <button type="button" draggable="false" className="action-btn" data-action="audio-from-video">
                     <MousePointerClick size={16} />
                     <span>from video</span>
                   </button>
-                  <button type="button" draggable="false" className="action-btn" data-action="audio-tts" onClick={(e) => { 
-                    e.preventDefault(); 
-                    e.stopPropagation(); 
-                    if (!settings.elevenlabsApiKey || !settings.elevenlabsApiKey.trim()) {
-                      // Show toast with link to settings
-                      if ((window as any).showToast) {
-                        const toast = document.createElement("div");
-                        toast.className = "history-toast history-toast-info";
-                        toast.innerHTML = 'please set your elevenlabs api key <a href="#" style="color: var(--color-primary); text-decoration: underline; cursor: pointer;">here</a>';
-                        const link = toast.querySelector('a');
-                        if (link) {
-                          link.addEventListener('click', (ev) => {
-                            ev.preventDefault();
-                            setActiveTab('settings');
-                            setTimeout(() => {
-                              if (toast.parentNode) {
-                                toast.parentNode.removeChild(toast);
-                              }
-                            }, 100);
-                          });
-                        }
-                        document.body.appendChild(toast);
-                        // Trigger animation by adding show class
-                        requestAnimationFrame(() => {
-                          toast.classList.add("show");
-                        });
-                        setTimeout(() => {
-                          toast.classList.remove("show");
-                          setTimeout(() => {
-                            if (toast.parentNode) {
-                              toast.parentNode.removeChild(toast);
-                            }
-                          }, 300);
-                        }, 5000);
-                      }
-                      return;
-                    }
-                    setTtsInterfaceOpen(true); 
-                  }}>
+                  <button type="button" draggable="false" className="action-btn" data-action="audio-tts">
                     <TextSelect size={16} />
                     <span>generate</span>
                   </button>
@@ -1621,7 +1514,7 @@ const SourcesTab: React.FC = () => {
                       }
                     } catch (_) {}
                   }}>
-                    <DownloadCloud size={20} />
+                    <DownloadCloud size={16} />
                   </button>
                 </div>
               </div>
@@ -1634,7 +1527,7 @@ const SourcesTab: React.FC = () => {
                     preload="auto"
                   />
                   <button className="audio-play-btn" id="audioPlayBtn">
-                    <Play size={18} />
+                    <Play size={16} />
                   </button>
                   <div className="audio-waveform-container">
                     <canvas id="waveformCanvas" className="waveform-canvas"></canvas>
@@ -1646,7 +1539,7 @@ const SourcesTab: React.FC = () => {
                       <span id="dubbingBtnText">dubbing</span>
                     </button>
                     <button className="audio-dubbing-submit-btn" id="dubbingSubmitBtn" style={{ display: "none" }}>
-                      <ArrowRight size={18} />
+                      <ArrowRight size={16} />
                     </button>
                     <div className="dubbing-dropdown" id="dubbingDropdown" style={{ display: "none" }}>
                       <div className="dubbing-dropdown-header">
@@ -1689,7 +1582,7 @@ const SourcesTab: React.FC = () => {
                     </div>
                   </div>
                   <button className="audio-delete-btn" onClick={clearAudio}>
-                    <Trash2 size={18} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>

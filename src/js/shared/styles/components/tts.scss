@@ -1205,29 +1205,4 @@
   animation: spin 1s linear infinite;
 }
 
-/* Responsive - Bottom Bar Vertical Stacking (very narrow screens only) */
-@media (max-width: 400px) {
-  .bottom-bar {
-    padding: 10px;
-    gap: 8px;
-  }
-  
-  .bottom-content {
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  .model-btn,
-  .lipsync-btn {
-    width: 100%;
-    min-width: 0;
-    font-size: 12px;
-  }
-  
-  .cost-display {
-    width: 100%;
-    text-align: center;
-    font-size: 10px;
-  }
-}
 

@@ -31,17 +31,49 @@ function logToFile(message: string) {
  */
 async function getCacheDir(): Promise<string | null> {
   try {
-    if (!window.CSInterface) {
-      logToFile(`[Thumbnails] CSInterface not available`);
-      return null;
+    // Try CSInterface first (preferred method)
+    if (window.CSInterface) {
+      try {
+        const cs = new window.CSInterface();
+        const userDataPath = cs.getSystemPath(window.CSInterface.SystemPath.USER_DATA);
+        if (userDataPath) {
+          // On macOS: ~/Library/Application Support
+          // On Windows: %APPDATA%
+          const cacheDir = `${userDataPath}/${CACHE_DIR}`;
+          logToFile(`[Thumbnails] Cache directory path (from CSInterface): ${cacheDir}`);
+          return cacheDir;
+        }
+      } catch(e: any) {
+        logToFile(`[Thumbnails] CSInterface.getSystemPath failed: ${e.message}`);
+      }
     }
-    const cs = new window.CSInterface();
-    const userDataPath = cs.getSystemPath(window.CSInterface.SystemPath.USER_DATA);
-    // On macOS: ~/Library/Application Support
-    // On Windows: %APPDATA%
-    const cacheDir = `${userDataPath}/${CACHE_DIR}`;
-    logToFile(`[Thumbnails] Cache directory path: ${cacheDir}`);
-    return cacheDir;
+    
+    // Fallback: Try to load CSInterface shim if it exists
+    // The shim at src/js/lib/CSInterface.js should be loaded, but if not, we'll try to construct path
+    logToFile(`[Thumbnails] CSInterface not available, trying fallback methods`);
+    
+    // Try to use __adobe_cep__ directly if available (what CSInterface shim uses internally)
+    if (typeof (window as any).__adobe_cep__ !== 'undefined' && 
+        typeof (window as any).__adobe_cep__.getSystemPath === 'function') {
+      try {
+        const userDataPath = (window as any).__adobe_cep__.getSystemPath('userData');
+        if (userDataPath) {
+          const cacheDir = `${userDataPath}/${CACHE_DIR}`;
+          logToFile(`[Thumbnails] Cache directory path (from __adobe_cep__): ${cacheDir}`);
+          return cacheDir;
+        }
+      } catch(e: any) {
+        logToFile(`[Thumbnails] __adobe_cep__.getSystemPath failed: ${e.message}`);
+      }
+    }
+    
+    // Last resort: Use known macOS path structure
+    // On macOS, CEP typically uses ~/Library/Application Support
+    // We can't access process.env in browser context, so we'll construct a reasonable default
+    // Note: This is a best-effort fallback and may not work in all cases
+    logToFile(`[Thumbnails] All CEP methods failed, cannot determine cache directory`);
+    logToFile(`[Thumbnails] Thumbnails will be generated but not cached to disk`);
+    return null;
   } catch(e: any) {
     logToFile(`[Thumbnails] Failed to get cache dir: ${e.message}`);
     return null;
@@ -419,21 +451,38 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
   }
   logToFile(`[Thumbnails] Processing ${jobsToProcess.length} COMPLETED jobs with video URLs from Sync API`);
   
-  // Process jobs sequentially (one at a time) to avoid video element conflicts
-  for (const job of jobsToProcess) {
+  // First, check all cached thumbnails in parallel for faster loading
+  const cacheCheckPromises = jobsToProcess.map(async (job) => {
     try {
-      logToFile(`[Thumbnails] Processing job: ${job.id} - outputPath: ${job.outputPath || 'none'}, videoPath: ${job.videoPath || 'none'}, outputUrl: ${job.outputUrl || 'none'}, status: ${job.status}`);
-      
-      // Check for cached thumbnail first
       logToFile(`[Thumbnails] Checking cache for job: ${job.id}`);
       const existing = await loadThumbnail(job.id);
       if (existing) {
         logToFile(`[Thumbnails] Using cached thumbnail (skipping generation): ${job.id}`);
         updateCardThumbnail(job.id, existing);
-        continue; // Skip generation if cached
+        return { job, cached: true, thumbnail: existing };
       } else {
         logToFile(`[Thumbnails] No cached thumbnail found, will generate new one for: ${job.id}`);
+        return { job, cached: false, thumbnail: null };
       }
+    } catch (e: any) {
+      logToFile(`[Thumbnails] Error checking cache for ${job.id}: ${e.message}`);
+      return { job, cached: false, thumbnail: null };
+    }
+  });
+  
+  const cacheResults = await Promise.all(cacheCheckPromises);
+  
+  // Filter out jobs that already have cached thumbnails
+  const jobsNeedingGeneration = cacheResults
+    .filter(result => !result.cached)
+    .map(result => result.job);
+  
+  logToFile(`[Thumbnails] ${cacheResults.filter(r => r.cached).length} thumbnails loaded from cache, ${jobsNeedingGeneration.length} need generation`);
+  
+  // Process jobs that need generation sequentially (one at a time) to avoid video element conflicts
+  for (const job of jobsNeedingGeneration) {
+    try {
+      logToFile(`[Thumbnails] Processing job: ${job.id} - outputPath: ${job.outputPath || 'none'}, videoPath: ${job.videoPath || 'none'}, outputUrl: ${job.outputUrl || 'none'}, status: ${job.status}`);
       
       // Try to generate from outputPath, outputUrl, or videoPath (in that order)
       // outputPath might be a URL if it came from Sync API

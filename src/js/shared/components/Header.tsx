@@ -274,11 +274,6 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
                       {checkingUpdate ? 'checking...' : 'check for updates'}
                     </span>
                   </p>
-                  {hostConfig && (
-                    <p style={{ fontSize: "11px", color: "#999", marginTop: "4px" }}>
-                      {hostConfig.hostName} ({hostConfig.hostId})
-                    </p>
-                  )}
                 </div>
               </div>
             </div>

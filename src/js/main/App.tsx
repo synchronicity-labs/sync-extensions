@@ -156,10 +156,38 @@ const AppContent: React.FC = () => {
 
   // Initialize Lucide icons for data-lucide attributes
   useEffect(() => {
+    const normalizeButtonIcons = () => {
+      // Ensure all button icons have consistent sizing
+      document.querySelectorAll('button i').forEach((icon: any) => {
+        const svg = icon.querySelector('svg');
+        if (svg) {
+          // Only normalize 32px button icons (16px icons)
+          const button = icon.closest('button');
+          if (button && (button.classList.contains('history-btn') || 
+                         button.classList.contains('post-action-btn') ||
+                         button.classList.contains('action-btn'))) {
+            svg.setAttribute('width', '16');
+            svg.setAttribute('height', '16');
+            svg.style.width = '16px';
+            svg.style.height = '16px';
+            svg.style.maxWidth = '16px';
+            svg.style.maxHeight = '16px';
+            svg.style.minWidth = '16px';
+            svg.style.minHeight = '16px';
+            svg.setAttribute('stroke-width', '2');
+            svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
+              el.setAttribute('stroke-width', '2');
+            });
+          }
+        }
+      });
+    };
+
     const initLucideIcons = () => {
       // Check if lucide is already loaded
       if (window.lucide && window.lucide.createIcons) {
         window.lucide.createIcons();
+        normalizeButtonIcons();
         // Replace globe icons with languages icons in dubbing contexts
         replaceGlobeWithLanguages();
         return;
@@ -171,6 +199,7 @@ const AppContent: React.FC = () => {
       script.onload = () => {
         if (window.lucide && window.lucide.createIcons) {
           window.lucide.createIcons();
+          normalizeButtonIcons();
           // Replace globe icons with languages icons in dubbing contexts
           replaceGlobeWithLanguages();
         }
@@ -222,8 +251,40 @@ const AppContent: React.FC = () => {
             if (activePane && window.lucide && window.lucide.createIcons) {
               // Scope to active pane only to avoid conflicts with unmounting components
               window.lucide.createIcons({ root: activePane });
-        replaceGlobeWithLanguages();
-      }
+              // Normalize button icon sizes after creation
+              activePane.querySelectorAll('button i').forEach((icon: any) => {
+                const svg = icon.querySelector('svg');
+                if (svg) {
+                  const button = icon.closest('button');
+                  if (button && (button.classList.contains('history-btn') || 
+                                 button.classList.contains('post-action-btn') ||
+                                 button.classList.contains('action-btn'))) {
+                    // Constrain the <i> element itself for post-action-btn
+                    if (button.classList.contains('post-action-btn')) {
+                      icon.style.width = '16px';
+                      icon.style.height = '16px';
+                      icon.style.minWidth = '16px';
+                      icon.style.minHeight = '16px';
+                      icon.style.maxWidth = '16px';
+                      icon.style.maxHeight = '16px';
+                    }
+                    svg.setAttribute('width', '16');
+                    svg.setAttribute('height', '16');
+                    svg.style.width = '16px';
+                    svg.style.height = '16px';
+                    svg.style.maxWidth = '16px';
+                    svg.style.maxHeight = '16px';
+                    svg.style.minWidth = '16px';
+                    svg.style.minHeight = '16px';
+                    svg.setAttribute('stroke-width', '2');
+                    svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
+                      el.setAttribute('stroke-width', '2');
+                    });
+                  }
+                }
+              });
+              replaceGlobeWithLanguages();
+            }
           } catch (e) {
             // Silently ignore DOM errors
           }

@@ -3,7 +3,7 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
 import { track } from '../telemetry';
-import { tlog } from '../utils/log';
+import { tlog, sanitizeForLogging } from '../utils/log';
 import { safeStat, safeExists, safeText, pipeToFile } from '../utils/files';
 import { resolveSafeLocalPath, normalizePaths, normalizeOutputDir } from '../utils/paths';
 import { r2Upload } from '../services/r2';
@@ -92,7 +92,7 @@ router.get('/jobs/:id', (req, res) => {
 
 router.post('/jobs', async (req, res) => {
   try {
-    tlog('[jobs:create] Request received:', JSON.stringify(req.body, null, 2));
+    tlog('[jobs:create] Request received:', JSON.stringify(sanitizeForLogging(req.body), null, 2));
     
     const validation = validateJobRequest(req.body);
     if (!validation.isValid) {
@@ -270,28 +270,65 @@ router.post('/jobs/:id/save', async (req, res) => {
     }
 
     // Use location parameter directly (frontend should pass 'project' or 'documents')
-    const outDir = (location === 'documents') ? DOCS_DEFAULT_DIR : (targetDir || job.outputDir || TEMP_DEFAULT_DIR);
+    // If location is 'project' but targetDir is empty, we still want to try to get project directory
+    let outDir = (location === 'documents') ? DOCS_DEFAULT_DIR : (targetDir || job.outputDir || TEMP_DEFAULT_DIR);
+    
+    // If location is 'project' but targetDir is empty, try to construct project directory path
+    // This is a fallback when getProjectDir fails on the frontend
+    if (location === 'project' && !targetDir && !job.outputDir) {
+      // Try to infer project directory from job's original paths if available
+      // Otherwise, we'll use TEMP_DEFAULT_DIR but still try to copy to project folder later
+      tlog(`[/jobs/:id/save] Location is 'project' but targetDir is empty - will use temp dir but try to copy to project`);
+    }
+    
+    tlog(`[/jobs/:id/save] Target directory: ${outDir}, location: ${location}, targetDir: ${targetDir}, job.outputDir: ${job.outputDir}`);
     try {
       await fs.promises.access(outDir);
     } catch {
       await fs.promises.mkdir(outDir, { recursive: true });
+      tlog(`[/jobs/:id/save] Created directory: ${outDir}`);
     }
 
-    if (job.outputPath && await safeExists(job.outputPath) && path.dirname(job.outputPath) === outDir) {
+    // Normalize paths for comparison
+    const normalizePathForComparison = (p: string) => path.resolve(p).replace(/\\/g, '/').toLowerCase();
+    
+    if (job.outputPath) {
+      const outputPathExists = await safeExists(job.outputPath);
+      tlog(`[/jobs/:id/save] Checking existing outputPath: ${job.outputPath}, exists: ${outputPathExists}`);
+      
+      if (outputPathExists) {
+        const outputDir = path.dirname(job.outputPath);
+        const normalizedOutputDir = normalizePathForComparison(outputDir);
+        const normalizedOutDir = normalizePathForComparison(outDir);
+        tlog(`[/jobs/:id/save] Comparing directories: "${normalizedOutputDir}" === "${normalizedOutDir}"`);
+        
+        // If location is 'project' but file is in temp directory, we should still copy it to project folder
+        // Don't return early if we're trying to save to project but file is in temp
+        const isInTempDir = normalizedOutputDir.includes('uploads') || normalizedOutputDir.includes('temp');
+        const isTargetTempDir = normalizedOutDir.includes('uploads') || normalizedOutDir.includes('temp');
+        
+        if (normalizedOutputDir === normalizedOutDir) {
+          tlog(`[/jobs/:id/save] File already in target directory, returning existing path`);
       return res.json({ ok: true, outputPath: job.outputPath });
     }
 
-    if (job.outputPath && await safeExists(job.outputPath)) {
+        // File exists but in different directory - copy it
+        tlog(`[/jobs/:id/save] File exists in different directory, copying to: ${outDir}`);
       const newPath = path.join(outDir, `${job.id}_output.mp4`);
       try {
         await fs.promises.copyFile(job.outputPath, newPath);
-      } catch (_) {}
-      try {
-        if (path.dirname(job.outputPath) !== outDir) await fs.promises.unlink(job.outputPath);
-      } catch (e) {}
+          tlog(`[/jobs/:id/save] Successfully copied file to: ${newPath}`);
+          // Don't delete the original file - keep it as backup
       job.outputPath = newPath;
       req.saveJobs();
       return res.json({ ok: true, outputPath: job.outputPath });
+        } catch (copyErr) {
+          tlog(`[/jobs/:id/save] Failed to copy file: ${copyErr?.message || String(copyErr)}`);
+          // Continue to try fetching from API
+        }
+      } else {
+        tlog(`[/jobs/:id/save] OutputPath set but file does not exist on disk: ${job.outputPath}`);
+      }
     }
 
     // Try to fetch from Sync API
@@ -335,6 +372,72 @@ router.post('/jobs/:id/save', async (req, res) => {
 
 router.get('/costs', (_req, res) => {
   res.json({ ok: true, note: 'POST this endpoint to estimate costs', ts: Date.now() });
+});
+
+// Frontend-compatible cost estimation endpoint
+router.post('/cost/estimate', async (req, res) => {
+  try {
+    const { videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey } = req.body || {};
+    
+    if (!videoUrl || !audioUrl) {
+      return res.status(400).json({ error: 'Video and audio URLs required' });
+    }
+    
+    // Get syncApiKey from body or try to get from settings header
+    let apiKey = syncApiKey;
+    if (!apiKey && req.headers['x-settings']) {
+      try {
+        const settings = JSON.parse(req.headers['x-settings'] as string);
+        apiKey = settings.syncApiKey;
+      } catch (_) {}
+    }
+    
+    if (!apiKey) {
+      return res.status(400).json({ error: 'syncApiKey required' });
+    }
+    
+    const body = {
+      model: String(model || 'lipsync-2-pro'),
+      input: [{ type: 'video', url: videoUrl }, { type: 'audio', url: audioUrl }],
+      options: { sync_mode: 'loop' }
+    };
+    
+    const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'content-type': 'application/json', 'accept': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
+    });
+    
+    const text = await safeText(resp);
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: text || 'cost failed' });
+    }
+    
+    let raw = null;
+    let estimate = [];
+    try { raw = JSON.parse(text || '[]'); } catch (_) { raw = null; }
+    if (Array.isArray(raw)) estimate = raw;
+    else if (raw && typeof raw === 'object') estimate = [raw];
+    else estimate = [];
+    
+    // Extract cost from estimate array (first item's cost field, or sum all costs)
+    let cost = 0;
+    if (estimate.length > 0) {
+      if (typeof estimate[0].cost === 'number') {
+        cost = estimate[0].cost;
+      } else if (typeof estimate[0] === 'number') {
+        cost = estimate[0];
+      } else {
+        // Sum all costs if multiple estimates
+        cost = estimate.reduce((sum, e) => sum + (typeof e.cost === 'number' ? e.cost : typeof e === 'number' ? e : 0), 0);
+      }
+    }
+    
+    res.json({ ok: true, cost });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });
 
 router.post('/costs', async (req, res) => {
