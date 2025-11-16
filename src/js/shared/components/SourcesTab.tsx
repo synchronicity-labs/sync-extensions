@@ -36,12 +36,45 @@ const SourcesTab: React.FC = () => {
   const [ttsVoiceCloneModalOpen, setTtsVoiceCloneModalOpen] = useState(false);
   const isOffline = serverState?.isOffline || false;
   
-  const readyForLipsyncShownRef = useRef<number>(0);
+  const prevActiveTabRef = useRef<string>("sources");
+  const [forceVideoRerender, setForceVideoRerender] = useState<number>(0);
+  const audioPathCacheBusterRef = useRef<Map<string, number>>(new Map());
 
   useDragAndDrop({
     onVideoSelected: setVideoPath,
     onAudioSelected: setAudioPath,
   });
+
+  // Clear sources tab when switching back from history tab (unless loading a completed job)
+  useEffect(() => {
+    const prevTab = prevActiveTabRef.current;
+    prevActiveTabRef.current = activeTab;
+
+    // If switching from history to sources, and we're not loading a job
+    if (prevTab === "history" && activeTab === "sources") {
+      // Check if we're loading a job (via handleLoadJobIntoSources)
+      const isLoadingJob = !!(window as any).__loadingJobIntoSources;
+      
+      // Small delay to check if a job is being loaded
+      setTimeout(() => {
+        // Check if output video is being rendered (indicates job is being loaded)
+        const outputVideo = document.getElementById("outputVideo");
+        const hasOutputVideo = outputVideo && outputVideo.style.display !== "none";
+        
+        // Only clear if we're not loading a job
+        if (!hasOutputVideo && !isLoadingJob) {
+          debugLog("[SourcesTab] Clearing sources tab after switching from history");
+          clearVideo();
+          clearAudio();
+          
+          // Update button state after clearing
+          if (typeof (window as any).updateLipsyncButton === "function") {
+            (window as any).updateLipsyncButton();
+          }
+        }
+      }, 200);
+    }
+  }, [activeTab, clearVideo, clearAudio]);
   const videoSrc = (selection.video || selection.videoUrl) 
     ? (selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? selection.video : null))
     : null;
@@ -61,8 +94,25 @@ const SourcesTab: React.FC = () => {
   useVideoPlayer(videoSrc);
 
   // Initialize audio player
+  // Compute audioSrc to match what's actually set on the audio element
+  // Prefer proxy URL for local files (faster, works better) even if audioUrl exists
   const audioSrc = (selection.audio || selection.audioUrl)
-    ? (selection.audioIsUrl && selection.audioUrl ? selection.audioUrl : (selection.audio ? selection.audio : null))
+    ? (selection.audioIsUrl && selection.audioUrl && !selection.audio
+        ? selection.audioUrl  // Only use R2 URL if we don't have a local file path
+        : (selection.audio 
+            ? (() => {
+                // For local files, compute the proxy URL to match what's set on the audio element
+                const ext = selection.audio.toLowerCase().split('.').pop();
+                const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
+                const encodedPath = encodeURIComponent(selection.audio);
+                // Add cache-busting parameter - update timestamp when path changes
+                if (!audioPathCacheBusterRef.current.has(selection.audio)) {
+                  audioPathCacheBusterRef.current.set(selection.audio, Date.now());
+                }
+                const cacheBuster = `&_t=${audioPathCacheBusterRef.current.get(selection.audio)}`;
+                return getApiUrl(`${route}?path=${encodedPath}${cacheBuster}`);
+              })()
+            : null))
     : null;
   useAudioPlayer(audioSrc);
 
@@ -74,31 +124,60 @@ const SourcesTab: React.FC = () => {
       (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_AUDIO_URL)));
     
     if (hasVideoReady && hasAudioReady) {
-      const now = Date.now();
-      const timeSinceLastShown = now - readyForLipsyncShownRef.current;
-      if (timeSinceLastShown > 3000) {
         if (typeof (window as any).updateInputStatus === "function") {
           (window as any).updateInputStatus();
-        }
       }
     }
   }, [selection.video, selection.videoUrl, selection.videoIsUrl, selection.audio, selection.audioUrl, selection.audioIsUrl]);
 
   useEffect(() => {
-    (window as any).setVideoPath = setVideoPath;
+    (window as any).setVideoPath = async (path: string, url?: string | null) => {
+      await setVideoPath(path, url);
+      // Force video element re-render after setVideoPath (critical for recording after innerHTML destroyed element)
+      setForceVideoRerender(prev => prev + 1);
+    };
     (window as any).setAudioPath = setAudioPath;
     
     (window as any).updateLipsyncButton = () => {
       const btn = document.getElementById("lipsyncBtn");
       if (!btn) return;
       
-      const hasVideoReady = (selection.videoIsUrl && selection.videoUrl) || 
+      // Check React state first
+      let hasVideoReady = (selection.videoIsUrl && selection.videoUrl) || 
         (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_VIDEO_URL)));
       
-      const hasAudioReady = (selection.audioIsUrl && selection.audioUrl) || 
+      let hasAudioReady = (selection.audioIsUrl && selection.audioUrl) || 
         (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_AUDIO_URL)));
       
+      // Fallback: check window globals if React state doesn't have files
+      // This handles cases where URLs are ready but React state hasn't updated
+      if (!hasVideoReady && !selection.video && !selection.videoUrl) {
+        const windowVideoUrl = (window as any).uploadedVideoUrl || (window as any).selectedVideoUrl;
+        if (windowVideoUrl && typeof windowVideoUrl === 'string' && windowVideoUrl.startsWith('http')) {
+          hasVideoReady = true;
+        }
+      }
+      
+      if (!hasAudioReady && !selection.audio && !selection.audioUrl) {
+        const windowAudioUrl = (window as any).uploadedAudioUrl || (window as any).selectedAudioUrl;
+        if (windowAudioUrl && typeof windowAudioUrl === 'string' && windowAudioUrl.startsWith('http')) {
+          hasAudioReady = true;
+        }
+      }
+      
       (btn as HTMLButtonElement).disabled = !(hasVideoReady && hasAudioReady);
+      
+      debugLog("[SourcesTab] updateLipsyncButton called", {
+        hasVideoReady,
+        hasAudioReady,
+        disabled: !(hasVideoReady && hasAudioReady),
+        selectionVideo: !!selection.video,
+        selectionVideoUrl: !!selection.videoUrl,
+        selectionAudio: !!selection.audio,
+        selectionAudioUrl: !!selection.audioUrl,
+        windowVideoUrl: !!(window as any).uploadedVideoUrl,
+        windowAudioUrl: !!(window as any).uploadedAudioUrl,
+      });
     };
 
     (window as any).renderInputPreview = (source?: string) => {
@@ -117,14 +196,6 @@ const SourcesTab: React.FC = () => {
       const status = document.getElementById("statusMessage");
       if (status) {
         status.textContent = "";
-      }
-      const now = Date.now();
-      const timeSinceLastShown = now - readyForLipsyncShownRef.current;
-      if ((selection.video || selection.videoUrl) && (selection.audio || selection.audioUrl)) {
-        if (timeSinceLastShown > 3000) {
-          showToast(ToastMessages.READY_FOR_LIPSYNC, "success");
-          readyForLipsyncShownRef.current = now;
-        }
       }
     };
 
@@ -219,30 +290,44 @@ const SourcesTab: React.FC = () => {
           videoPreview.style.display = 'flex';
           videoSection.classList.add('recording');
           
-          // Create recording UI first
+          // Create recording UI - append instead of innerHTML to preserve React's video element
           const preview = document.getElementById('videoPreview');
           if (preview && !preview.querySelector('.recording-container')) {
-            preview.innerHTML = `
-              <div class="recording-container">
-                <video id="videoRecordPreview" class="recording-preview" autoplay muted playsinline></video>
-                <button class="recording-close-btn" id="videoBackBtn">
-                  ${renderIconAsHTML("x", { size: 24 })}
-                </button>
-                <div class="recording-device-switcher" id="videoDeviceSwitcher">
-                  <select id="videoDeviceSelect" class="device-select">
-                  </select>
-                </div>
-                <button class="recording-stop-btn" id="videoStopBtn">
-                  <div class="recording-stop-icon"></div>
-                  <span class="recording-timer" id="videoTimer">00:00</span>
-                </button>
+            // Hide React's video player container during recording (not just the video element)
+            const customVideoPlayer = preview.querySelector('.custom-video-player');
+            if (customVideoPlayer) {
+              (customVideoPlayer as HTMLElement).style.display = 'none';
+            }
+            
+            // Create recording container and append it (don't use innerHTML!)
+            const recordingContainer = document.createElement('div');
+            recordingContainer.className = 'recording-container';
+            recordingContainer.innerHTML = `
+              <video id="videoRecordPreview" class="recording-preview" autoplay muted playsinline></video>
+              <button class="recording-close-btn" id="videoBackBtn">
+                ${renderIconAsHTML("x", { size: 24 })}
+              </button>
+              <div class="recording-device-switcher" id="videoDeviceSwitcher">
+                <select id="videoDeviceSelect" class="device-select">
+                </select>
               </div>
+              <button class="recording-stop-btn" id="videoStopBtn">
+                <div class="recording-stop-icon"></div>
+                <span class="recording-timer" id="videoTimer">00:00</span>
+              </button>
             `;
+            preview.appendChild(recordingContainer);
             
             const stopBtn = document.getElementById('videoStopBtn');
             if (stopBtn) {
               stopBtn.addEventListener('click', () => {
                 stopRecording();
+                // Note: UI cleanup will happen in onstop handler after recording completes
+                // But we can also clean up the video preview stream immediately
+                const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
+                if (video) {
+                  video.srcObject = null;
+                }
               });
             }
             
@@ -250,11 +335,24 @@ const SourcesTab: React.FC = () => {
             if (backBtn) {
               backBtn.addEventListener('click', () => {
                 stopRecording();
+                // Clean up recording UI
+                const recordingContainer = videoPreview.querySelector('.recording-container');
+                if (recordingContainer) {
+                  recordingContainer.remove();
+                }
+                const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
+                if (video) {
+                  video.srcObject = null;
+                }
+                // Stop stream if still active
+                if ((window as any).__recordingStream) {
+                  (window as any).__recordingStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+                  (window as any).__recordingStream = null;
+                }
+                // Reset UI
                 videoDropzone.style.display = 'flex';
                 videoPreview.style.display = 'none';
                 videoSection.classList.remove('recording');
-                const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
-                if (video) video.srcObject = null;
               });
             }
           }
@@ -272,9 +370,28 @@ const SourcesTab: React.FC = () => {
           const videoSection = document.getElementById('videoSection');
           const videoDropzone = document.getElementById('videoDropzone');
           const videoPreview = document.getElementById('videoPreview');
+          
+          // Clean up recording container if it was created
+          if (videoPreview) {
+            const recordingContainer = videoPreview.querySelector('.recording-container');
+            if (recordingContainer) {
+              recordingContainer.remove();
+            }
+            const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
+            if (video) {
+              video.srcObject = null;
+            }
+            videoPreview.style.display = 'none';
+          }
+          
           if (videoDropzone) videoDropzone.style.display = 'flex';
-          if (videoPreview) videoPreview.style.display = 'none';
           if (videoSection) videoSection.classList.remove('recording');
+          
+          // Stop stream if still active
+          if ((window as any).__recordingStream) {
+            (window as any).__recordingStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            (window as any).__recordingStream = null;
+          }
         }
     };
 
@@ -365,22 +482,28 @@ const SourcesTab: React.FC = () => {
       }, 0);
     };
     (window as any).startAudioRecording = async () => {
-        if ((window as any).debugLog) {
-          (window as any).debugLog('audio_record_clicked', { isRecording, recordingType });
-        }
+        try {
+          debugLog('startAudioRecording called', { isRecording, recordingType });
+          
+          // Check current recording state (use closure values)
         if (isRecording && recordingType === "audio") {
+            debugLog('Already recording audio, stopping...');
           stopRecording();
           return;
         }
         
-        try {
           const audioSection = document.getElementById('audioSection');
           const audioDropzone = document.getElementById('audioDropzone');
           const audioPreview = document.getElementById('audioPreview');
           
           if (!audioSection || !audioDropzone || !audioPreview) {
-            throw new Error('Audio elements not found');
+            const error = new Error('Audio elements not found');
+            debugError('Audio recording setup failed', error);
+            showToast('Failed to initialize audio recording. Please refresh and try again.', "error");
+            throw error;
           }
+          
+          debugLog('Setting up audio recording UI...');
           
           // Hide dropzone, show recording UI
           audioDropzone.style.display = 'none';
@@ -415,14 +538,27 @@ const SourcesTab: React.FC = () => {
             const stopBtn = document.getElementById('audioStopBtn');
             if (stopBtn) {
               stopBtn.addEventListener('click', () => {
+                debugLog('Audio stop button clicked');
                 stopRecording();
+                // Note: UI cleanup will happen in onstop handler after recording completes
               });
             }
             
             const backBtn = document.getElementById('audioBackBtn');
             if (backBtn) {
               backBtn.addEventListener('click', () => {
+                debugLog('Audio back button clicked');
                 stopRecording();
+                // Clean up recording UI
+                const recordingContainer = audioPreview.querySelector('.audio-recording-container');
+                if (recordingContainer) {
+                  recordingContainer.remove();
+                }
+                // Stop stream if still active
+                if ((window as any).__recordingStream) {
+                  (window as any).__recordingStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+                  (window as any).__recordingStream = null;
+                }
                 // Reset UI
                 audioDropzone.style.display = 'flex';
                 audioPreview.style.display = 'none';
@@ -431,18 +567,38 @@ const SourcesTab: React.FC = () => {
             }
           }
           
+          debugLog('Starting audio recording...');
           // Start recording
           await startRecording("audio");
+          debugLog('Audio recording started successfully');
         } catch (error) {
-          debugLog('Audio recording error', error);
+          debugError('Audio recording error', error);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          showToast(`Audio recording failed: ${errorMessage}`, "error");
+          
           // Error handling and UI reset is done in useRecording hook
           // Just ensure UI is reset here as well
           const audioSection = document.getElementById('audioSection');
           const audioDropzone = document.getElementById('audioDropzone');
           const audioPreview = document.getElementById('audioPreview');
+          
+          // Clean up recording container if it was created
+          if (audioPreview) {
+            const recordingContainer = audioPreview.querySelector('.audio-recording-container');
+            if (recordingContainer) {
+              recordingContainer.remove();
+            }
+            audioPreview.style.display = 'none';
+          }
+          
           if (audioDropzone) audioDropzone.style.display = 'flex';
-          if (audioPreview) audioPreview.style.display = 'none';
           if (audioSection) audioSection.classList.remove('recording');
+          
+          // Stop stream if still active
+          if ((window as any).__recordingStream) {
+            (window as any).__recordingStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            (window as any).__recordingStream = null;
+          }
         }
     };
     (window as any).selectAudioFromVideo = async () => {
@@ -465,6 +621,43 @@ const SourcesTab: React.FC = () => {
 
         const data = await parseJsonResponse<{ ok?: boolean; audioPath?: string; error?: string }>(response);
         if (response.ok && data?.ok && data?.audioPath) {
+          // Clear waveform and audio state first
+          const canvas = document.getElementById("waveformCanvas") as HTMLCanvasElement;
+          if (canvas) {
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width || 600, canvas.height || 80);
+            }
+          }
+          
+          // Force React to re-render audio element with new key to clear browser cache
+          // Increment forceVideoRerender to trigger React re-render with new key
+          setForceVideoRerender(prev => prev + 1);
+          
+          // Also aggressively clear audio element DOM state
+          const audio = document.getElementById('audioPlayer') as HTMLAudioElement;
+          if (audio) {
+            audio.pause();
+            audio.currentTime = 0;
+            // Set to empty data URL to break browser cache
+            audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+            audio.load();
+            // Remove src completely
+            audio.removeAttribute('src');
+            debugLog('[SourcesTab] Extract audio: Audio element cleared, forcing React re-render', {
+              forceRerenderTriggered: true,
+            });
+          }
+          
+          // Update window globals FIRST so waveform can find the path immediately
+          (window as any).selectedAudio = data.audioPath;
+          (window as any).selectedAudioUrl = null;
+          (window as any).selectedAudioIsUrl = false;
+          
+          // Update cache buster for this path to force reload (file might have been overwritten)
+          audioPathCacheBusterRef.current.set(data.audioPath, Date.now());
+          
+          // Update the audio path - this will trigger React to update audioSrc and the useEffect will update the audio element
           await setAudioPath(data.audioPath);
           
           // Update UI state
@@ -474,7 +667,6 @@ const SourcesTab: React.FC = () => {
           if (typeof (window as any).renderInputPreview === "function") {
             (window as any).renderInputPreview("extract-audio");
           }
-          // Don't call updateInputStatus here - useEffect will handle it when state changes
           
           // Show success toast
           if ((window as any).showToast) {
@@ -854,7 +1046,12 @@ const SourcesTab: React.FC = () => {
       const ext = selection.audio.toLowerCase().split('.').pop();
       const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
       const encodedPath = encodeURIComponent(selection.audio);
-      expectedSrc = getApiUrl(`${route}?path=${encodedPath}`);
+      // Add cache-busting parameter - use same timestamp as audioSrc computation
+      if (!audioPathCacheBusterRef.current.has(selection.audio)) {
+        audioPathCacheBusterRef.current.set(selection.audio, Date.now());
+      }
+      const cacheBuster = `&_t=${audioPathCacheBusterRef.current.get(selection.audio)}`;
+      expectedSrc = getApiUrl(`${route}?path=${encodedPath}${cacheBuster}`);
     }
     
     if (!expectedSrc) return;
@@ -880,22 +1077,52 @@ const SourcesTab: React.FC = () => {
         });
     };
     
-    // Check if src is already set and matches
-    if (audio.src === expectedSrc && audio.readyState >= 1) {
-      // Already loaded metadata - ensure we're at the start
+    // Always reload when audio path changes (even if URL looks the same, file might be different)
+    // Extract the base URL without cache buster for comparison
+    const currentSrcBase = audio.src.split('&_t=')[0];
+    const expectedSrcBase = expectedSrc.split('&_t=')[0];
+    const currentCacheBuster = audio.src.includes('&_t=') ? audio.src.split('&_t=')[1] : null;
+    const expectedCacheBuster = expectedSrc.split('&_t=')[1];
+    
+    // Always reload if cache buster is different (indicates file was updated)
+    const needsReload = currentSrcBase !== expectedSrcBase || 
+                        currentCacheBuster !== expectedCacheBuster ||
+                        audio.src !== expectedSrc;
+    
+    if (needsReload) {
+      const oldSrc = audio.src;
+      audio.pause();
+      audio.currentTime = 0;
+      // Aggressively clear audio element to force browser to release cached audio
+      // Set to empty data URL first to break any caching
+      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+      audio.load();
+      // Small delay to ensure browser releases the old audio completely
+      setTimeout(() => {
+        const audioEl = document.getElementById('audioPlayer') as HTMLAudioElement;
+        if (audioEl) {
+          audioEl.src = expectedSrc;
+          // Add a random query param to ensure cache busting works
+          if (!expectedSrc.includes('&_t=')) {
+            audioEl.src = expectedSrc + (expectedSrc.includes('?') ? '&' : '?') + '_t=' + Date.now();
+          } else {
+            audioEl.src = expectedSrc;
+          }
+          audioEl.load();
+          debugLog('[SourcesTab] Audio src changed, reloading', {
+            oldSrc: oldSrc.substring(0, 100) + '...',
+            newSrc: audioEl.src.substring(0, 100) + '...',
+            cacheBusterChanged: currentCacheBuster !== expectedCacheBuster,
+          });
+        }
+      }, 100);
+    } else if (audio.readyState >= 1) {
+      // Already loaded and matches - just ensure we're at the start
       if (audio.currentTime > 0 && audio.paused) {
         audio.currentTime = 0;
       }
       updateDurationDisplay();
-      return;
     }
-    
-    // Ensure src is set - reset currentTime when src changes
-    if (audio.src !== expectedSrc) {
-      audio.pause();
-      audio.currentTime = 0;
-      audio.src = expectedSrc;
-        }
         
     // Attach metadata listeners BEFORE calling load()
     const onLoadedMetadata = () => {
@@ -1358,6 +1585,13 @@ const SourcesTab: React.FC = () => {
                     // Update React state - pass null for path since we're using URL only
                     await setVideoPath(null as any, url);
                     
+                    // Dispatch event to trigger button state update
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('mediaUrlUpdated', { 
+                        detail: { type: 'video', url } 
+                      }));
+                    }
+                    
                     // Update UI state
                     if (typeof (window as any).updateLipsyncButton === "function") {
                       (window as any).updateLipsyncButton();
@@ -1412,7 +1646,8 @@ const SourcesTab: React.FC = () => {
               <div className="custom-video-player">
                 <video 
                   id="mainVideo" 
-                  className="video-element" 
+                  className="video-element"
+                  key={`video-${selection.video || selection.videoUrl || 'none'}-${forceVideoRerender}`} 
                   src={(() => {
                     // CEP blocks file:// URLs (error code 4: MEDIA_ERR_SRC_NOT_SUPPORTED)
                     // Use HTTP proxy route instead, similar to /wav/file and /mp3/file
@@ -1811,6 +2046,13 @@ const SourcesTab: React.FC = () => {
                     // Update React state - pass null for path since we're using URL only
                     await setAudioPath(null as any, url);
                     
+                    // Dispatch event to trigger button state update
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('mediaUrlUpdated', { 
+                        detail: { type: 'audio', url } 
+                      }));
+                    }
+                    
                     // Update UI state
                     if (typeof (window as any).updateLipsyncButton === "function") {
                       (window as any).updateLipsyncButton();
@@ -1855,10 +2097,12 @@ const SourcesTab: React.FC = () => {
                   </button>
                 </div>
               </div>
+            {/* Always render audioPreview so it's available for recording */}
+            <div id="audioPreview" style={{ display: (selection.audio || selection.audioUrl) ? "flex" : "none" }}>
             {(selection.audio || selection.audioUrl) && (
-              <div id="audioPreview" style={{ display: "flex" }}>
                 <div className="custom-audio-player">
                   <audio 
+                    key={`audio-${selection.audio || selection.audioUrl || 'none'}-${forceVideoRerender}`}
                     id="audioPlayer" 
                     src={(() => {
                       // CEP blocks file:// URLs - use HTTP proxy route instead
@@ -1986,9 +2230,9 @@ const SourcesTab: React.FC = () => {
                   }}>
                     <Trash2 size={16} />
                   </button>
-                </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* Hidden inputs for compatibility */}

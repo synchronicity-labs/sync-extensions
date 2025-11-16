@@ -198,7 +198,88 @@ export const useRecording = () => {
               // Continue anyway - local file is still available
             }
             
+            // Clean up recording UI FIRST - remove only recording container, preserve React's video element
+            if (type === "video") {
+              const videoPreview = document.getElementById('videoPreview');
+              const videoSection = document.getElementById('videoSection');
+              const videoDropzone = document.getElementById('videoDropzone');
+              const sourcesContainer = document.querySelector('.sources-container');
+              const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
+              
+              // Stop recording preview stream
+              if (video) {
+                video.srcObject = null;
+              }
+              
+              // Remove recording container and restore React's video player container visibility
+              if (videoPreview) {
+                const recordingContainer = videoPreview.querySelector('.recording-container');
+                if (recordingContainer) {
+                  recordingContainer.remove();
+                }
+                // Restore React's video player container visibility
+                const customVideoPlayer = videoPreview.querySelector('.custom-video-player');
+                if (customVideoPlayer) {
+                  (customVideoPlayer as HTMLElement).style.display = '';
+                }
+                videoPreview.style.display = 'flex';
+                videoPreview.style.minHeight = '400px';
+              }
+              
+              // Update classes immediately to maintain layout
+              if (videoSection) {
+                videoSection.classList.remove('recording');
+                videoSection.classList.add('has-media');
+              }
+              
+              if (videoDropzone) {
+                videoDropzone.style.display = 'none';
+              }
+              
+              if (sourcesContainer) {
+                sourcesContainer.classList.add('has-video');
+                const audioSection = document.getElementById('audioSection');
+                const hasAudio = audioSection && audioSection.classList.contains('has-media');
+                if (hasAudio) {
+                  sourcesContainer.classList.add('has-both');
+                } else {
+                  sourcesContainer.classList.remove('has-both');
+                }
+              }
+            } else {
+              const audioPreview = document.getElementById('audioPreview');
+              const audioSection = document.getElementById('audioSection');
+              const audioDropzone = document.getElementById('audioDropzone');
+              const sourcesContainer = document.querySelector('.sources-container');
+              
+              // Clear innerHTML to remove recording container
+              if (audioPreview) {
+                const recordingContainer = audioPreview.querySelector('.audio-recording-container');
+                if (recordingContainer) {
+                  recordingContainer.remove();
+                }
+              }
+              
+              if (audioSection) {
+                audioSection.classList.remove('recording');
+                audioSection.classList.add('has-media');
+              }
+              
+              if (audioDropzone) {
+                audioDropzone.style.display = 'none';
+              }
+              
+              if (sourcesContainer) {
+                const videoSection = document.getElementById('videoSection');
+                const hasVideo = videoSection && videoSection.classList.contains('has-media');
+                if (hasVideo) {
+                  sourcesContainer.classList.add('has-both');
+                }
+              }
+            }
+            
             // Update React state via setVideoPath/setAudioPath (pass URL to prevent double upload)
+            // React's video element is preserved (just hidden during recording), so it will show automatically
             if (type === "video") {
               if ((window as any).setVideoPath) {
                 await (window as any).setVideoPath(data.path, r2Url);
@@ -217,19 +298,6 @@ export const useRecording = () => {
               (window as any).renderInputPreview(type === 'video' ? 'videoRecording' : 'audioRecording');
             }
             // Don't call updateInputStatus here - it will be called by useEffect when both are ready
-            
-            // Remove recording class to clear orange outline (matches main branch)
-            if (type === "video") {
-              const videoSection = document.getElementById('videoSection');
-              if (videoSection) {
-                videoSection.classList.remove('recording');
-              }
-            } else {
-              const audioSection = document.getElementById('audioSection');
-              if (audioSection) {
-                audioSection.classList.remove('recording');
-              }
-            }
             
             // Show success toast (matches main branch)
             const successMsg = type === "video" 
@@ -487,6 +555,20 @@ export const useRecording = () => {
       animationFrameRef.current = null;
     }
     
+    if ((window as any).__stopAudioWaveform) {
+      (window as any).__stopAudioWaveform();
+      (window as any).__stopAudioWaveform = null;
+    }
+    
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {
+        debugError('audioContext.close() failed', e);
+      }
+      audioContextRef.current = null;
+    }
+    
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       const recorder = mediaRecorderRef.current;
       
@@ -516,6 +598,23 @@ export const useRecording = () => {
         track.stop();
         debugLog('[useRecording] Stopped track', { kind: track.kind, label: track.label });
       });
+      mediaStreamRef.current = null;
+    }
+    
+    // Also clean up global stream reference
+    if ((window as any).__recordingStream) {
+      (window as any).__recordingStream.getTracks().forEach((track: MediaStreamTrack) => {
+        track.stop();
+      });
+      (window as any).__recordingStream = null;
+    }
+    
+    // Reset state immediately
+    setIsRecording(false);
+    setRecordingType(null);
+    setRecordingTime(0);
+    if (startTimeRef.current) {
+      startTimeRef.current = null;
     }
   }, [isRecording]);
   
@@ -545,3 +644,4 @@ export const useRecording = () => {
     stopRecording,
   };
 };
+

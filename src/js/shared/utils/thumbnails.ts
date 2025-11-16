@@ -163,17 +163,18 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
         }
       };
       
-      // Timeout after 10 seconds
+      // Reduced timeout to 8 seconds for faster failure detection
       const timeout = setTimeout(() => {
         logToFile(`[Thumbnails] Thumbnail generation timeout for: ${jobId}`);
         resolveOnce(null);
-      }, 10000);
+      }, 8000);
       
       video.onloadedmetadata = () => {
         logToFile(`[Thumbnails] Video metadata loaded, seeking for: ${jobId}`);
         try {
-          // Seek to 0.5 seconds to avoid black frames
-          video.currentTime = Math.min(0.5, video.duration || 0);
+          // Seek to 0.3 seconds (faster than 0.5s) to avoid black frames but load faster
+          const seekTime = Math.min(0.3, (video.duration || 0) * 0.1);
+          video.currentTime = seekTime;
         } catch(e: any) {
           logToFile(`[Thumbnails] Seek error for ${jobId}: ${e.message}`);
           clearTimeout(timeout);
@@ -187,7 +188,7 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
           
           // Create canvas to capture frame
           const canvas = document.createElement('canvas');
-          const maxWidth = 200; // Low-res thumbnail
+          const maxWidth = 200; // Low-res thumbnail for fast loading
           
           if (!video.videoWidth || !video.videoHeight) {
             logToFile(`[Thumbnails] Invalid video dimensions for: ${jobId}`);
@@ -200,17 +201,23 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
           canvas.width = maxWidth;
           canvas.height = Math.round(maxWidth * aspectRatio);
           
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext('2d', { 
+            willReadFrequently: false, // Optimize for single read
+            alpha: false // No alpha channel needed for thumbnails
+          });
           if (!ctx) {
             clearTimeout(timeout);
             resolveOnce(null);
             return;
           }
           
+          // Use imageSmoothingEnabled for faster rendering
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'low'; // Faster rendering
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
-          // Convert to JPEG data URL
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          // Convert to JPEG data URL with lower quality (0.6) for faster encoding
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
           logToFile(`[Thumbnails] Thumbnail generated successfully for: ${jobId}`);
           
           clearTimeout(timeout);
@@ -480,8 +487,11 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
   
   logToFile(`[Thumbnails] ${cacheResults.filter(r => r.cached).length} thumbnails loaded from cache, ${jobsNeedingGeneration.length} need generation`);
   
-  // Process jobs that need generation sequentially (one at a time) to avoid video element conflicts
-  for (const job of jobsNeedingGeneration) {
+  // Process jobs that need generation in parallel with concurrency limit
+  // This significantly speeds up thumbnail loading while avoiding too many simultaneous video elements
+  const CONCURRENCY_LIMIT = 5; // Process 5 thumbnails at once
+  
+  const processJob = async (job: any) => {
     try {
       logToFile(`[Thumbnails] Processing job: ${job.id} - outputPath: ${job.outputPath || 'none'}, videoPath: ${job.videoPath || 'none'}, outputUrl: ${job.outputUrl || 'none'}, status: ${job.status}`);
       
@@ -496,7 +506,7 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
           const loader = card.querySelector('.history-thumbnail-loader') as HTMLElement;
           if (loader) loader.style.display = 'none';
         }
-        continue;
+        return;
       }
       
       // For HTTP URLs, try to generate through backend proxy
@@ -514,18 +524,15 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
       }
       
       logToFile(`[Thumbnails] Generating thumbnail from: ${finalVideoUrl.substring(0, 100)}`);
-      // Await each thumbnail generation to ensure sequential processing
       const thumbnailDataUrl = await generateThumbnail(finalVideoUrl, job.id);
       if (thumbnailDataUrl) {
         logToFile(`[Thumbnails] Generated thumbnail successfully for: ${job.id}`);
         updateCardThumbnail(job.id, thumbnailDataUrl);
         
-        // Cache the generated thumbnail
-          try {
-            await cacheThumbnail(job.id, thumbnailDataUrl);
-          } catch(e: any) {
-            logToFile(`[Thumbnails] Failed to cache thumbnail: ${e.message}`);
-        }
+        // Cache the generated thumbnail (don't await to avoid blocking)
+        cacheThumbnail(job.id, thumbnailDataUrl).catch((e: any) => {
+          logToFile(`[Thumbnails] Failed to cache thumbnail: ${e.message}`);
+        });
       } else {
         logToFile(`[Thumbnails] Failed to generate thumbnail, showing placeholder for: ${job.id}`);
         // Show placeholder on failure
@@ -550,6 +557,12 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
     } catch(e: any) {
       logToFile(`[Thumbnails] Error processing job: ${job.id} - ${e.message}`);
     }
+  };
+  
+  // Process jobs in parallel batches with concurrency limit
+  for (let i = 0; i < jobsNeedingGeneration.length; i += CONCURRENCY_LIMIT) {
+    const batch = jobsNeedingGeneration.slice(i, i + CONCURRENCY_LIMIT);
+    await Promise.all(batch.map(processJob));
   }
   
   logToFile('[Thumbnails] Batch generation complete');

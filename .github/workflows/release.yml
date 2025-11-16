@@ -1,4 +1,4 @@
-name: Upload ZXP Release
+name: Release
 
 on:
   push:
@@ -21,14 +21,25 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
           
-      - name: Check if ZXP exists
+      - name: Check if release files exist
         run: |
-          if [ ! -f "dist/zxp/com.sync.extension.zxp" ]; then
-            echo "Error: ZXP file not found at dist/zxp/com.sync.extension.zxp"
-            echo "Please run ./bin/release.sh locally to build the ZXP first"
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          ZXP_PATH="dist/zxp/com.sync.extension.zxp"
+          ZIP_PATH="dist/sync-resolve-plugin-v${VERSION}.zip"
+          
+          if [ ! -f "$ZXP_PATH" ]; then
+            echo "Error: ZXP file not found at $ZXP_PATH"
+            echo "Please run ./bin/release.sh locally to build and sign packages first"
             exit 1
           fi
           echo "✅ ZXP file found"
+          
+          if [ ! -f "$ZIP_PATH" ]; then
+            echo "Error: Resolve ZIP file not found at $ZIP_PATH"
+            echo "Please run ./bin/release.sh locally to build packages first"
+            exit 1
+          fi
+          echo "✅ Resolve ZIP file found"
 
       - name: Get tag message
         id: tag_message
@@ -47,16 +58,17 @@ jobs:
           body: |
             ${{ steps.tag_message.outputs.message }}
             
-            **Download:**
+            **Downloads:**
             - `com.sync.extension.zxp` - Unified extension for After Effects and Premiere Pro (works on Windows and macOS)
+            - `sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip` - DaVinci Resolve plugin
             
             **Security & Trust:**
-            - Package is digitally signed and verified
-            - SHA256 checksums are provided in `checksums.txt` for integrity verification
-            - Verify checksums: `sha256sum -c checksums.txt` (Linux/macOS) or `certutil -hashfile com.sync.extension.zxp SHA256` (Windows)
+            - ZXP package is digitally signed and verified (signed locally before upload)
+            - Verify signature using ZXP Installer or ZXPSignCmd
           files: |
             dist/zxp/com.sync.extension.zxp
-            dist/zxp/checksums.txt
+            dist/sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip
           draft: false
           prerelease: false
           generate_release_notes: true
+

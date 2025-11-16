@@ -379,8 +379,35 @@ router.post('/cost/estimate', async (req, res) => {
   try {
     const { videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey } = req.body || {};
     
+    tlog('[cost/estimate] Request received', JSON.stringify({
+      hasVideoUrl: !!videoUrl,
+      hasAudioUrl: !!audioUrl,
+      videoUrlType: typeof videoUrl,
+      audioUrlType: typeof audioUrl,
+      videoUrlPreview: videoUrl ? (typeof videoUrl === 'string' ? videoUrl.substring(0, 100) : String(videoUrl).substring(0, 100)) : 'null',
+      audioUrlPreview: audioUrl ? (typeof audioUrl === 'string' ? audioUrl.substring(0, 100) : String(audioUrl).substring(0, 100)) : 'null',
+      model,
+      hasSyncApiKey: !!syncApiKey,
+      syncApiKeyPreview: syncApiKey ? syncApiKey.substring(0, 20) + '...' : 'null'
+    }));
+    
     if (!videoUrl || !audioUrl) {
+      tlog('[cost/estimate] Missing URLs', JSON.stringify({ videoUrl: !!videoUrl, audioUrl: !!audioUrl }));
       return res.status(400).json({ error: 'Video and audio URLs required' });
+    }
+    
+    // Validate URLs are actual URLs, not file paths
+    const isValidUrl = (url: any) => {
+      if (typeof url !== 'string') return false;
+      return url.startsWith('http://') || url.startsWith('https://');
+    };
+    
+    if (!isValidUrl(videoUrl) || !isValidUrl(audioUrl)) {
+      tlog('[cost/estimate] Invalid URLs (file paths instead of URLs)', JSON.stringify({
+        videoUrl: String(videoUrl).substring(0, 100),
+        audioUrl: String(audioUrl).substring(0, 100)
+      }));
+      return res.status(400).json({ error: 'Video and audio must be HTTP/HTTPS URLs, not file paths' });
     }
     
     // Get syncApiKey from body or try to get from settings header
@@ -393,6 +420,7 @@ router.post('/cost/estimate', async (req, res) => {
     }
     
     if (!apiKey) {
+      tlog('[cost/estimate] Missing syncApiKey');
       return res.status(400).json({ error: 'syncApiKey required' });
     }
     
@@ -402,6 +430,13 @@ router.post('/cost/estimate', async (req, res) => {
       options: { sync_mode: 'loop' }
     };
     
+    tlog('[cost/estimate] Calling Sync API', JSON.stringify({
+      model: body.model,
+      videoUrl: videoUrl.substring(0, 100) + '...',
+      audioUrl: audioUrl.substring(0, 100) + '...',
+      apiKeyPreview: apiKey.substring(0, 20) + '...'
+    }));
+    
     const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'content-type': 'application/json', 'accept': 'application/json' },
@@ -410,32 +445,47 @@ router.post('/cost/estimate', async (req, res) => {
     });
     
     const text = await safeText(resp);
+    tlog('[cost/estimate] Sync API response', JSON.stringify({
+      status: resp.status,
+      statusText: resp.statusText,
+      textPreview: text ? text.substring(0, 500) : 'empty',
+      textLength: text ? text.length : 0,
+      fullText: text || 'empty'
+    }));
+    
     if (!resp.ok) {
+      tlog('[cost/estimate] Sync API error', JSON.stringify({ status: resp.status, text }));
       return res.status(resp.status).json({ error: text || 'cost failed' });
     }
     
-    let raw = null;
-    let estimate = [];
-    try { raw = JSON.parse(text || '[]'); } catch (_) { raw = null; }
-    if (Array.isArray(raw)) estimate = raw;
-    else if (raw && typeof raw === 'object') estimate = [raw];
-    else estimate = [];
-    
-    // Extract cost from estimate array (first item's cost field, or sum all costs)
+    // Parse the response - Sync API returns: {"estimatedFrameCount":90,"estimatedGenerationCost":0.3}
     let cost = 0;
-    if (estimate.length > 0) {
-      if (typeof estimate[0].cost === 'number') {
-        cost = estimate[0].cost;
-      } else if (typeof estimate[0] === 'number') {
-        cost = estimate[0];
-      } else {
-        // Sum all costs if multiple estimates
-        cost = estimate.reduce((sum, e) => sum + (typeof e.cost === 'number' ? e.cost : typeof e === 'number' ? e : 0), 0);
+    try {
+      const responseData = JSON.parse(text || '{}');
+      tlog('[cost/estimate] Parsed response', JSON.stringify({
+        responseData,
+        hasEstimatedGenerationCost: typeof responseData === 'object' && responseData !== null && 'estimatedGenerationCost' in responseData,
+        estimatedGenerationCost: responseData?.estimatedGenerationCost
+      }));
+      
+      // Extract cost directly from the response
+      if (typeof responseData === 'object' && responseData !== null) {
+        if (typeof responseData.estimatedGenerationCost === 'number') {
+          cost = responseData.estimatedGenerationCost;
+        } else if (typeof responseData.cost === 'number') {
+          cost = responseData.cost;
+        }
       }
+    } catch (e) {
+      tlog('[cost/estimate] JSON parse error', JSON.stringify({ error: String(e), textPreview: text?.substring(0, 200) }));
+      cost = 0;
     }
+    
+    tlog('[cost/estimate] Final cost', JSON.stringify({ cost, costType: typeof cost }));
     
     res.json({ ok: true, cost });
   } catch (e) {
+    tlog('[cost/estimate] Exception', { error: String(e?.message || e), stack: e?.stack });
     res.status(500).json({ error: String(e?.message || e) });
   }
 });

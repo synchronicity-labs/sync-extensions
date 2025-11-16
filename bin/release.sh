@@ -48,6 +48,11 @@ echo "✅ Created sanitized .env file in dist/cep/server/.env"
 echo "Building ZXP locally..."
 npm run zxp
 
+# Build DaVinci Resolve ZIP
+echo ""
+echo "Building DaVinci Resolve plugin ZIP..."
+npm run build:davinci
+
 # Verify ZXP
 echo ""
 echo "🔍 ZXP Verification Report"
@@ -63,8 +68,16 @@ if [ ! -f "$ZXP_PATH" ]; then
   echo "❌ ZXP file not found: $ZXP_PATH"
   exit 1
 fi
-FILE_SIZE=$(stat -f%z "$ZXP_PATH" 2>/dev/null || stat -c%s "$ZXP_PATH" 2>/dev/null)
-FILE_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $FILE_SIZE / 1024 / 1024}")
+# Get file size (works on both macOS/Linux and Windows Git Bash)
+if command -v stat >/dev/null 2>&1; then
+  FILE_SIZE=$(stat -f%z "$ZXP_PATH" 2>/dev/null || stat -c%s "$ZXP_PATH" 2>/dev/null)
+elif [ -f "$ZXP_PATH" ]; then
+  # Fallback for Windows without stat
+  FILE_SIZE=$(wc -c < "$ZXP_PATH" 2>/dev/null || echo "0")
+else
+  FILE_SIZE=0
+fi
+FILE_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $FILE_SIZE / 1024 / 1024}" 2>/dev/null || echo "0.00")
 echo "✅ ZXP file exists: ${FILE_SIZE_MB} MB"
 
 # 2. Verify signature
@@ -122,11 +135,16 @@ REQUIRED_FILES=(
   "CSXS/manifest.xml"
   "main/index.html"
   "jsx/index.jsxbin"
-  "server/server.js"
+  "server/server.ts"
   "server/package.json"
+  "server/.env"
   "bin/darwin-arm64/node"
   "bin/darwin-x64/node"
   "bin/win32-x64/node.exe"
+)
+
+REQUIRED_DIRS=(
+  "server/node_modules"
 )
 
 ALL_PRESENT=true
@@ -139,28 +157,49 @@ for file in "${REQUIRED_FILES[@]}"; do
   fi
 done
 
+# Check required directories
+for dir in "${REQUIRED_DIRS[@]}"; do
+  if [ -d "$EXTRACT_DIR/$dir" ]; then
+    # Count files in node_modules to ensure it's not empty (works on Unix and Windows Git Bash)
+    if command -v find >/dev/null 2>&1; then
+      FILE_COUNT=$(find "$EXTRACT_DIR/$dir" -type f 2>/dev/null | wc -l | tr -d ' ')
+    else
+      # Fallback: check if directory has any files at all
+      FILE_COUNT=$(ls -R "$EXTRACT_DIR/$dir" 2>/dev/null | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
+    fi
+    if [ "$FILE_COUNT" -gt 0 ]; then
+      echo "✅ $dir (contains $FILE_COUNT files)"
+    else
+      echo "❌ $dir exists but is empty"
+      ALL_PRESENT=false
+    fi
+  else
+    echo "❌ Missing directory: $dir"
+    ALL_PRESENT=false
+  fi
+done
+
 if [ "$ALL_PRESENT" = false ]; then
   rm -rf "$EXTRACT_DIR"
   exit 1
 fi
 
-# Cleanup
-rm -rf "$EXTRACT_DIR"
-
-# 5. Verify manifest
+# 5. Verify manifest (re-extract just the manifest)
 echo ""
 echo "5. Manifest Verification"
-mkdir -p "$EXTRACT_DIR"
-unzip -q -o "$ZXP_PATH" CSXS/manifest.xml -d "$EXTRACT_DIR" || {
+MANIFEST_EXTRACT_DIR="$REPO_DIR/dist/.manifest-verify"
+rm -rf "$MANIFEST_EXTRACT_DIR"
+mkdir -p "$MANIFEST_EXTRACT_DIR"
+unzip -q -o "$ZXP_PATH" CSXS/manifest.xml -d "$MANIFEST_EXTRACT_DIR" || {
   echo "❌ Failed to extract manifest"
-  rm -rf "$EXTRACT_DIR"
+  rm -rf "$MANIFEST_EXTRACT_DIR"
   exit 1
 }
 
-MANIFEST_PATH="$EXTRACT_DIR/CSXS/manifest.xml"
+MANIFEST_PATH="$MANIFEST_EXTRACT_DIR/CSXS/manifest.xml"
 if [ ! -f "$MANIFEST_PATH" ]; then
   echo "❌ Manifest not found"
-  rm -rf "$EXTRACT_DIR"
+  rm -rf "$MANIFEST_EXTRACT_DIR"
   exit 1
 fi
 
@@ -204,37 +243,168 @@ else
   ALL_FOUND=false
 fi
 
-rm -rf "$EXTRACT_DIR"
+rm -rf "$MANIFEST_EXTRACT_DIR"
 
 if [ "$ALL_FOUND" = false ]; then
   exit 1
 fi
 
-# 6. Cross-platform compatibility
+# 6. Verify critical dependencies (using the already-extracted ZXP)
 echo ""
-echo "6. Cross-Platform Compatibility"
+echo "6. Critical Dependencies Verification"
+# Check for tsx (required to run TypeScript server files)
+if [ -f "$EXTRACT_DIR/server/node_modules/tsx/dist/cli.mjs" ] || [ -f "$EXTRACT_DIR/server/node_modules/.bin/tsx" ] || [ -d "$EXTRACT_DIR/server/node_modules/tsx" ]; then
+  echo "✅ tsx found (required for TypeScript execution)"
+else
+  echo "⚠️  tsx not found - server may not run (check if server.ts needs compilation)"
+fi
+
+# Check for express (core server dependency)
+if [ -d "$EXTRACT_DIR/server/node_modules/express" ]; then
+  echo "✅ express found (core server dependency)"
+else
+  echo "❌ express not found - server will not work"
+  ALL_PRESENT=false
+fi
+
+# Check for bundled Node.js binaries
+if [ -f "$EXTRACT_DIR/bin/darwin-arm64/node" ] && [ -f "$EXTRACT_DIR/bin/darwin-x64/node" ] && [ -f "$EXTRACT_DIR/bin/win32-x64/node.exe" ]; then
+  echo "✅ All Node.js binaries present (darwin-arm64, darwin-x64, win32-x64)"
+else
+  echo "❌ Missing Node.js binaries - extension will not work without system Node.js"
+  ALL_PRESENT=false
+fi
+
+if [ "$ALL_PRESENT" = false ]; then
+  rm -rf "$EXTRACT_DIR"
+  exit 1
+fi
+
+# Cleanup ZXP extract directory
+rm -rf "$EXTRACT_DIR"
+
+# 7. Cross-platform compatibility
+echo ""
+echo "7. Cross-Platform Compatibility"
 echo "✅ ZXP files are platform-agnostic ZIP archives"
 echo "✅ Signature embedded in ZXP works on both Windows and macOS"
 echo "✅ Certificate is timestamped (valid across platforms)"
 echo "✅ All paths are relative (no platform-specific paths)"
+echo "✅ Node.js binaries included for all platforms (darwin-arm64, darwin-x64, win32-x64)"
 
 echo ""
 echo "============================================================"
 echo ""
-echo "✅ ALL CHECKS PASSED"
+echo "✅ ZXP VERIFICATION PASSED"
 echo ""
-echo "📦 The ZXP file is ready for distribution on both Windows and macOS"
-echo "   Install using: ZXP Installer (aescripts.com/learn/zxp-installer)"
 
-# Generate checksums
-echo "Generating checksums..."
-cd dist/zxp
-sha256sum *.zxp > checksums.txt
-cd "$REPO_DIR"
+# Verify DaVinci Resolve ZIP
+echo ""
+echo "🔍 DaVinci Resolve ZIP Verification Report"
+echo "============================================================"
+
+RESOLVE_ZIP_PATH="$REPO_DIR/dist/sync-resolve-plugin-v${VERSION}.zip"
+
+# 1. Check if ZIP file exists
+echo ""
+echo "1. File Existence Check"
+if [ ! -f "$RESOLVE_ZIP_PATH" ]; then
+  echo "❌ Resolve ZIP file not found: $RESOLVE_ZIP_PATH"
+  exit 1
+fi
+# Get file size
+if command -v stat >/dev/null 2>&1; then
+  ZIP_SIZE=$(stat -f%z "$RESOLVE_ZIP_PATH" 2>/dev/null || stat -c%s "$RESOLVE_ZIP_PATH" 2>/dev/null)
+elif [ -f "$RESOLVE_ZIP_PATH" ]; then
+  ZIP_SIZE=$(wc -c < "$RESOLVE_ZIP_PATH" 2>/dev/null || echo "0")
+else
+  ZIP_SIZE=0
+fi
+ZIP_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $ZIP_SIZE / 1024 / 1024}" 2>/dev/null || echo "0.00")
+echo "✅ Resolve ZIP file exists: ${ZIP_SIZE_MB} MB"
+
+# 2. Verify ZIP structure
+echo ""
+echo "2. ZIP Structure Verification"
+EXTRACT_DIR="$REPO_DIR/dist/.resolve-verify"
+rm -rf "$EXTRACT_DIR"
+mkdir -p "$EXTRACT_DIR"
+unzip -q -o "$RESOLVE_ZIP_PATH" -d "$EXTRACT_DIR" || {
+  echo "❌ Failed to extract Resolve ZIP"
+  exit 1
+}
+
+RESOLVE_REQUIRED_FILES=(
+  "resolve/backend.js"
+  "resolve/manifest.json"
+  "resolve/package.json"
+  "resolve/static/index.html"
+)
+
+RESOLVE_ALL_PRESENT=true
+for file in "${RESOLVE_REQUIRED_FILES[@]}"; do
+  if [ -f "$EXTRACT_DIR/$file" ]; then
+    echo "✅ $file"
+  else
+    echo "❌ Missing: $file"
+    RESOLVE_ALL_PRESENT=false
+  fi
+done
+
+# Check for node_modules in resolve/static/server
+if [ -d "$EXTRACT_DIR/resolve/static/server/node_modules" ]; then
+  if command -v find >/dev/null 2>&1; then
+    RESOLVE_FILE_COUNT=$(find "$EXTRACT_DIR/resolve/static/server/node_modules" -type f 2>/dev/null | wc -l | tr -d ' ')
+  else
+    RESOLVE_FILE_COUNT=$(ls -R "$EXTRACT_DIR/resolve/static/server/node_modules" 2>/dev/null | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
+  fi
+  if [ "$RESOLVE_FILE_COUNT" -gt 0 ]; then
+    echo "✅ resolve/static/server/node_modules (contains $RESOLVE_FILE_COUNT files)"
+  else
+    echo "❌ resolve/static/server/node_modules exists but is empty"
+    RESOLVE_ALL_PRESENT=false
+  fi
+else
+  echo "⚠️  resolve/static/server/node_modules not found (may be optional for Resolve)"
+fi
+
+rm -rf "$EXTRACT_DIR"
+
+if [ "$RESOLVE_ALL_PRESENT" = false ]; then
+  echo "❌ Resolve ZIP verification failed"
+  exit 1
+fi
+
+echo ""
+echo "============================================================"
+echo ""
+echo "✅ ALL VERIFICATIONS PASSED"
+echo ""
+echo "📦 Packages ready for distribution:"
+echo "   - ZXP: dist/zxp/com.sync.extension.zxp (Adobe After Effects & Premiere Pro)"
+echo "   - ZIP: dist/sync-resolve-plugin-v${VERSION}.zip (DaVinci Resolve)"
+echo ""
+echo "📋 ZXP Package Contents:"
+echo "   - Extension manifest and UI files"
+echo "   - ExtendScript (JSXBIN) files"
+echo "   - Node.js server with all dependencies (node_modules)"
+echo "   - Bundled Node.js binaries for all platforms"
+echo "   - EPR preset files"
+echo "   - Environment configuration (.env)"
+echo ""
+echo "📋 Resolve ZIP Package Contents:"
+echo "   - Resolve plugin backend and manifest"
+echo "   - UI files (shared with Adobe extension)"
+echo "   - Node.js server with dependencies"
+echo "   - Python API scripts"
+
 
 # Commit changes
+echo ""
 echo "Committing changes..."
-git add package.json package-lock.json dist/zxp/com.sync.extension.zxp dist/zxp/checksums.txt
+git add package.json package-lock.json \
+  dist/zxp/com.sync.extension.zxp \
+  dist/sync-resolve-plugin-v${VERSION}.zip
 git commit -m "Bump version to $VERSION" || echo "No changes to commit"
 
 # Create git tag
@@ -247,6 +417,11 @@ git push origin HEAD || true
 git push origin "v$VERSION" || true
 
 echo ""
+echo "============================================================"
 echo "✅ Release $VERSION completed!"
-echo "📦 ZXP built locally: dist/zxp/com.sync.extension.zxp"
-echo "🚀 GitHub Actions will upload ZXP to releases on tag push"
+echo ""
+echo "📦 Built packages:"
+echo "   - ZXP: dist/zxp/com.sync.extension.zxp"
+echo "   - ZIP: dist/sync-resolve-plugin-v${VERSION}.zip"
+echo ""
+echo "🚀 GitHub Actions will upload packages to releases on tag push"

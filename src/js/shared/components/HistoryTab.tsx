@@ -145,6 +145,7 @@ const HistoryTabContent: React.FC = () => {
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
   const { jobs, isLoading, hasMore, loadMore, loadJobsFromServer, displayedCount, serverError } = useHistory();
   const displayedCountRef = useRef(displayedCount);
+  const loadedThumbnailsRef = useRef<Set<string>>(new Set()); // Track loaded thumbnails to avoid duplicates
   
   // Keep ref updated
   useEffect(() => {
@@ -157,6 +158,7 @@ const HistoryTabContent: React.FC = () => {
   const { settings } = useSettings();
   const hasLoadedRef = useRef(false);
   const loadJobsRef = useRef(loadJobsFromServer);
+  const handleLoadJobIntoSourcesRef = useRef<((jobId: string) => void) | null>(null);
 
   // Keep ref updated
   useEffect(() => {
@@ -182,7 +184,229 @@ const HistoryTabContent: React.FC = () => {
     }
   }, [activeTab]);
 
-  // Pre-load thumbnails during loading screen (before UI becomes visible)
+  // Monitor job status silently while on history tab
+  // This effect runs whenever activeTab changes to "history" and there's a monitoring job ID
+  useEffect(() => {
+    const monitoringJobId = (window as any).__monitoringJobId;
+    if (!monitoringJobId) {
+      return;
+    }
+
+    // Only monitor when on history tab (user requirement: "if the user stays on history tab")
+    if (activeTab !== "history") {
+      debugLog("[HistoryTab] Not on history tab, pausing monitoring", { jobId: monitoringJobId });
+      return;
+    }
+
+    debugLog("[HistoryTab] Starting to monitor job", { jobId: monitoringJobId });
+
+    let pollInterval: NodeJS.Timeout | null = null;
+    let isMonitoring = true;
+
+    const checkJobStatus = async () => {
+      // Double-check we're still monitoring and on history tab
+      if (!isMonitoring || activeTab !== "history") {
+        return;
+      }
+
+      // Re-check monitoring job ID in case it was cleared
+      const currentMonitoringJobId = (window as any).__monitoringJobId;
+      if (!currentMonitoringJobId || currentMonitoringJobId !== monitoringJobId) {
+        debugLog("[HistoryTab] Monitoring job ID changed or cleared, stopping", { 
+          originalId: monitoringJobId,
+          currentId: currentMonitoringJobId
+        });
+        isMonitoring = false;
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        return;
+      }
+
+      try {
+        await ensureAuthToken();
+        const headers = authHeaders();
+        const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+        const apiKey = settings.syncApiKey || "";
+
+        if (!apiKey) {
+          debugLog("[HistoryTab] No API key, stopping monitoring");
+          isMonitoring = false;
+          return;
+        }
+
+        // Fetch from Sync API directly
+        const url = new URL(`${getApiUrl("/jobs")}`);
+        url.searchParams.set("syncApiKey", apiKey);
+        
+        const response = await fetch(url.toString(), {
+          method: "GET",
+          headers,
+        });
+
+        if (response.ok) {
+          const data = await response.json().catch(() => null);
+          const jobsArray = Array.isArray(data) ? data : [];
+          
+          const job = jobsArray.find((j: any) => String(j.id) === String(monitoringJobId));
+          
+          if (job) {
+            const status = String(job.status || "").toLowerCase();
+            const isCompleted = status === "completed" || status === "COMPLETED";
+            const isFailed = status === "failed" || status === "rejected";
+            
+            debugLog("[HistoryTab] Job status check", { 
+              jobId: monitoringJobId, 
+              status: job.status,
+              isCompleted,
+              isFailed
+            });
+
+            if (isCompleted || isFailed) {
+              // Stop monitoring first to prevent multiple triggers
+              isMonitoring = false;
+              if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+              }
+              
+              // Clear monitoring job ID
+              delete (window as any).__monitoringJobId;
+
+              // Job is done - reload jobs list to get latest status
+              debugLog("[HistoryTab] Job completed, reloading jobs list", { jobId: monitoringJobId });
+              
+              // Reload jobs and wait for it to complete
+              try {
+                await loadJobsRef.current();
+                
+                // If completed (not failed), auto-switch to sources tab and load the job
+                if (isCompleted && !isFailed) {
+                  debugLog("[HistoryTab] Job completed successfully, switching to sources tab", { jobId: monitoringJobId });
+                  
+                  // Use the job data we already have from the API response
+                  // This ensures we have the latest job data even if React state hasn't updated
+                  const completedJob = job;
+                  
+                  // Wait a bit for React state to update, then load the job
+                  setTimeout(() => {
+                    // Use the job data we fetched directly (more reliable than waiting for React state)
+                    if (completedJob && (completedJob.outputPath || completedJob.outputUrl)) {
+                      // Set flag to prevent clearing sources tab
+                      (window as any).__loadingJobIntoSources = true;
+                      
+                      // Switch to sources tab
+                      setActiveTab("sources");
+                      
+                      // Render output video immediately with the job data we have
+                      setTimeout(() => {
+                        if ((window as any).renderOutputVideo) {
+                          (window as any).renderOutputVideo(completedJob);
+                        }
+                        if ((window as any).showPostLipsyncActions) {
+                          (window as any).showPostLipsyncActions(completedJob);
+                        }
+                        
+                        // Disable button and hide audio section
+                        const lipsyncBtn = document.getElementById('lipsyncBtn');
+                        if (lipsyncBtn) {
+                          (lipsyncBtn as HTMLButtonElement).disabled = true;
+                          lipsyncBtn.style.display = 'flex';
+                        }
+                        const audioSection = document.getElementById('audioSection');
+                        if (audioSection) audioSection.style.display = 'none';
+                        
+                        // Clear flag after rendering
+                        setTimeout(() => {
+                          delete (window as any).__loadingJobIntoSources;
+                        }, 1000);
+                        
+                        if ((window as any).showToast) {
+                          (window as any).showToast('generation loaded', 'success');
+                        }
+                      }, 100);
+                    } else {
+                      // Fallback: use the handler which will look up the job from jobs array
+                    if (handleLoadJobIntoSourcesRef.current) {
+                      handleLoadJobIntoSourcesRef.current(monitoringJobId);
+                    } else {
+                      setActiveTab("sources");
+                      }
+                    }
+                  }, 300);
+                }
+              } catch (error: any) {
+                debugError("[HistoryTab] Error reloading jobs after completion", error);
+                // Still try to load the job using the job data we have
+                if (isCompleted && !isFailed) {
+                  setTimeout(() => {
+                    (window as any).__loadingJobIntoSources = true;
+                    setActiveTab("sources");
+                    
+                    setTimeout(() => {
+                      if ((window as any).renderOutputVideo && job.outputPath) {
+                        (window as any).renderOutputVideo(job);
+                      }
+                      if ((window as any).showPostLipsyncActions) {
+                        (window as any).showPostLipsyncActions(job);
+                      }
+                      
+                      const lipsyncBtn = document.getElementById('lipsyncBtn');
+                      if (lipsyncBtn) {
+                        (lipsyncBtn as HTMLButtonElement).disabled = true;
+                        lipsyncBtn.style.display = 'flex';
+                      }
+                      const audioSection = document.getElementById('audioSection');
+                      if (audioSection) audioSection.style.display = 'none';
+                      
+                      setTimeout(() => {
+                        delete (window as any).__loadingJobIntoSources;
+                      }, 1000);
+                      
+                      if ((window as any).showToast) {
+                        (window as any).showToast('generation loaded', 'success');
+                      }
+                    }, 100);
+                  }, 300);
+                }
+              }
+            }
+          } else {
+            debugLog("[HistoryTab] Job not found in list yet, will continue monitoring", { jobId: monitoringJobId });
+          }
+        }
+      } catch (error: any) {
+        debugError("[HistoryTab] Error checking job status", error);
+        // Continue monitoring on error (unless we're no longer on history tab)
+        if (activeTab !== "history") {
+          isMonitoring = false;
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+          }
+        }
+      }
+    };
+
+    // Check immediately
+    checkJobStatus();
+
+    // Then poll every 5 seconds (silently monitoring)
+    pollInterval = setInterval(() => {
+      checkJobStatus();
+    }, 5000);
+
+    return () => {
+      isMonitoring = false;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
+  }, [activeTab, setActiveTab, authHeaders, ensureAuthToken]);
+
+  // Pre-load thumbnails as soon as jobs are available (even before loading completes)
   const preloadThumbnailsRef = useRef<string>('');
   
   useEffect(() => {
@@ -193,8 +417,9 @@ const HistoryTabContent: React.FC = () => {
     
     const safeJobsArray = Array.isArray(jobs) ? jobs : [];
 
-    // Pre-generate thumbnails for first batch of jobs during loading screen
-    if (safeJobsArray.length > 0 && isLoading) {
+    // Pre-generate thumbnails for first batch as soon as jobs are available
+    // Don't wait for loading to complete - start immediately
+    if (safeJobsArray.length > 0) {
       const pageSize = 10;
       const firstBatch = safeJobsArray.slice(0, pageSize);
       const batchKey = firstBatch.map(j => j?.id || '').join(',');
@@ -203,26 +428,29 @@ const HistoryTabContent: React.FC = () => {
       if (batchKey && batchKey !== preloadThumbnailsRef.current) {
         preloadThumbnailsRef.current = batchKey;
         
-        debugLog('[HistoryTab] Pre-loading thumbnails during loading screen', { 
-          count: firstBatch.length 
+        debugLog('[HistoryTab] Pre-loading thumbnails immediately', { 
+          count: firstBatch.length,
+          isLoading 
         });
         
-        // Load cached thumbnails first
-        const loadPromises = firstBatch
-          .filter(job => job?.id && (job.status === 'COMPLETED' || job.status === 'completed'))
-          .map(async (job) => {
-            try {
-              const cached = await (window as any).loadThumbnail?.(job.id);
-              if (cached) {
-                return { jobId: job.id, thumbnail: cached };
-              }
-            } catch (e) {
-              // Ignore errors
-            }
-            return null;
-          });
+        // Load cached thumbnails first (fast path)
+        const completedJobs = firstBatch.filter(job => 
+          job?.id && (job.status === 'COMPLETED' || job.status === 'completed')
+        );
         
-        Promise.all(loadPromises).then(loadResults => {
+        // Load all cached thumbnails in parallel immediately
+        Promise.all(completedJobs.map(async (job) => {
+          try {
+            const cached = await (window as any).loadThumbnail?.(job.id);
+            if (cached) {
+              loadedThumbnailsRef.current.add(job.id);
+              return { jobId: job.id, thumbnail: cached };
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+          return null;
+        })).then(loadResults => {
           const cachedUrls: Record<string, string> = {};
           loadResults.forEach(result => {
             if (result && result.thumbnail) {
@@ -232,16 +460,21 @@ const HistoryTabContent: React.FC = () => {
           
           if (Object.keys(cachedUrls).length > 0) {
             setThumbnailUrls(prev => ({ ...prev, ...cachedUrls }));
+            // Update DOM immediately for instant display
+            Object.entries(cachedUrls).forEach(([jobId, url]) => {
+              (window as any).updateCardThumbnail?.(jobId, url);
+            });
           }
         });
         
-        // Start generating missing thumbnails in background
-        generateThumbnailsForJobs(firstBatch).catch(error => {
+        // Start generating missing thumbnails in background immediately
+        // Don't await to avoid blocking UI
+        generateThumbnailsForJobs(completedJobs).catch(error => {
           debugError('[HistoryTab] Error pre-generating thumbnails', error);
         });
       }
     }
-  }, [activeTab, isLoading, jobs]);
+  }, [activeTab, jobs]);
 
   // Trigger first page load when jobs are loaded and displayedCount is 0
   // Matching main branch: initially show first 10 items, then set displayedCount to 10
@@ -256,32 +489,34 @@ const HistoryTabContent: React.FC = () => {
     }
   }, [activeTab, jobs.length, displayedCount, isLoading, loadMore]);
 
-  // Generate thumbnails for currently rendered jobs
-  // Generate thumbnails for the jobs that are actually visible in the UI
+  // Generate thumbnails for currently rendered jobs with lazy loading
+  // Use IntersectionObserver to only load thumbnails for visible cards
   const prevRenderedJobsRef = useRef<string>('');
   const prevJobsLengthRef = useRef<number>(0);
+  const thumbnailObserverRef = useRef<IntersectionObserver | null>(null);
   
   useEffect(() => {
     // Only process if history tab is active and we have jobs
     if (activeTab !== "history" || !jobs || jobs.length === 0) {
-      // Don't reset ref when switching tabs - only reset when jobs actually change
-      // This prevents regeneration when switching back to history tab
+      // Clean up observer when tab is inactive
+      if (thumbnailObserverRef.current) {
+        thumbnailObserverRef.current.disconnect();
+        thumbnailObserverRef.current = null;
+      }
       return;
     }
     
     // Reset only if jobs list changed significantly (new load)
     if (jobs.length !== prevJobsLengthRef.current && prevJobsLengthRef.current > 0) {
       prevRenderedJobsRef.current = '';
+      loadedThumbnailsRef.current.clear();
     }
     prevJobsLengthRef.current = jobs.length;
 
     const pageSize = 10;
     const currentDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
     
-    // Calculate which jobs are currently rendered (matching the rendering logic below)
-    // When displayedCount = 0, show first 10 (slice(0, 10))
-    // When displayedCount = 10, show first 10 (slice(0, 10)) - same items
-    // When displayedCount = 20, show first 20 (slice(0, 20))
+    // Calculate which jobs are currently rendered
     const endIndex = currentDisplayedCount === 0 
       ? Math.min(pageSize, jobs.length)
       : Math.min(currentDisplayedCount, jobs.length);
@@ -299,60 +534,114 @@ const HistoryTabContent: React.FC = () => {
     
     prevRenderedJobsRef.current = renderedJobsKey;
     
-    // Call generateThumbnailsForJobs for the currently visible jobs
-    const generateThumbnailsForRendered = async () => {
-      if (renderedJobs.length > 0) {
+    // Clean up existing observer
+    if (thumbnailObserverRef.current) {
+      thumbnailObserverRef.current.disconnect();
+      thumbnailObserverRef.current = null;
+    }
+    
+    // Load cached thumbnails immediately for all rendered jobs (fast)
+    const loadCachedThumbnails = async () => {
+      const completedJobs = renderedJobs.filter(job => job?.id && job.status === 'COMPLETED');
+      
+      const loadPromises = completedJobs.map(async (job) => {
+        // Skip if already loaded
+        if (loadedThumbnailsRef.current.has(job.id)) {
+          return null;
+        }
+        
         try {
-          debugLog('[HistoryTab] Calling generateThumbnailsForJobs', { 
-            count: renderedJobs.length, 
-            endIndex,
-            displayedCount: currentDisplayedCount,
-            jobIds: renderedJobs.slice(0, 5).map(j => j?.id).join(',')
-          });
+          const cached = await (window as any).loadThumbnail?.(job.id);
+          if (cached) {
+            loadedThumbnailsRef.current.add(job.id);
+            return { jobId: job.id, thumbnail: cached };
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+        return null;
+      });
+      
+      const loadResults = await Promise.all(loadPromises);
+      const cachedUrls: Record<string, string> = {};
+      loadResults.forEach(result => {
+        if (result && result.thumbnail) {
+          cachedUrls[result.jobId] = result.thumbnail;
+        }
+      });
+      
+      if (Object.keys(cachedUrls).length > 0) {
+        setThumbnailUrls(prev => ({ ...prev, ...cachedUrls }));
+        Object.entries(cachedUrls).forEach(([jobId, url]) => {
+          (window as any).updateCardThumbnail?.(jobId, url);
+        });
+      }
+    };
+    
+    // Load cached thumbnails immediately
+    loadCachedThumbnails();
+    
+    // Set up IntersectionObserver for lazy loading thumbnails
+    // Only generate thumbnails for cards that are visible or about to be visible
+    setTimeout(() => {
+      const cards = document.querySelectorAll('.history-card[data-job-id]');
+      
+      if (cards.length === 0) return;
+      
+      thumbnailObserverRef.current = new IntersectionObserver(
+        (entries) => {
+          const jobsToGenerate: any[] = [];
           
-          // First, try to load any cached thumbnails immediately in parallel
-          const loadPromises = renderedJobs
-            .filter(job => job?.id && job.status === 'COMPLETED')
-            .map(async (job) => {
-              try {
-                const cached = await (window as any).loadThumbnail?.(job.id);
-                return { jobId: job.id, thumbnail: cached };
-              } catch (e) {
-                // Ignore errors loading individual thumbnails
-                return { jobId: job.id, thumbnail: null };
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const card = entry.target as HTMLElement;
+              const jobId = card.getAttribute('data-job-id');
+              if (jobId && !loadedThumbnailsRef.current.has(jobId)) {
+                const job = renderedJobs.find(j => String(j.id) === String(jobId));
+                if (job && job.status === 'COMPLETED' && (job.outputPath || job.outputUrl)) {
+                  jobsToGenerate.push(job);
+                  loadedThumbnailsRef.current.add(jobId);
+                }
               }
-            });
-          
-          // Wait for all cached thumbnails to load in parallel
-          const loadResults = await Promise.all(loadPromises);
-          
-          // Collect successfully loaded thumbnails
-          const cachedUrls: Record<string, string> = {};
-          loadResults.forEach(result => {
-            if (result.thumbnail) {
-              cachedUrls[result.jobId] = result.thumbnail;
             }
           });
           
-          // Update state with cached thumbnails
-          if (Object.keys(cachedUrls).length > 0) {
-            setThumbnailUrls(prev => ({ ...prev, ...cachedUrls }));
-            // Also update DOM directly for immediate display
-            Object.entries(cachedUrls).forEach(([jobId, url]) => {
-              (window as any).updateCardThumbnail?.(jobId, url);
+          // Generate thumbnails for visible cards
+          if (jobsToGenerate.length > 0) {
+            generateThumbnailsForJobs(jobsToGenerate).catch(error => {
+              debugError('[HistoryTab] Error generating thumbnails for visible cards', error);
             });
           }
-          
-          // Use the imported function directly - this will generate missing thumbnails
-        await generateThumbnailsForJobs(renderedJobs);
-        } catch (error: any) {
-          debugError('[HistoryTab] Error calling generateThumbnailsForJobs', error);
+        },
+        {
+          root: document.querySelector('.history-wrapper'),
+          rootMargin: '200px', // Start loading 200px before card becomes visible
+          threshold: 0.1
         }
+      );
+      
+      // Observe all rendered cards
+      cards.forEach(card => {
+        thumbnailObserverRef.current?.observe(card);
+      });
+      
+      // Also generate thumbnails for first 3 cards immediately (above the fold)
+      const immediateJobs = renderedJobs.slice(0, 3).filter(j => 
+        j?.id && j.status === 'COMPLETED' && !loadedThumbnailsRef.current.has(j.id)
+      );
+      if (immediateJobs.length > 0) {
+        generateThumbnailsForJobs(immediateJobs).catch(error => {
+          debugError('[HistoryTab] Error generating immediate thumbnails', error);
+        });
+      }
+    }, 50); // Small delay to ensure DOM is ready
+    
+    return () => {
+      if (thumbnailObserverRef.current) {
+        thumbnailObserverRef.current.disconnect();
+        thumbnailObserverRef.current = null;
       }
     };
-
-    const timeout = setTimeout(generateThumbnailsForRendered, 100);
-    return () => clearTimeout(timeout);
   }, [jobs, displayedCount, activeTab]);
 
   // Use ref to access current thumbnailUrls in generateThumbnailsForJobs
@@ -828,6 +1117,9 @@ const HistoryTabContent: React.FC = () => {
       return;
     }
     
+    // Set flag to indicate we're loading a job (prevents clearing sources tab)
+    (window as any).__loadingJobIntoSources = true;
+    
     // Disable lipsync button (keep visible, greyed out) and hide audio section
     const lipsyncBtn = document.getElementById('lipsyncBtn');
     if (lipsyncBtn) {
@@ -862,10 +1154,20 @@ const HistoryTabContent: React.FC = () => {
       (window as any).showPostLipsyncActions(job);
     }
     
+    // Clear the flag after a short delay
+    setTimeout(() => {
+      delete (window as any).__loadingJobIntoSources;
+    }, 1000);
+    
     if ((window as any).showToast) {
       (window as any).showToast('generation loaded', 'success');
     }
   }, [jobs, setActiveTab]);
+
+  // Keep ref updated
+  useEffect(() => {
+    handleLoadJobIntoSourcesRef.current = handleLoadJobIntoSources;
+  }, [handleLoadJobIntoSources]);
 
   // Expose window functions for backward compatibility (AFTER handlers are defined)
   useEffect(() => {
@@ -908,10 +1210,6 @@ const HistoryTabContent: React.FC = () => {
 
         // Switch to sources tab
         setActiveTab('sources');
-
-        if (window.showToast) {
-          window.showToast('generation parameters restored. ready to lipsync!', 'success');
-        }
       } catch (e) {
         debugError('Failed to redo generation', e);
         if (window.showToast) {
@@ -1043,10 +1341,16 @@ const HistoryTabContent: React.FC = () => {
                 alt="Thumbnail"
                 className="history-thumbnail"
                 data-job-id={job.id}
+                loading="lazy"
+                decoding="async"
                 style={{ opacity: thumbnailUrl ? 1 : 0 }}
                 onLoad={(e) => {
                   // Fade in when loaded (matching main branch)
                   (e.target as HTMLImageElement).style.opacity = '1';
+                }}
+                onError={(e) => {
+                  // Hide broken image
+                  (e.target as HTMLImageElement).style.opacity = '0';
                 }}
               />
             ) : null}

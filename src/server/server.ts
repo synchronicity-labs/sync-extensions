@@ -354,11 +354,19 @@ app.post('/upload', async (req, res) => {
   try {
     const { path: filePath, syncApiKey } = req.body || {};
     
+    tlog('[upload] Request received', {
+      hasFilePath: !!filePath,
+      filePath: filePath ? filePath.substring(0, 100) : 'null',
+      hasSyncApiKey: !!syncApiKey
+    });
+    
     if (!filePath) {
+      tlog('[upload] Missing file path');
       return res.status(400).json({ error: 'File path required' });
     }
     
     if (!fs.existsSync(filePath)) {
+      tlog('[upload] File not found', { filePath });
       return res.status(404).json({ error: 'File not found' });
     }
     
@@ -368,6 +376,11 @@ app.post('/upload', async (req, res) => {
       fileSize: fileStat?.size || 0,
       fileName: path.basename(filePath),
       hostApp: APP_ID
+    });
+    
+    tlog('[upload] Starting R2 upload', {
+      fileName: path.basename(filePath),
+      fileSize: fileStat?.size || 0
     });
     
     // Set a timeout for the entire upload process
@@ -381,6 +394,12 @@ app.post('/upload', async (req, res) => {
       // Upload to R2 and return the cloud URL
       const fileUrl = await r2Upload(filePath);
       
+      tlog('[upload] R2 upload successful', {
+        fileName: path.basename(filePath),
+        url: fileUrl ? fileUrl.substring(0, 100) + '...' : 'null',
+        urlLength: fileUrl ? fileUrl.length : 0
+      });
+      
       // Track upload success
       track('upload_completed', {
         fileSize: fileStat?.size || 0,
@@ -393,6 +412,11 @@ app.post('/upload', async (req, res) => {
         res.json({ ok: true, url: fileUrl });
       }
     } catch (uploadError) {
+      tlog('[upload] R2 upload failed', {
+        fileName: path.basename(filePath),
+        error: String(uploadError?.message || uploadError)
+      });
+      
       // Track upload failure
       track('upload_failed', {
         fileSize: fileStat?.size || 0,
@@ -407,6 +431,7 @@ app.post('/upload', async (req, res) => {
       }
     }
   } catch (e) {
+    tlog('[upload] Exception', { error: String(e?.message || e) });
     if (!res.headersSent) {
       res.status(500).json({ error: String(e?.message || e) });
     }

@@ -764,88 +764,19 @@ export default defineConfig({
           }
         }
         
-        // Install production dependencies for server (required for extension to work)
-        // With workspaces, server dependencies are in root node_modules, so we need to install them in dist
+        // Note: Server dependencies are now installed in buildStart() hook
+        // to ensure they're included in the ZXP package (vite-cep-plugin runs after buildStart)
+        // This code is kept as a fallback but should not run if buildStart succeeded
         if (isProduction || isPackage) {
           const serverDest = path.join(outDir, 'server');
-          const serverPackageJson = path.join(serverDest, 'package.json');
+          const nodeModulesPath = path.join(serverDest, 'node_modules');
           
-          if (fs.existsSync(serverDest) && fs.existsSync(serverPackageJson)) {
-            try {
-              // Read root package.json to get production dependencies
-              const rootPackageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-              const serverPackage = JSON.parse(fs.readFileSync(serverPackageJson, 'utf-8'));
-              
-        // Copy production dependencies from root to server package.json
-        const newDependencies = rootPackageJson.dependencies || {};
-        // Use deterministic comparison: sort keys and compare JSON
-        const sortKeys = (obj: Record<string, string>) => 
-          Object.keys(obj).sort().reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
-        const dependenciesChanged = 
-          JSON.stringify(sortKeys(serverPackage.dependencies || {})) !== 
-          JSON.stringify(sortKeys(newDependencies));
-        
-        serverPackage.dependencies = newDependencies;
-        
-        // Check if we need to reinstall dependencies
-        // Also check package-lock.json if it exists for more reliable change detection
-        const nodeModulesPath = path.join(serverDest, 'node_modules');
-        const packageLockPath = path.join(serverDest, 'package-lock.json');
-        const rootPackageLockPath = path.join(__dirname, 'package-lock.json');
-        let lockFileChanged = false;
-        
-        if (fs.existsSync(packageLockPath) && fs.existsSync(rootPackageLockPath)) {
-          try {
-            const existingLock = fs.readFileSync(packageLockPath, 'utf-8');
-            const rootLock = fs.readFileSync(rootPackageLockPath, 'utf-8');
-            // Compare lock file content (more reliable than package.json)
-            lockFileChanged = existingLock !== rootLock;
-          } catch (err) {
-            // If we can't read lock files, fall back to dependency comparison
-            console.warn('Could not compare package-lock.json, using dependency comparison');
-          }
-        }
-        
-        const needsInstall = !fs.existsSync(nodeModulesPath) || dependenciesChanged || lockFileChanged;
-              
-              if (needsInstall) {
-                // Write updated package.json
-                fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
-                
-              // Install production dependencies with retry logic
-              console.log('Installing production dependencies for server...');
-              let installSuccess = false;
-              let retries = 2;
-              
-              while (!installSuccess && retries >= 0) {
-                try {
-                  execSync('npm install --production --no-audit --no-fund', {
-                    cwd: serverDest,
-                    stdio: 'inherit',
-                    env: { ...process.env, npm_config_progress: 'false' },
-                    timeout: 300000 // 5 minute timeout
-                  });
-                  installSuccess = true;
-                  console.log('✓ Server production dependencies installed');
-                } catch (err: any) {
-                  if (retries > 0) {
-                    console.warn(`Install failed, retrying... (${retries} attempts remaining)`);
-                    retries--;
-                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
-                  } else {
-                    throw err;
-                  }
-                }
-              }
-              } else {
-                // Update package.json but skip install if dependencies haven't changed
-                fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
-                console.log('✓ Server dependencies up to date, skipping install');
-              }
-            } catch (err) {
-              console.error('CRITICAL: Failed to install server dependencies:', err);
-              throw err; // Fail the build if server dependencies cannot be installed
-            }
+          // Verify node_modules exist (should have been installed in buildStart)
+          if (!fs.existsSync(nodeModulesPath)) {
+            console.warn('WARNING: server/node_modules not found - dependencies may not be included in ZXP');
+            console.warn('This should have been installed in buildStart hook. Check build logs.');
+          } else {
+            console.log('✓ Server node_modules verified (installed in buildStart, included in ZXP)');
           }
         }
         
@@ -854,7 +785,132 @@ export default defineConfig({
           await buildResolvePlugin();
         }
       },
-      buildStart() {
+      async buildStart() {
+        // Install server dependencies BEFORE vite-cep-plugin packages the ZXP
+        // This ensures node_modules are included in the ZXP package
+        // Note: vite-cep-plugin copies server files via copyAssets, so server folder should exist
+        // But we ensure it exists and install node_modules before vite-cep-plugin packages the ZXP
+        if (isProduction || isPackage) {
+          const serverDest = path.join(outDir, 'server');
+          const serverPackageJson = path.join(serverDest, 'package.json');
+          const serverSrc = path.join(__dirname, 'src', 'server');
+          
+          // Ensure server folder exists (vite-cep-plugin should copy it, but ensure it's there)
+          if (!fs.existsSync(serverDest) && fs.existsSync(serverSrc)) {
+            console.log('Server folder not found in dist, ensuring it exists...');
+            fs.mkdirSync(serverDest, { recursive: true });
+            // Copy package.json first so we can install dependencies
+            const srcPackageJson = path.join(serverSrc, 'package.json');
+            if (fs.existsSync(srcPackageJson)) {
+              fs.copyFileSync(srcPackageJson, serverPackageJson);
+            }
+          }
+          
+          if (fs.existsSync(serverDest) && fs.existsSync(serverPackageJson)) {
+            try {
+              // Read root package.json to get production dependencies
+              const rootPackageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+              const serverPackage = JSON.parse(fs.readFileSync(serverPackageJson, 'utf-8'));
+              
+              // Copy production dependencies from root to server package.json
+              const newDependencies = rootPackageJson.dependencies || {};
+              const sortKeys = (obj: Record<string, string>) => 
+                Object.keys(obj).sort().reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
+              const dependenciesChanged = 
+                JSON.stringify(sortKeys(serverPackage.dependencies || {})) !== 
+                JSON.stringify(sortKeys(newDependencies));
+              
+              serverPackage.dependencies = newDependencies;
+              
+              // Check if we need to reinstall dependencies
+              const nodeModulesPath = path.join(serverDest, 'node_modules');
+              const packageLockPath = path.join(serverDest, 'package-lock.json');
+              const rootPackageLockPath = path.join(__dirname, 'package-lock.json');
+              let lockFileChanged = false;
+              
+              if (fs.existsSync(packageLockPath) && fs.existsSync(rootPackageLockPath)) {
+                try {
+                  const existingLock = fs.readFileSync(packageLockPath, 'utf-8');
+                  const rootLock = fs.readFileSync(rootPackageLockPath, 'utf-8');
+                  lockFileChanged = existingLock !== rootLock;
+                } catch (err) {
+                  console.warn('Could not compare package-lock.json, using dependency comparison');
+                }
+              }
+              
+              const needsInstall = !fs.existsSync(nodeModulesPath) || dependenciesChanged || lockFileChanged;
+              
+              if (needsInstall) {
+                // Write updated package.json
+                fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
+                
+                // Install production dependencies with retry logic
+                console.log('Installing server dependencies BEFORE ZXP packaging...');
+                let installSuccess = false;
+                let retries = 2;
+                
+                while (!installSuccess && retries >= 0) {
+                  try {
+                    execSync('npm install --production --no-audit --no-fund', {
+                      cwd: serverDest,
+                      stdio: 'inherit',
+                      env: { ...process.env, npm_config_progress: 'false' },
+                      timeout: 300000 // 5 minute timeout
+                    });
+                    installSuccess = true;
+                    console.log('✓ Server dependencies installed (will be included in ZXP)');
+                    
+                    // Verify node_modules were actually created
+                    const nodeModulesPath = path.join(serverDest, 'node_modules');
+                    if (!fs.existsSync(nodeModulesPath)) {
+                      throw new Error('npm install completed but node_modules directory not found');
+                    }
+                    const fileCount = fs.readdirSync(nodeModulesPath).length;
+                    if (fileCount === 0) {
+                      throw new Error('npm install completed but node_modules is empty');
+                    }
+                    console.log(`✓ Verified: node_modules contains ${fileCount} packages`);
+                  } catch (err: any) {
+                    if (retries > 0) {
+                      console.warn(`Install failed, retrying... (${retries} attempts remaining)`);
+                      retries--;
+                      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+                    } else {
+                      console.error('CRITICAL: Failed to install server dependencies:', err);
+                      throw err; // Fail the build if server dependencies cannot be installed
+                    }
+                  }
+                }
+              } else {
+                // Update package.json but skip install if dependencies haven't changed
+                fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
+                console.log('✓ Server dependencies up to date (will be included in ZXP)');
+                
+                // Verify node_modules still exist
+                const nodeModulesPath = path.join(serverDest, 'node_modules');
+                if (!fs.existsSync(nodeModulesPath)) {
+                  console.warn('WARNING: node_modules not found even though install was skipped');
+                  console.warn('This might indicate the folder was deleted. Reinstalling...');
+                  // Force reinstall
+                  execSync('npm install --production --no-audit --no-fund', {
+                    cwd: serverDest,
+                    stdio: 'inherit',
+                    env: { ...process.env, npm_config_progress: 'false' },
+                    timeout: 300000
+                  });
+                  console.log('✓ Reinstalled server dependencies');
+                }
+              }
+            } catch (err) {
+              console.error('CRITICAL: Failed to install server dependencies:', err);
+              throw err; // Fail the build if server dependencies cannot be installed
+            }
+          } else {
+            console.warn('WARNING: server folder or package.json not found in buildStart');
+            console.warn('vite-cep-plugin should copy these files, but they are missing');
+          }
+        }
+        
         // Fix redirect path in watch mode - use polling to catch vite-cep-plugin updates
         if (!isProduction && !isPackage) {
           // Poll every 500ms to fix redirect whenever vite-cep-plugin updates the HTML

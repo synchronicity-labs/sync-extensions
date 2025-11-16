@@ -279,13 +279,28 @@ export const useMedia = () => {
             if (controller.signal.aborted) {
               return;
             }
-            setSelection((prev) => ({
+            setSelection((prev) => {
+              const newState = {
               ...prev,
               audioUrl: data.url,
-            }));
+              };
+              debugLog('[useMedia] setAudioPath (direct): State update - audioUrl set', {
+                audio: newState.audio,
+                audioUrl: newState.audioUrl?.substring(0, 100) + '...',
+                hasAudio: !!newState.audio,
+                hasAudioUrl: !!newState.audioUrl,
+              });
+              return newState;
+            });
             (window as any).uploadedAudioUrl = data.url;
             setStorageItem(STORAGE_KEYS.UPLOADED_AUDIO_URL, data.url);
             showToast(ToastMessages.AUDIO_UPLOADED_SUCCESSFULLY, "success");
+            // Trigger cost estimation check
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('mediaUrlUpdated', { 
+                detail: { type: 'audio', url: data.url } 
+              }));
+            }
           }
           
           if (audioUploadControllerRef.current === controller) {
@@ -326,6 +341,12 @@ export const useMedia = () => {
     (window as any).selectedVideo = null;
     (window as any).selectedVideoUrl = null;
     (window as any).uploadedVideoUrl = "";
+    // Trigger cost reset when video is cleared
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mediaCleared', { 
+        detail: { type: 'video' } 
+      }));
+    }
   }, []);
 
   const clearAudio = useCallback(() => {
@@ -349,6 +370,12 @@ export const useMedia = () => {
     (window as any).selectedAudio = null;
     (window as any).selectedAudioUrl = null;
     (window as any).uploadedAudioUrl = "";
+    // Trigger cost reset when audio is cleared
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mediaCleared', { 
+        detail: { type: 'audio' } 
+      }));
+    }
   }, []);
 
 
@@ -432,10 +459,19 @@ export const useMedia = () => {
           debugLog('[useMedia] setVideoPath: Setting videoUrl from upload', { 
             url: data.url.substring(0, 100) + '...' 
           });
-          setSelection((prev) => ({
+          setSelection((prev) => {
+            const newState = {
             ...prev,
             videoUrl: data.url,
-          }));
+            };
+            debugLog('[useMedia] setVideoPath: State update - videoUrl set', {
+              video: newState.video,
+              videoUrl: newState.videoUrl?.substring(0, 100) + '...',
+              hasVideo: !!newState.video,
+              hasVideoUrl: !!newState.videoUrl,
+            });
+            return newState;
+          });
           (window as any).uploadedVideoUrl = data.url;
           (window as any).selectedVideoUrl = data.url;
           setStorageItem(STORAGE_KEYS.UPLOADED_VIDEO_URL, data.url);
@@ -443,6 +479,13 @@ export const useMedia = () => {
             videoUrl: data.url.substring(0, 100) + '...',
             uploadedVideoUrl: (window as any).uploadedVideoUrl?.substring(0, 100) + '...',
           });
+          // Trigger cost estimation check by dispatching a custom event
+          // This ensures BottomBar's useEffect runs even if React doesn't detect the state change
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('mediaUrlUpdated', { 
+              detail: { type: 'video', url: data.url } 
+            }));
+          }
         } else {
           debugError('[useMedia] setVideoPath: Upload failed or no URL', { 
             responseOk: response.ok,
@@ -467,17 +510,41 @@ export const useMedia = () => {
   }, [authHeaders, ensureAuthToken]);
 
   const setAudioPath = useCallback(async (audioPath: string, audioUrl?: string | null) => {
+    const hasValidUrl = audioUrl !== undefined && audioUrl !== null && audioUrl.trim() !== '';
+    
+    debugLog('[useMedia] setAudioPath: Called', { 
+      audioPath, 
+      hasValidUrl,
+      audioUrl: audioUrl?.substring(0, 100) + '...',
+    });
+    
     setSelection((prev) => ({
       ...prev,
       audio: audioPath,
-      audioUrl: audioUrl !== undefined ? audioUrl : null,
+      audioUrl: hasValidUrl ? audioUrl : null,
       audioIsTemp: false,
-      audioIsUrl: audioUrl !== undefined && audioUrl !== null,
+      audioIsUrl: hasValidUrl,
     }));
     (window as any).selectedAudio = audioPath;
-    (window as any).selectedAudioUrl = audioUrl || null;
-    (window as any).selectedAudioIsUrl = audioUrl !== undefined && audioUrl !== null;
+    (window as any).selectedAudioUrl = hasValidUrl ? audioUrl : null;
+    (window as any).selectedAudioIsUrl = hasValidUrl;
     (window as any).selectedAudioIsTemp = false;
+    
+    // If URL is provided, also set uploadedAudioUrl for cost calculation
+    if (hasValidUrl) {
+      (window as any).uploadedAudioUrl = audioUrl;
+      setStorageItem(STORAGE_KEYS.UPLOADED_AUDIO_URL, audioUrl);
+      debugLog('[useMedia] setAudioPath: Setting uploadedAudioUrl', { 
+        audioUrl: audioUrl.substring(0, 100) + '...',
+        uploadedAudioUrl: (window as any).uploadedAudioUrl?.substring(0, 100) + '...',
+      });
+      // Trigger cost estimation check by dispatching a custom event
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mediaUrlUpdated', { 
+          detail: { type: 'audio', url: audioUrl } 
+        }));
+      }
+    }
     
     if (!audioUrl) {
       try {
@@ -511,12 +578,27 @@ export const useMedia = () => {
           if (controller.signal.aborted) {
             return;
           }
-          setSelection((prev) => ({
+          setSelection((prev) => {
+            const newState = {
             ...prev,
             audioUrl: data.url,
-          }));
+            };
+            debugLog('[useMedia] setAudioPath: State update - audioUrl set', {
+              audio: newState.audio,
+              audioUrl: newState.audioUrl?.substring(0, 100) + '...',
+              hasAudio: !!newState.audio,
+              hasAudioUrl: !!newState.audioUrl,
+            });
+            return newState;
+          });
           (window as any).uploadedAudioUrl = data.url;
           setStorageItem(STORAGE_KEYS.UPLOADED_AUDIO_URL, data.url);
+          // Trigger cost estimation check
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('mediaUrlUpdated', { 
+              detail: { type: 'audio', url: data.url } 
+            }));
+          }
         }
         
         if (audioUploadControllerRef.current === controller) {

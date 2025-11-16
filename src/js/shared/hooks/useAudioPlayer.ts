@@ -160,15 +160,52 @@ export const useAudioPlayer = (audioSrc: string | null) => {
   const animationFrameIdRef = useRef<number | null>(null);
   const audioFinishedRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const currentAudioSrcRef = useRef<string | null>(null);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
 
   useEffect(() => {
     if (!audioSrc) {
       playerInitialized.current = false;
+      currentAudioSrcRef.current = null;
+      waveformBarsRef.current = [];
+      audioBufferRef.current = null;
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
       }
       return;
+    }
+
+    // Check if audio source has changed - if so, reset everything
+    if (currentAudioSrcRef.current !== audioSrc) {
+      debugLog('[useAudioPlayer] Audio source changed, resetting', {
+        oldSrc: currentAudioSrcRef.current?.substring(0, 100) + '...',
+        newSrc: audioSrc.substring(0, 100) + '...',
+      });
+      // Clean up previous initialization
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+      playerInitialized.current = false;
+      waveformBarsRef.current = [];
+      audioBufferRef.current = null;
+      audioFinishedRef.current = false;
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+      
+      // Clear canvas immediately when audio source changes
+      const canvas = document.getElementById("waveformCanvas") as HTMLCanvasElement;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width || 600, canvas.height || 80);
+        }
+      }
+      
+      currentAudioSrcRef.current = audioSrc;
     }
 
     // Retry getting elements if they don't exist yet
@@ -198,9 +235,52 @@ export const useAudioPlayer = (audioSrc: string | null) => {
     
     const { audio, audioPreview, canvas } = elements;
 
+    // Helper to normalize URLs for comparison
+    const normalizeUrlForComparison = (url: string | null | undefined): string => {
+      if (!url) return '';
+      try {
+        // Remove trailing slashes, normalize whitespace, and handle encoding differences
+        let normalized = url.trim().replace(/\/$/, '');
+        // Try to decode URL-encoded parts for better comparison
+        try {
+          // If it's a proxy URL with path parameter, normalize the path part
+          if (normalized.includes('/mp3/file?path=') || normalized.includes('/wav/file?path=')) {
+            const urlObj = new URL(normalized);
+            const pathParam = urlObj.searchParams.get('path');
+            if (pathParam) {
+              // Re-encode to ensure consistent comparison
+              urlObj.searchParams.set('path', encodeURIComponent(decodeURIComponent(pathParam)));
+              normalized = urlObj.toString();
+            }
+          }
+        } catch {
+          // If URL parsing fails, just use the trimmed version
+        }
+        return normalized;
+      } catch {
+        return String(url || '');
+      }
+    };
+
     // Initialize when audio metadata loads or immediately if already loaded
     const initPlayer = () => {
+      // Check if audio source still matches (might have changed during async operations)
+      const currentSrc = audio.getAttribute('src') || audio.src;
+      const normalizedCurrentSrc = normalizeUrlForComparison(currentSrc);
+      const normalizedAudioSrc = normalizeUrlForComparison(audioSrc);
+      
+      if (normalizedCurrentSrc !== normalizedAudioSrc && normalizedAudioSrc) {
+        debugLog('[useAudioPlayer] initPlayer: Audio src changed during init, skipping', {
+          expectedSrc: audioSrc?.substring(0, 100) + '...',
+          actualSrc: currentSrc?.substring(0, 100) + '...',
+          normalizedExpected: normalizedAudioSrc?.substring(0, 100) + '...',
+          normalizedActual: normalizedCurrentSrc?.substring(0, 100) + '...',
+        });
+        return;
+      }
+      
       if (playerInitialized.current) {
+        debugLog('[useAudioPlayer] initPlayer: Already initialized, skipping');
         return;
       }
       
@@ -211,8 +291,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         // Don't return - allow initialization even if preview appears hidden
       }
       
-      // Check if audio has src set
-      const currentSrc = audio.getAttribute('src') || audio.src;
+      // Check if audio has src set (currentSrc was already declared above)
       if (!currentSrc) {
         debugLog('[useAudioPlayer] initPlayer: No audio src set yet');
         return;
@@ -234,28 +313,44 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         readyState: audio.readyState,
         duration: audio.duration,
       });
-
-      // Reset initialization flag
-      if (playerInitialized.current) {
-        playerInitialized.current = false;
-      }
-
-      // Store the audio buffer for rebuilding waveform on resize
-      let audioBufferRef: AudioBuffer | null = null;
     
       // Build static waveform once from decoded PCM
       // This function will be called when canvas is resized
       const buildWaveformForSize = async (displayWidth: number, displayHeight: number) => {
         try {
+          // Check if audio source still matches before building waveform
+          // Get fresh src check (currentSrc from outer scope might be stale)
+          const currentSrcCheck = audio.getAttribute('src') || audio.src;
+          const normalizedCurrentSrcCheck = normalizeUrlForComparison(currentSrcCheck);
+          const normalizedAudioSrc = normalizeUrlForComparison(audioSrc);
+          
+          if (normalizedCurrentSrcCheck !== normalizedAudioSrc && normalizedAudioSrc) {
+            debugLog('[useAudioPlayer] buildWaveformForSize: Audio src changed, skipping', {
+              expectedSrc: audioSrc?.substring(0, 100) + '...',
+              actualSrc: currentSrcCheck?.substring(0, 100) + '...',
+              normalizedExpected: normalizedAudioSrc?.substring(0, 100) + '...',
+              normalizedActual: normalizedCurrentSrcCheck?.substring(0, 100) + '...',
+            });
+            // Clear canvas and show placeholder when src doesn't match
+          const dpr = Math.max(1, window.devicePixelRatio || 1);
+          canvas.width = Math.max(1, Math.floor(displayWidth * dpr));
+          canvas.height = Math.max(1, Math.floor(displayHeight * dpr));
+          const ctx2 = canvas.getContext("2d");
+          if (ctx2 && dpr !== 1) ctx2.scale(dpr, dpr);
+            waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
+            renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
+            return;
+          }
+          
           const dpr = Math.max(1, window.devicePixelRatio || 1);
           canvas.width = Math.max(1, Math.floor(displayWidth * dpr));
           canvas.height = Math.max(1, Math.floor(displayHeight * dpr));
           const ctx2 = canvas.getContext("2d");
           if (ctx2 && dpr !== 1) ctx2.scale(dpr, dpr);
 
-          // If we already have the audio buffer, rebuild bars with new dimensions
-          if (audioBufferRef) {
-            waveformBarsRef.current = buildBarsFromBuffer(audioBufferRef, canvas, displayWidth, displayHeight);
+          // If we already have the audio buffer for THIS audio source, rebuild bars with new dimensions
+          if (audioBufferRef.current && normalizedCurrentSrcCheck === normalizedAudioSrc) {
+            waveformBarsRef.current = buildBarsFromBuffer(audioBufferRef.current, canvas, displayWidth, displayHeight);
             debugLog("[Waveform] Rebuilt", { bars: waveformBarsRef.current.length, size: `${displayWidth}x${displayHeight}` });
             renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
             return;
@@ -276,20 +371,54 @@ export const useAudioPlayer = (audioSrc: string | null) => {
               return String(p || "");
             }
           }
+          
+          // Get the current audio path - prefer selectedAudio from window, fall back to extracting from src
           let localPath = normalizePath((window as any).selectedAudio || "");
           if (!localPath) {
             try {
-              const u = normalizePath(audio.getAttribute("src") || "");
-              localPath = u;
+              // Try to extract path from the current audio src
+              const src = audio.getAttribute("src") || audio.src;
+              // If it's a proxy URL, extract the path parameter
+              if (src.includes('/mp3/file?path=') || src.includes('/wav/file?path=')) {
+                const url = new URL(src);
+                const pathParam = url.searchParams.get('path');
+                if (pathParam) {
+                  localPath = normalizePath(decodeURIComponent(pathParam));
+                }
+              } else {
+                // Otherwise try normalizing the src directly
+                localPath = normalizePath(src);
+              }
             } catch (_) {}
           }
-          debugLog("[Waveform] Audio info", { selectedAudio: (window as any).selectedAudio, src: audio.getAttribute("src"), localPath });
+          
+          debugLog("[Waveform] Audio info", { 
+            selectedAudio: (window as any).selectedAudio, 
+            src: audio.getAttribute("src"), 
+            localPath,
+            audioSrc: audioSrc?.substring(0, 100) + '...',
+          });
+          
           if (!localPath) {
             debugWarn("[Waveform] No path found, using placeholder");
             waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
             renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
             return;
           }
+          
+          // Double-check audio source hasn't changed before fetching
+          const checkSrc = audio.getAttribute("src") || audio.src;
+          const normalizedCheckSrc = normalizeUrlForComparison(checkSrc);
+          if (normalizedCheckSrc !== normalizedAudioSrc && normalizedAudioSrc) {
+            debugLog('[useAudioPlayer] buildWaveformForSize: Audio src changed during fetch, aborting', {
+              expectedSrc: audioSrc?.substring(0, 100) + '...',
+              actualSrc: checkSrc?.substring(0, 100) + '...',
+            });
+            waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
+            renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
+            return;
+          }
+          
           // This endpoint is now public to avoid blank waveform when token fails
           await ensureAuthToken();
           const waveformUrl = `${getApiUrl("/waveform/file")}?${new URLSearchParams({ path: localPath })}`;
@@ -301,6 +430,20 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             debugError("[Waveform] Fetch exception", e);
             return null;
           });
+          
+          // Check again after fetch
+          const checkSrcAfterFetch = audio.getAttribute("src") || audio.src;
+          const normalizedCheckSrcAfterFetch = normalizeUrlForComparison(checkSrcAfterFetch);
+          if (normalizedCheckSrcAfterFetch !== normalizedAudioSrc && normalizedAudioSrc) {
+            debugLog('[useAudioPlayer] buildWaveformForSize: Audio src changed after fetch, aborting', {
+              expectedSrc: audioSrc?.substring(0, 100) + '...',
+              actualSrc: checkSrcAfterFetch?.substring(0, 100) + '...',
+            });
+            waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
+            renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
+            return;
+          }
+          
           if (!resp || !resp.ok) {
             // Fallback: draw placeholder waveform so UI isn't blank
             debugError("[Waveform] Fetch failed", { status: resp ? resp.status : "no response" });
@@ -311,6 +454,20 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           debugLog("[Waveform] Fetch successful, decoding");
           const ab = await resp.arrayBuffer();
           debugLog("[Waveform] ArrayBuffer size", { size: ab ? ab.byteLength : 0 });
+          
+          // Final check before decoding
+          const checkSrcBeforeDecode = audio.getAttribute("src") || audio.src;
+          const normalizedCheckSrcBeforeDecode = normalizeUrlForComparison(checkSrcBeforeDecode);
+          if (normalizedCheckSrcBeforeDecode !== normalizedAudioSrc && normalizedAudioSrc) {
+            debugLog('[useAudioPlayer] buildWaveformForSize: Audio src changed before decode, aborting', {
+              expectedSrc: audioSrc?.substring(0, 100) + '...',
+              actualSrc: checkSrcBeforeDecode?.substring(0, 100) + '...',
+            });
+            waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
+            renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
+            return;
+          }
+          
           const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
           let buf: AudioBuffer | null = null;
           try {
@@ -334,8 +491,25 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             } catch (_) {}
             return;
           }
-          // Store the buffer for future resizes
-          audioBufferRef = buf;
+          
+          // Final check before storing buffer
+          const checkSrcBeforeStore = audio.getAttribute("src") || audio.src;
+          const normalizedCheckSrcBeforeStore = normalizeUrlForComparison(checkSrcBeforeStore);
+          if (normalizedCheckSrcBeforeStore !== normalizedAudioSrc && normalizedAudioSrc) {
+            debugLog('[useAudioPlayer] buildWaveformForSize: Audio src changed before storing buffer, aborting', {
+              expectedSrc: audioSrc?.substring(0, 100) + '...',
+              actualSrc: checkSrcBeforeStore?.substring(0, 100) + '...',
+            });
+            waveformBarsRef.current = buildPlaceholderBars(displayWidth, displayHeight);
+            renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
+            try {
+              ac.close();
+            } catch (_) {}
+            return;
+          }
+          
+          // Store the buffer for future resizes (only if still matches current audio source)
+          audioBufferRef.current = buf;
           debugLog("[Waveform] Decoded successfully", { sampleRate: buf.sampleRate, length: buf.length });
           waveformBarsRef.current = buildBarsFromBuffer(buf, canvas, displayWidth, displayHeight);
           debugLog("[Waveform] Generated", { bars: waveformBarsRef.current.length });
@@ -1280,6 +1454,8 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         cleanupRef.current = null;
       }
       playerInitialized.current = false;
+      // Don't clear waveformBarsRef or audioBufferRef here - they're managed by audioSrc changes
+      // But clear them if audioSrc becomes null (handled at top of effect)
     };
   }, [audioSrc, authHeaders, ensureAuthToken]);
 };
