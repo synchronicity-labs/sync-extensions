@@ -9,6 +9,15 @@ interface UseDragAndDropOptions {
   onAudioSelected: (path: string) => void;
 }
 
+// Track if drop is currently being processed to prevent multiple simultaneous drops
+const dropProcessingFlags: { video: boolean; audio: boolean } = {
+  video: false,
+  audio: false,
+};
+
+// Track if a specific file path is currently being processed to prevent duplicate handling
+const processingPaths: Set<string> = new Set();
+
 /**
  * Drag and drop functionality for video and audio files
  * Based on the main branch ui/dnd.js implementation
@@ -218,6 +227,12 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
   // Handle dropped video
   const handleDroppedVideo = useCallback(async (raw: string) => {
+    // Prevent duplicate processing of the same file path
+    if (processingPaths.has(raw)) {
+      debugLog("[Video Selection] Already processing this path, skipping", { path: raw });
+      return;
+    }
+
     try {
       // Validate path before proceeding
       if (!raw || typeof raw !== "string" || raw.includes(".file/id=") || raw.length < 2) {
@@ -225,15 +240,19 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         return;
       }
 
-      showToast(ToastMessages.VALIDATING_VIDEO, "info");
+      // Mark this path as being processed
+      processingPaths.add(raw);
+
       const ext = raw.split(".").pop()?.toLowerCase() || "";
       const ok = { mov: 1, mp4: 1 }[ext] === 1;
       if (!ok) {
+        processingPaths.delete(raw);
         showToast(ToastMessages.ONLY_MP4_MOV_SUPPORTED, "error");
         return;
       }
       const size = await statFileSizeBytes(raw);
       if (size > 1024 * 1024 * 1024) {
+        processingPaths.delete(raw);
         showToast(ToastMessages.VIDEO_EXCEEDS_1GB, "error");
         return;
       }
@@ -243,8 +262,11 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       (window as any).selectedVideo = raw;
       debugLog("[Video Selection] Drag & drop selected", { video: (window as any).selectedVideo });
 
-      // Notify parent component
-      onVideoSelected(raw);
+      // Show uploading toast before calling setVideoPath (which handles the upload)
+      showToast(ToastMessages.UPLOADING_VIDEO, "info");
+      
+      // Notify parent component - setVideoPath will handle the upload
+      await onVideoSelected(raw);
 
       // Call update functions like main branch
       if (typeof (window as any).updateLipsyncButton === "function") {
@@ -254,62 +276,13 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         (window as any).renderInputPreview("drag-drop");
       }
 
-      // Upload to server
-      showToast(ToastMessages.UPLOADING_VIDEO, "info");
-      try {
-        // Cancel any existing video upload
-        if ((window as any).videoUploadController) {
-          (window as any).videoUploadController.abort();
-        }
-        
-        // Create new AbortController for this upload
-        const controller = new AbortController();
-        (window as any).videoUploadController = controller;
-        
-        await ensureAuthToken();
-        const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
-        const body = { path: raw, apiKey: settings.syncApiKey || "" };
-        const r = await fetch(getApiUrl("/upload"), {
-          method: "POST",
-          headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        
-        // Check if upload was aborted
-        if (controller.signal.aborted) {
-          return;
-        }
-        
-        const j = await r.json().catch(() => null);
-        if (r.ok && j && j.ok && j.url) {
-          // Check again if upload was aborted before updating state
-          if (controller.signal.aborted) {
-            return;
-          }
-          (window as any).uploadedVideoUrl = j.url;
-          localStorage.setItem("uploadedVideoUrl", j.url);
-          showToast(ToastMessages.VIDEO_UPLOADED_SUCCESSFULLY, "success");
-        } else {
-          const errorMsg = j?.error || "server error";
-          showToast(ToastMessages.VIDEO_UPLOAD_FAILED(errorMsg), "error");
-        }
-        
-        // Clear controller reference if this was the current upload
-        if ((window as any).videoUploadController === controller) {
-          (window as any).videoUploadController = null;
-        }
-      } catch (e: any) {
-        // Ignore abort errors
-        if (e.name === "AbortError") {
-          return;
-        }
-        const errorMsg = e.message?.includes("Failed to fetch") ? "server connection failed" : 
-                        e.message?.toLowerCase() || "unknown error";
-        showToast(ToastMessages.VIDEO_UPLOAD_FAILED(errorMsg), "error");
-      }
-
-    } catch (_) {}
+      // Clear the processing flag after a delay to allow the upload to complete
+      setTimeout(() => {
+        processingPaths.delete(raw);
+      }, 2000);
+    } catch (_) {
+      processingPaths.delete(raw);
+    }
   }, [statFileSizeBytes, authHeaders, ensureAuthToken, onVideoSelected]);
 
   // Handle dropped audio
@@ -348,9 +321,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       if (typeof (window as any).renderInputPreview === "function") {
         (window as any).renderInputPreview("drag-drop");
       }
-      if (typeof (window as any).updateInputStatus === "function") {
-        (window as any).updateInputStatus();
-      }
+      // Don't call updateInputStatus here - it will be called by useEffect when both are ready
 
       // Upload to server
       showToast(ToastMessages.UPLOADING_AUDIO, "info");
@@ -717,6 +688,15 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
     const handleDrop = async (e: DragEvent) => {
       if (isInteractiveElement(e.target)) return;
+      
+      // Prevent multiple simultaneous drop processing
+      if (dropProcessingFlags[kind]) {
+        debugLog("[DnD] Drop already processing, ignoring duplicate", { kind });
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      
       try {
         e.preventDefault();
         e.stopPropagation();
@@ -731,22 +711,36 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           items: e.dataTransfer?.items?.length || 0
         });
 
-        // Delegate to the main drop handler - wrap in Promise to catch all errors
-        Promise.resolve(handleDropEvent(e, kind)).catch((err) => {
+        // Set processing flag
+        dropProcessingFlags[kind] = true;
+
+        try {
+          // Delegate to the main drop handler - properly await it
+          await handleDropEvent(e, kind);
+        } catch (err) {
           debugError("[DnD] Error in drop handler promise", err);
-        });
+        } finally {
+          // Clear processing flag immediately when done
+          // Use a small delay only to prevent rapid duplicate drops from the same event
+          setTimeout(() => {
+            dropProcessingFlags[kind] = false;
+          }, 100);
+        }
       } catch (err) {
         debugError("[DnD] Error in drop handler", err);
+        dropProcessingFlags[kind] = false;
       }
     };
 
-    zoneEl.addEventListener("dragenter", handleDragEnter);
-    zoneEl.addEventListener("dragover", handleDragOver);
-    zoneEl.addEventListener("dragleave", handleDragLeave);
-    zoneEl.addEventListener("drop", handleDrop);
+    // Use capture phase so dropzone handlers run before document-level handlers
+    zoneEl.addEventListener("dragenter", handleDragEnter, true);
+    zoneEl.addEventListener("dragover", handleDragOver, true);
+    zoneEl.addEventListener("dragleave", handleDragLeave, true);
+    zoneEl.addEventListener("drop", handleDrop, true);
 
-    // Also add handlers to child elements to ensure events propagate
+    // Also add handlers to child elements for dragenter/dragover/dragleave to ensure visual feedback
     // BUT skip buttons and other interactive elements to avoid blocking clicks
+    // NOTE: We don't attach drop handlers to children - events will bubble up to the zone element
     const childElements = zoneEl.querySelectorAll("*");
     const childHandlers: Array<{ element: Element; handlers: Array<{ event: string; handler: EventListener }> }> = [];
     
@@ -760,11 +754,12 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         return;
       }
       
+      // Only attach dragenter/dragover/dragleave to children, NOT drop
+      // Drop events will bubble up to the zone element naturally
       const handlers = [
         { event: "dragenter", handler: handleDragEnter as EventListener },
         { event: "dragover", handler: handleDragOver as EventListener },
         { event: "dragleave", handler: handleDragLeave as EventListener },
-        { event: "drop", handler: handleDrop as EventListener },
       ];
       
       handlers.forEach(({ event, handler }) => {
@@ -776,10 +771,10 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
     // Return cleanup function
     return () => {
-      zoneEl.removeEventListener("dragenter", handleDragEnter);
-      zoneEl.removeEventListener("dragover", handleDragOver);
-      zoneEl.removeEventListener("dragleave", handleDragLeave);
-      zoneEl.removeEventListener("drop", handleDrop);
+      zoneEl.removeEventListener("dragenter", handleDragEnter, true);
+      zoneEl.removeEventListener("dragover", handleDragOver, true);
+      zoneEl.removeEventListener("dragleave", handleDragLeave, true);
+      zoneEl.removeEventListener("drop", handleDrop, true);
       
       childHandlers.forEach(({ element, handlers }) => {
         handlers.forEach(({ event, handler }) => {
@@ -791,17 +786,16 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
   // Initialize drag and drop
   useEffect(() => {
-    // Prevent the panel from navigating away when files are dropped
+    // Only prevent navigation on dragover - dropzone handlers will handle actual drops
+    // This prevents the browser from navigating away when files are dragged over the panel
     const handleDocumentDragOver = (e: DragEvent) => {
-      e.preventDefault();
-    };
-    const handleDocumentDrop = (e: DragEvent) => {
       e.preventDefault();
     };
     
     try {
+      // Always prevent default on dragover to avoid navigation
       document.addEventListener("dragover", handleDocumentDragOver, false);
-      document.addEventListener("drop", handleDocumentDrop, false);
+      // Don't add a document-level drop handler - let dropzone handlers handle all drops
     } catch (err) {
       debugError("[DnD] Error adding document listeners", err);
     }
@@ -857,7 +851,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     return () => {
       try {
         document.removeEventListener("dragover", handleDocumentDragOver, false);
-        document.removeEventListener("drop", handleDocumentDrop, false);
         clearTimeout(timer);
         clearTimeout(timer2);
         clearInterval(interval);

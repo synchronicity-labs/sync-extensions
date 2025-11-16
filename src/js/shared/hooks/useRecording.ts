@@ -216,9 +216,7 @@ export const useRecording = () => {
             if ((window as any).renderInputPreview) {
               (window as any).renderInputPreview(type === 'video' ? 'videoRecording' : 'audioRecording');
             }
-            if ((window as any).updateInputStatus) {
-              (window as any).updateInputStatus();
-            }
+            // Don't call updateInputStatus here - it will be called by useEffect when both are ready
             
             // Remove recording class to clear orange outline (matches main branch)
             if (type === "video") {

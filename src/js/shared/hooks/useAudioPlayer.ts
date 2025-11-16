@@ -171,43 +171,49 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       return;
     }
 
-    // Wait for React to finish rendering the audio element with correct src
+    // Retry getting elements if they don't exist yet
     let retryCount = 0;
     const maxRetries = 20;
-    const tryInit = () => {
+    const getElements = () => {
       const audio = document.getElementById("audioPlayer") as HTMLAudioElement;
       const audioPreview = document.getElementById("audioPreview");
       const canvas = document.getElementById("waveformCanvas") as HTMLCanvasElement;
       
-      // Check if elements exist
       if (!audio || !canvas || !audioPreview) {
         if (retryCount < maxRetries) {
           retryCount++;
-          setTimeout(tryInit, 50);
-          return;
+          setTimeout(getElements, 50);
+          return null;
         }
+        return null;
+      }
+      
+      return { audio, audioPreview, canvas };
+    };
+    
+    const elements = getElements();
+    if (!elements) {
+      return;
+    }
+    
+    const { audio, audioPreview, canvas } = elements;
+
+    // Initialize when audio metadata loads or immediately if already loaded
+    const initPlayer = () => {
+      if (playerInitialized.current) {
         return;
       }
       
       // Check if audio preview is visible
       const isVisible = window.getComputedStyle(audioPreview).display !== 'none';
       if (!isVisible) {
-        if (retryCount < maxRetries) {
-          retryCount++;
-          setTimeout(tryInit, 50);
-          return;
-        }
         return;
       }
       
-      // Check if audio has src set (React may not have updated it yet)
+      // Check if audio has src set
       const currentSrc = audio.getAttribute('src') || audio.src;
-      if (!currentSrc || (audioSrc && !currentSrc.includes(audioSrc.replace(/ /g, '%20').split('/').pop() || ''))) {
-        if (retryCount < maxRetries) {
-          retryCount++;
-          setTimeout(tryInit, 50);
-          return;
-        }
+      if (!currentSrc) {
+        return;
       }
       
       // Now initialize
@@ -994,15 +1000,25 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       };
     };
     
-    // Start initialization attempt
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        tryInit();
-      });
-    }, 0);
+    // Try to initialize immediately if audio is ready
+    if (audio.readyState >= 1) {
+      setTimeout(initPlayer, 0);
+    }
+    
+    // Also listen for when metadata loads
+    audio.addEventListener("loadedmetadata", initPlayer);
+    
+    // Fallback: try after a short delay
+    const timeoutId = setTimeout(() => {
+      initPlayer();
+    }, 500);
 
     // Cleanup
     return () => {
+      if (audio) {
+        audio.removeEventListener("loadedmetadata", initPlayer);
+      }
+      clearTimeout(timeoutId);
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;

@@ -21,7 +21,8 @@ const TOAST_SPACING = 60; // Space between stacked toasts in pixels
 const updateToastPositions = (): void => {
   activeToasts.forEach((toast, index) => {
     const offset = index * TOAST_SPACING;
-    toast.element.style.transform = `translateX(-50%) translateY(${offset}px)`;
+    // Use negative offset to stack toasts upward from the bottom
+    toast.element.style.transform = `translateX(-50%) translateY(-${offset}px)`;
     toast.index = index;
   });
 };
@@ -38,14 +39,33 @@ const removeToast = (toastElement: HTMLElement): void => {
 };
 
 /**
+ * Clear all active toasts
+ */
+const clearAllToasts = (): void => {
+  // Remove all toasts from DOM and clear the array
+  activeToasts.forEach(({ element }) => {
+    element.classList.remove("show");
+    setTimeout(() => {
+      if (element.parentNode) {
+        element.parentNode.removeChild(element);
+      }
+    }, 0);
+  });
+  activeToasts.length = 0;
+};
+
+/**
  * Show a toast notification
  * Messages are automatically lowercased for consistency
- * Toasts are stacked vertically to prevent overlapping
+ * Only one toast is shown at a time - existing toasts are cleared before showing a new one
  */
 export const showToast = (
   message: string,
   options: ToastOptions | ToastType = "info"
 ): void => {
+  // Clear all existing toasts before showing a new one
+  clearAllToasts();
+
   // Handle legacy API where second param is just the type string
   const opts: ToastOptions =
     typeof options === "string"

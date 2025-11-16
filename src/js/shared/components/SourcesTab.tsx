@@ -30,6 +30,9 @@ const SourcesTab: React.FC = () => {
   const [ttsVoiceSelectorOpen, setTtsVoiceSelectorOpen] = useState(false);
   const [ttsVoiceCloneModalOpen, setTtsVoiceCloneModalOpen] = useState(false);
   const isOffline = serverState?.isOffline || false;
+  
+  // Track when "ready for lipsync" was last shown to prevent spam
+  const readyForLipsyncShownRef = useRef<number>(0);
 
   // Initialize drag and drop
   useDragAndDrop({
@@ -48,6 +51,28 @@ const SourcesTab: React.FC = () => {
     ? (selection.audioIsUrl && selection.audioUrl ? selection.audioUrl : (selection.audio ? selection.audio : null))
     : null;
   useAudioPlayer(audioSrc);
+
+  // Watch for when both video and audio are ready and call updateInputStatus once
+  useEffect(() => {
+    // Check if both video and audio are ready (have URLs or are URLs themselves)
+    const hasVideoReady = (selection.videoIsUrl && selection.videoUrl) || 
+      (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || localStorage.getItem("uploadedVideoUrl")));
+    
+    const hasAudioReady = (selection.audioIsUrl && selection.audioUrl) || 
+      (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || localStorage.getItem("uploadedAudioUrl")));
+    
+    // Only call updateInputStatus when both become ready
+    if (hasVideoReady && hasAudioReady) {
+      const now = Date.now();
+      const timeSinceLastShown = now - readyForLipsyncShownRef.current;
+      // Only show if it hasn't been shown in the last 3 seconds
+      if (timeSinceLastShown > 3000) {
+        if (typeof (window as any).updateInputStatus === "function") {
+          (window as any).updateInputStatus();
+        }
+      }
+    }
+  }, [selection.video, selection.videoUrl, selection.videoIsUrl, selection.audio, selection.audioUrl, selection.audioIsUrl]);
 
   // Expose functions on window for backward compatibility with original code
   useEffect(() => {
@@ -94,8 +119,14 @@ const SourcesTab: React.FC = () => {
         status.textContent = "";
       }
       // Only show "ready for lipsync" when both video and audio are selected
+      // Prevent showing it multiple times in quick succession (within 3 seconds)
+      const now = Date.now();
+      const timeSinceLastShown = now - readyForLipsyncShownRef.current;
       if ((selection.video || selection.videoUrl) && (selection.audio || selection.audioUrl)) {
-        showToast(ToastMessages.READY_FOR_LIPSYNC, "success");
+        if (timeSinceLastShown > 3000) {
+          showToast(ToastMessages.READY_FOR_LIPSYNC, "success");
+          readyForLipsyncShownRef.current = now;
+        }
       }
     };
 
@@ -290,9 +321,7 @@ const SourcesTab: React.FC = () => {
             if (typeof (window as any).renderInputPreview === "function") {
               (window as any).renderInputPreview("inout");
             }
-            if (typeof (window as any).updateInputStatus === "function") {
-              (window as any).updateInputStatus();
-            }
+            // Don't call updateInputStatus here - useEffect will handle it when state changes
           } else if (result?.error) {
             debugError('[SourcesTab] Export error', { error: result.error });
             // Show error toast
@@ -432,6 +461,9 @@ const SourcesTab: React.FC = () => {
       if (!selection.video && !selection.videoUrl) return;
       
       try {
+        // Show extracting toast at the start
+        showToast(ToastMessages.EXTRACTING_AUDIO, "info");
+        
         const videoPath = selection.video;
         const videoUrl = selection.videoUrl;
         
@@ -454,9 +486,7 @@ const SourcesTab: React.FC = () => {
           if (typeof (window as any).renderInputPreview === "function") {
             (window as any).renderInputPreview("extract-audio");
           }
-          if (typeof (window as any).updateInputStatus === "function") {
-            (window as any).updateInputStatus();
-          }
+          // Don't call updateInputStatus here - useEffect will handle it when state changes
           
           // Show success toast
           if ((window as any).showToast) {
@@ -1237,9 +1267,7 @@ const SourcesTab: React.FC = () => {
                     if (typeof (window as any).renderInputPreview === "function") {
                       (window as any).renderInputPreview("url-load");
                     }
-                    if (typeof (window as any).updateInputStatus === "function") {
-                      (window as any).updateInputStatus();
-                    }
+                    // Don't call updateInputStatus here - useEffect will handle it when state changes
                     if (typeof (window as any).updateFromVideoButton === "function") {
                       (window as any).updateFromVideoButton();
                     }
@@ -1532,9 +1560,7 @@ const SourcesTab: React.FC = () => {
                     if (typeof (window as any).renderInputPreview === "function") {
                       (window as any).renderInputPreview("url-load");
                     }
-                    if (typeof (window as any).updateInputStatus === "function") {
-                      (window as any).updateInputStatus();
-                    }
+                    // Don't call updateInputStatus here - useEffect will handle it when state changes
                     
                     showToast(ToastMessages.AUDIO_URL_LOADED_SUCCESSFULLY, "success");
                     

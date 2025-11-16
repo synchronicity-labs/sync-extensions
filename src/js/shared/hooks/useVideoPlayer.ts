@@ -15,43 +15,48 @@ export const useVideoPlayer = (videoSrc: string | null) => {
       return;
     }
 
-    // Wait for React to finish rendering the video element with correct src
+    // Retry getting elements if they don't exist yet
     let retryCount = 0;
     const maxRetries = 20;
-    const tryInit = () => {
+    const getElements = () => {
       const video = document.getElementById("mainVideo") as HTMLVideoElement;
       const videoPreview = document.getElementById("videoPreview");
       
-      // Check if element exists and is visible
       if (!video || !videoPreview) {
         if (retryCount < maxRetries) {
           retryCount++;
-          setTimeout(tryInit, 50);
-          return;
+          setTimeout(getElements, 50);
+          return null;
         }
+        return null;
+      }
+      
+      return { video, videoPreview };
+    };
+    
+    const elements = getElements();
+    if (!elements) {
+      return;
+    }
+    
+    const { video, videoPreview } = elements;
+
+    // Initialize when video metadata loads or immediately if already loaded
+    const initPlayer = () => {
+      if (playerInitialized.current) {
         return;
       }
       
       // Check if video preview is visible
       const isVisible = window.getComputedStyle(videoPreview).display !== 'none';
       if (!isVisible) {
-        if (retryCount < maxRetries) {
-          retryCount++;
-          setTimeout(tryInit, 50);
-          return;
-        }
         return;
       }
       
-      // Check if video has src set (React may not have updated it yet)
+      // Check if video has src set
       const currentSrc = video.getAttribute('src') || video.src;
-      const expectedSrc = videoSrc.startsWith('file://') ? videoSrc : (videoSrc ? `file://${videoSrc.replace(/ /g, '%20')}` : '');
-      if (!currentSrc || (videoSrc && !currentSrc.includes(videoSrc.replace(/ /g, '%20').split('/').pop() || ''))) {
-        if (retryCount < maxRetries) {
-          retryCount++;
-          setTimeout(tryInit, 50);
-          return;
-        }
+      if (!currentSrc) {
+        return;
       }
       
       // Now initialize
@@ -245,15 +250,25 @@ export const useVideoPlayer = (videoSrc: string | null) => {
       };
     };
     
-    // Start initialization attempt
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        tryInit();
-      });
-    }, 0);
+    // Try to initialize immediately if video is ready
+    if (video.readyState >= 1) {
+      setTimeout(initPlayer, 0);
+    }
+    
+    // Also listen for when metadata loads
+    video.addEventListener("loadedmetadata", initPlayer);
+    
+    // Fallback: try after a short delay
+    const timeoutId = setTimeout(() => {
+      initPlayer();
+    }, 500);
 
     // Cleanup
     return () => {
+      if (video) {
+        video.removeEventListener("loadedmetadata", initPlayer);
+      }
+      clearTimeout(timeoutId);
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;

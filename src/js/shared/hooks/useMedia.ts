@@ -114,9 +114,7 @@ export const useMedia = () => {
         if (typeof (window as any).renderInputPreview === "function") {
           (window as any).renderInputPreview("upload");
         }
-        if (typeof (window as any).updateInputStatus === "function") {
-          (window as any).updateInputStatus();
-        }
+        // Don't call updateInputStatus here - it will be called by useEffect when upload completes
         
         // Upload to server
         try {
@@ -214,9 +212,7 @@ export const useMedia = () => {
         if (typeof (window as any).renderInputPreview === "function") {
           (window as any).renderInputPreview("upload");
         }
-        if (typeof (window as any).updateInputStatus === "function") {
-          (window as any).updateInputStatus();
-        }
+        // Don't call updateInputStatus here - it will be called by useEffect when upload completes
         
         // Upload to server
         try {
