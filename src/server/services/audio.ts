@@ -258,6 +258,33 @@ export async function convertWebmToMp3(srcPath, destPath) {
   });
 }
 
+// Convert WebM audio to WAV
+export async function convertWebmToWav(srcPath, destPath) {
+  tlog('[audio] convertWebmToWav start', srcPath, '->', destPath || '(auto)');
+  const finalPath = destPath || srcPath.replace(/\.webm$/i, '.wav');
+  
+  return new Promise((resolve, reject) => {
+    ffmpeg(srcPath)
+      .noVideo()
+      .audioCodec('pcm_s16le')
+      .audioFrequency(44100)
+      .audioChannels(1)
+      .output(finalPath)
+      .on('start', (cmdline) => {
+        tlog('[audio] FFmpeg command:', cmdline);
+      })
+      .on('end', () => {
+        tlog('[audio] FFmpeg WebM to WAV conversion successful');
+        resolve(finalPath);
+      })
+      .on('error', (err) => {
+        tlog('[audio] FFmpeg error:', err.message);
+        reject(err);
+      })
+      .run();
+  });
+}
+
 export async function convertAudio(srcPath, format) {
   const ext = String(format||'').toLowerCase();
   const srcExt = path.extname(srcPath).toLowerCase();
@@ -267,6 +294,8 @@ export async function convertAudio(srcPath, format) {
       return await convertAiffToWav(srcPath);
     } else if (srcExt === '.wav') {
       return srcPath;
+    } else if (srcExt === '.webm') {
+      return await convertWebmToWav(srcPath, null);
     } else {
       throw new Error('Cannot convert ' + srcExt + ' to WAV');
     }

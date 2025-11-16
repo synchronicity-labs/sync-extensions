@@ -10,6 +10,7 @@ import { useCore } from "../hooks/useCore";
 import { useHistory } from "../hooks/useHistory";
 import { HOST_IDS } from "../../../shared/host";
 import { formatTime } from "./formatTime";
+import { showToast } from "./toast";
 
 export const setupWindowGlobals = (
   media: ReturnType<typeof useMedia>,
@@ -71,28 +72,9 @@ export const setupWindowGlobals = (
     } catch (_) {}
   };
 
-  // Toast notification function
+  // Toast notification function - use centralized utility
   (window as any).showToast = (message: string, type: "info" | "error" | "success" = "info") => {
-    // Convert UI messages to lowercase
-    const lowercaseMessage = message.toLowerCase();
-    const toast = document.createElement("div");
-    toast.className = `history-toast history-toast-${type}`;
-    toast.textContent = lowercaseMessage;
-    document.body.appendChild(toast);
-
-    // Trigger animation by adding show class
-    requestAnimationFrame(() => {
-      toast.classList.add("show");
-    });
-
-    setTimeout(() => {
-      toast.classList.remove("show");
-      setTimeout(() => {
-        if (toast.parentNode) {
-          toast.parentNode.removeChild(toast);
-        }
-      }, 300);
-    }, 3000);
+    showToast(message, type);
   };
 
   // Debug log path function

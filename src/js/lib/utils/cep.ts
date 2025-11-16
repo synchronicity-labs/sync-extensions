@@ -91,18 +91,60 @@ export const dropDisable = () => {
       return;
     }
     
+    // Determine which dropzone was targeted
+    const target = e.target as HTMLElement;
+    const videoDropzone = document.getElementById('videoDropzone');
+    const audioDropzone = document.getElementById('audioDropzone');
+    
+    // Check if drop occurred over a dropzone
+    const isOverVideoZone = videoDropzone && videoDropzone.contains(target);
+    const isOverAudioZone = audioDropzone && audioDropzone.contains(target);
+    
+    // Determine the kind (video or audio) based on which dropzone was targeted
+    let kind: 'video' | 'audio' | null = null;
+    if (isOverVideoZone) {
+      kind = 'video';
+    } else if (isOverAudioZone) {
+      kind = 'audio';
+    } else {
+      // If not over a specific dropzone, try to determine from the drop target
+      // Check if we're in the video or audio section
+      const videoSection = document.getElementById('videoSection');
+      const audioSection = document.getElementById('audioSection');
+      if (videoSection && videoSection.contains(target)) {
+        kind = 'video';
+      } else if (audioSection && audioSection.contains(target)) {
+        kind = 'audio';
+      }
+    }
+    
+    // If we can't determine the kind, don't proceed
+    if (!kind) {
+      return;
+    }
+    
     // This appears to be a drag from within the app - call selection function
     try {
       if ((window as any).CSInterface) {
         const cs = new (window as any).CSInterface();
         // Detect host application
         const appId = cs.getApplicationID();
-        const { HOST_IDS, HOST_APP_IDS } = await import("../../../shared/host");
+        const { HOST_IDS } = await import("../../../shared/host");
         const isAE = appId && (appId.includes(HOST_IDS.AEFT) || appId.includes('AfterEffects'));
         const isPPRO = appId && (appId.includes(HOST_IDS.PPRO) || appId.includes('Premiere'));
         
-        // Call host-specific function via evalScript
+        // Get extension path for loading host scripts
+        const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
+        const hostFile = isPPRO ? "/host/ppro.jsx" : "/host/ae.jsx";
+        const escPath = String(extPath + hostFile).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        
+        // Load host script first
         await new Promise<void>((resolve) => {
+          cs.evalScript(`$.evalFile("${escPath}")`, () => resolve());
+        });
+        
+        // Call host-specific function via evalScript to get file path
+        const result = await new Promise<{ ok: boolean; path?: string; error?: string }>((resolve) => {
           let script = '';
           if (isPPRO) {
             // Premiere Pro: use getCurrentProjectViewSelection
@@ -110,12 +152,26 @@ export const dropDisable = () => {
               try {
                 if (typeof app !== 'undefined' && app.getCurrentProjectViewSelection) {
                   var selection = app.getCurrentProjectViewSelection();
-                  'ok';
+                  if (selection && selection.length > 0) {
+                    var item = selection[0];
+                    if (item && typeof item.getMediaPath === 'function') {
+                      var path = item.getMediaPath();
+                      if (path) {
+                        return JSON.stringify({ ok: true, path: path });
+                      } else {
+                        return JSON.stringify({ ok: false, error: 'no path' });
+                      }
+                    } else {
+                      return JSON.stringify({ ok: false, error: 'no getMediaPath' });
+                    }
+                  } else {
+                    return JSON.stringify({ ok: false, error: 'no selection' });
+                  }
                 } else {
-                  'not available';
+                  return JSON.stringify({ ok: false, error: 'not available' });
                 }
               } catch(e) {
-                'error';
+                return JSON.stringify({ ok: false, error: String(e) });
               }
             `;
           } else if (isAE) {
@@ -123,13 +179,22 @@ export const dropDisable = () => {
             script = `
               try {
                 if (typeof app !== 'undefined' && app.project && app.project.activeItem) {
-                  var activeItem = app.project.activeItem;
-                  'ok';
+                  var item = app.project.activeItem;
+                  if (item && item.file) {
+                    var file = item.file;
+                    if (file && file.fsName) {
+                      return JSON.stringify({ ok: true, path: file.fsName });
+                    } else {
+                      return JSON.stringify({ ok: false, error: 'no fsName' });
+                    }
+                  } else {
+                    return JSON.stringify({ ok: false, error: 'no file' });
+                  }
                 } else {
-                  'not available';
+                  return JSON.stringify({ ok: false, error: 'not available' });
                 }
               } catch(e) {
-                'error';
+                return JSON.stringify({ ok: false, error: String(e) });
               }
             `;
           } else {
@@ -139,27 +204,85 @@ export const dropDisable = () => {
                 if (typeof app !== 'undefined') {
                   if (app.getCurrentProjectViewSelection) {
                     var selection = app.getCurrentProjectViewSelection();
-                    'ppro';
+                    if (selection && selection.length > 0) {
+                      var item = selection[0];
+                      if (item && typeof item.getMediaPath === 'function') {
+                        var path = item.getMediaPath();
+                        if (path) {
+                          return JSON.stringify({ ok: true, path: path });
+                        } else {
+                          return JSON.stringify({ ok: false, error: 'no path' });
+                        }
+                      } else {
+                        return JSON.stringify({ ok: false, error: 'no getMediaPath' });
+                      }
+                    } else {
+                      return JSON.stringify({ ok: false, error: 'no selection' });
+                    }
                   } else if (app.project && app.project.activeItem) {
-                    var activeItem = app.project.activeItem;
-                    'ae';
+                    var item = app.project.activeItem;
+                    if (item && item.file) {
+                      var file = item.file;
+                      if (file && file.fsName) {
+                        return JSON.stringify({ ok: true, path: file.fsName });
+                      } else {
+                        return JSON.stringify({ ok: false, error: 'no fsName' });
+                      }
+                    } else {
+                      return JSON.stringify({ ok: false, error: 'no file' });
+                    }
                   } else {
-                    'not available';
+                    return JSON.stringify({ ok: false, error: 'not available' });
                   }
                 } else {
-                  'not available';
+                  return JSON.stringify({ ok: false, error: 'not available' });
                 }
               } catch(e) {
-                'error';
+                return JSON.stringify({ ok: false, error: String(e) });
               }
             `;
           }
           
-          cs.evalScript(script, () => resolve());
+          cs.evalScript(script, (r: string) => {
+            try {
+              const parsed = JSON.parse(r || "{}");
+              resolve(parsed);
+            } catch (_) {
+              resolve({ ok: false, error: "parse error" });
+            }
+          });
         });
+        
+        // If we got a file path, trigger the appropriate handler
+        if (result.ok && result.path) {
+          // Validate the path matches the kind
+          const ext = result.path.split(".").pop()?.toLowerCase() || "";
+          const videoExtOk = { mov: 1, mp4: 1 }[ext] === 1;
+          const audioExtOk = { wav: 1, mp3: 1 }[ext] === 1;
+          
+          // Check if the file type matches the dropzone
+          if ((kind === "video" && videoExtOk) || (kind === "audio" && audioExtOk)) {
+            // Call the appropriate handler
+            if (kind === "video" && typeof (window as any).setVideoPath === 'function') {
+              await (window as any).setVideoPath(result.path);
+            } else if (kind === "audio" && typeof (window as any).setAudioPath === 'function') {
+              await (window as any).setAudioPath(result.path);
+            }
+          } else {
+            // File type doesn't match dropzone - show error
+            const { showToast, ToastMessages } = await import("../../shared/utils/toast");
+            if (videoExtOk && kind === "audio") {
+              showToast(ToastMessages.PLEASE_DROP_AUDIO_FILE, "error");
+            } else if (audioExtOk && kind === "video") {
+              showToast(ToastMessages.PLEASE_DROP_VIDEO_FILE, "error");
+            }
+          }
+        }
       }
-    } catch (_) {
-      // Ignore errors
+    } catch (error) {
+      // Log error but don't break the app
+      const { debugError } = await import("../../shared/utils/debugLog");
+      debugError("[dropDisable] Error handling fake drag-and-drop", error);
     }
   }, false);
 };

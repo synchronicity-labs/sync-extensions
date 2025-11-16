@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
+import { showToast, ToastMessages } from "../utils/toast";
 
 export const useRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -91,19 +92,20 @@ export const useRecording = () => {
           audioContextRef.current = null;
         }
         
+        // Wait a bit for any remaining data to be captured (matches main branch)
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
         const blob = new Blob(chunks, { type: mimeType });
         const url = URL.createObjectURL(blob);
         
-        // Show loading toast
-        if ((window as any).showToast) {
-          (window as any).showToast('loading...', 'info');
-        }
+        // Show loading toast immediately
+        showToast(ToastMessages.LOADING, "info");
         
         // Determine file extension based on MIME type
         const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
         const fileName = `recording_${Date.now()}.${extension}`;
         
-        // Save to server (will convert to mp4/mp3)
+        // Save to server (will convert to mp4/wav)
         try {
           const formData = new FormData();
           formData.append("file", blob, fileName);
@@ -117,63 +119,156 @@ export const useRecording = () => {
 
           const data = await response.json().catch(() => null);
           if (response.ok && data?.ok && data?.path) {
+            debugLog('[useRecording] Recording saved successfully', { path: data.path, type });
+            
+            // Set as selected media (matches main branch)
             if (type === "video") {
               (window as any).selectedVideo = data.path;
               (window as any).selectedVideoIsTemp = false;
               (window as any).selectedVideoIsUrl = false;
               (window as any).selectedVideoUrl = '';
-              
-              // Update React state via setVideoPath
-              if ((window as any).setVideoPath) {
-                await (window as any).setVideoPath(data.path);
-              }
             } else {
               (window as any).selectedAudio = data.path;
               (window as any).selectedAudioIsTemp = false;
               (window as any).selectedAudioIsUrl = false;
               (window as any).selectedAudioUrl = '';
+            }
+            
+            // Upload to R2 separately (matches main branch)
+            let r2Url: string | null = null;
+            try {
+              const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
+              if ((window as any).ensureAuthToken) {
+                await (window as any).ensureAuthToken();
+              }
               
-              // Update React state via setAudioPath
+              // Cancel any existing upload for this type
+              const controllerKey = type === "video" ? "videoUploadController" : "audioUploadController";
+              if ((window as any)[controllerKey]) {
+                (window as any)[controllerKey].abort();
+              }
+              
+              // Create new AbortController for this upload
+              const controller = new AbortController();
+              (window as any)[controllerKey] = controller;
+              
+              const uploadResponse = await fetch(getApiUrl("/upload"), {
+                method: "POST",
+                headers: (window as any).authHeaders ? (window as any).authHeaders({ "Content-Type": "application/json" }) : { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: data.path, apiKey: settings.syncApiKey || "" }),
+                signal: controller.signal,
+              });
+              
+              // Check if upload was aborted
+              if (controller.signal.aborted) {
+                return;
+              }
+              
+              const uploadData = await uploadResponse.json().catch(() => null);
+              if (uploadResponse.ok && uploadData?.ok && uploadData?.url) {
+                // Check again if upload was aborted before updating state
+                if (controller.signal.aborted) {
+                  return;
+                }
+                r2Url = uploadData.url;
+                if (type === "video") {
+                  (window as any).selectedVideoUrl = uploadData.url;
+                  (window as any).uploadedVideoUrl = uploadData.url;
+                  localStorage.setItem('selectedVideoUrl', uploadData.url);
+                  localStorage.setItem('uploadedVideoUrl', uploadData.url);
+                } else {
+                  (window as any).selectedAudioUrl = uploadData.url;
+                  (window as any).uploadedAudioUrl = uploadData.url;
+                  localStorage.setItem('selectedAudioUrl', uploadData.url);
+                  localStorage.setItem('uploadedAudioUrl', uploadData.url);
+                }
+                debugLog('[useRecording] Uploaded to R2', { url: uploadData.url, type });
+              }
+              
+              // Clear controller reference if this was the current upload
+              if ((window as any)[controllerKey] === controller) {
+                (window as any)[controllerKey] = null;
+              }
+            } catch (uploadError: any) {
+              // Ignore abort errors
+              if (uploadError?.name === 'AbortError') {
+                return;
+              }
+              debugError('R2 upload error', uploadError);
+              // Continue anyway - local file is still available
+            }
+            
+            // Update React state via setVideoPath/setAudioPath (pass URL to prevent double upload)
+            if (type === "video") {
+              if ((window as any).setVideoPath) {
+                await (window as any).setVideoPath(data.path, r2Url);
+              }
+            } else {
               if ((window as any).setAudioPath) {
-                await (window as any).setAudioPath(data.path);
+                await (window as any).setAudioPath(data.path, r2Url);
               }
             }
             
-            // Trigger update
-            if ((window as any).updateLipsyncButton) (window as any).updateLipsyncButton();
+            // Trigger update functions (matches main branch)
+            if ((window as any).updateLipsyncButton) {
+              (window as any).updateLipsyncButton();
+            }
             if ((window as any).renderInputPreview) {
               (window as any).renderInputPreview(type === 'video' ? 'videoRecording' : 'audioRecording');
             }
-            
-            // Show success toast
-            if ((window as any).showToast) {
-              (window as any).showToast(`${type} recorded successfully`, 'success');
+            if ((window as any).updateInputStatus) {
+              (window as any).updateInputStatus();
             }
+            
+            // Remove recording class to clear orange outline (matches main branch)
+            if (type === "video") {
+              const videoSection = document.getElementById('videoSection');
+              if (videoSection) {
+                videoSection.classList.remove('recording');
+              }
+            } else {
+              const audioSection = document.getElementById('audioSection');
+              if (audioSection) {
+                audioSection.classList.remove('recording');
+              }
+            }
+            
+            // Show success toast (matches main branch)
+            const successMsg = type === "video" 
+              ? ToastMessages.VIDEO_RECORDED_SUCCESSFULLY 
+              : ToastMessages.AUDIO_RECORDED_SUCCESSFULLY;
+            showToast(successMsg, "success");
           } else {
             throw new Error(data?.error || 'Failed to save recording');
           }
         } catch (error) {
           debugError('Recording save error', error);
-          if ((window as any).showToast) {
-            (window as any).showToast('Failed to save recording', 'error');
+          showToast(ToastMessages.RECORDING_FAILED, "error");
+          
+          // Reset UI on error - show dropzone again
+          if (type === "video") {
+            const videoSection = document.getElementById('videoSection');
+            const videoDropzone = document.getElementById('videoDropzone');
+            const videoPreview = document.getElementById('videoPreview');
+            if (videoSection) videoSection.classList.remove('recording');
+            if (videoDropzone) videoDropzone.style.display = 'flex';
+            if (videoPreview) {
+              const recordingContainer = videoPreview.querySelector('.recording-container');
+              if (recordingContainer) recordingContainer.remove();
+              videoPreview.style.display = 'none';
+            }
+          } else {
+            const audioSection = document.getElementById('audioSection');
+            const audioDropzone = document.getElementById('audioDropzone');
+            const audioPreview = document.getElementById('audioPreview');
+            if (audioSection) audioSection.classList.remove('recording');
+            if (audioDropzone) audioDropzone.style.display = 'flex';
+            if (audioPreview) {
+              const recordingContainer = audioPreview.querySelector('.audio-recording-container');
+              if (recordingContainer) recordingContainer.remove();
+              audioPreview.style.display = 'none';
+            }
           }
-        }
-
-        // Reset UI
-        if (type === "video") {
-          const videoSection = document.getElementById('videoSection');
-          const videoDropzone = document.getElementById('videoDropzone');
-          const videoPreview = document.getElementById('videoPreview');
-          if (videoDropzone) videoDropzone.style.display = 'flex';
-          if (videoPreview) videoPreview.style.display = 'none';
-          if (videoSection) videoSection.classList.remove('recording');
-        } else {
-          const audioSection = document.getElementById('audioSection');
-          const audioDropzone = document.getElementById('audioDropzone');
-          const audioPreview = document.getElementById('audioPreview');
-          if (audioDropzone) audioDropzone.style.display = 'flex';
-          if (audioPreview) audioPreview.style.display = 'none';
-          if (audioSection) audioSection.classList.remove('recording');
         }
 
         URL.revokeObjectURL(url);
@@ -352,9 +447,7 @@ export const useRecording = () => {
           : 'Microphone access was interrupted. Please try again.';
       }
       
-      if ((window as any).showToast) {
-        (window as any).showToast(errorMessage, 'error');
-      }
+      showToast(errorMessage, "error");
       
       // Reset UI
       if (type === "video") {
@@ -379,18 +472,52 @@ export const useRecording = () => {
   }, [isRecording]);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording && mediaRecorderRef.current.state !== 'inactive') {
+    debugLog('[useRecording] stopRecording called', { 
+      hasRecorder: !!mediaRecorderRef.current, 
+      isRecording, 
+      state: mediaRecorderRef.current?.state 
+    });
+    
+    // Clear timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      const recorder = mediaRecorderRef.current;
+      
+      // Request data before stopping to ensure we get any pending chunks (matches main branch)
       try {
-        mediaRecorderRef.current.requestData();
+        recorder.requestData();
       } catch (e) {
         debugError('requestData failed', e);
       }
       
+      // Small delay to ensure data is captured (matches main branch)
       setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
+        if (recorder && recorder.state !== 'inactive') {
+          try {
+            recorder.stop();
+            debugLog('[useRecording] MediaRecorder.stop() called');
+          } catch (e) {
+            debugError('stop() failed', e);
+          }
         }
       }, 100);
+    }
+    
+    // Also stop all tracks immediately (matches main branch)
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+        debugLog('[useRecording] Stopped track', { kind: track.kind, label: track.label });
+      });
     }
   }, [isRecording]);
   

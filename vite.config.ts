@@ -704,6 +704,28 @@ export default defineConfig({
           throw new Error('bin folder with Node binaries is required but not found');
         }
         
+        // CRITICAL: Copy EPR preset files to extension root /epr folder (matches main branch)
+        // vite-cep-plugin copies them to js/panels/ppro/epr, but code expects them at /epr
+        const eprSource = path.join(__dirname, 'src', 'js', 'panels', 'ppro', 'epr');
+        const eprDest = path.join(outDir, 'epr');
+        if (fs.existsSync(eprSource)) {
+          try {
+            // Remove existing epr folder if it exists
+            if (fs.existsSync(eprDest)) {
+              fs.rmSync(eprDest, { recursive: true, force: true });
+            }
+            // Copy epr folder recursively to extension root
+            fs.mkdirSync(eprDest, { recursive: true });
+            fs.cpSync(eprSource, eprDest, { recursive: true });
+            console.log('Copied EPR preset files to dist/cep/epr');
+          } catch (err) {
+            console.error('CRITICAL: Failed to copy EPR presets:', err);
+            throw err; // Fail the build if EPR presets cannot be copied
+          }
+        } else {
+          console.warn('Warning: EPR presets folder not found at:', eprSource);
+        }
+        
         // Remove .debug file from dist/cep if it exists (CEP debug config, not user logging flag)
         // This should not be created for ZXP packages (symlink is disabled), but remove it as a safety measure
         if (isPackage) {

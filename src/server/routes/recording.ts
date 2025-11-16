@@ -5,7 +5,7 @@ import fs from 'fs';
 import { tlog } from '../utils/log';
 import { DOCS_DEFAULT_DIR, TEMP_DEFAULT_DIR, FILE_SIZE_LIMIT_1GB, getErrorMessage } from './constants';
 import { convertWebmToMp4 } from '../services/video';
-import { convertWebmToMp3 } from '../services/audio';
+import { convertWebmToWav } from '../services/audio';
 
 const router = express.Router();
 
@@ -40,7 +40,7 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
     const fileSize = fs.statSync(filePath).size;
     tlog('Recording saved:', filePath, 'size:', fileSize, 'type:', type);
 
-    // Convert webm to mp4 (video) or mp3 (audio)
+    // Convert webm to mp4 (video) or wav (audio)
     let finalPath = filePath;
     try {
       if (type === 'video') {
@@ -54,15 +54,15 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
         }
         tlog('Video recording converted to mp4:', finalPath);
       } else if (type === 'audio') {
-        tlog('Converting audio recording from webm to mp3...');
-        finalPath = await convertWebmToMp3(filePath);
+        tlog('Converting audio recording from webm to wav...');
+        finalPath = await convertWebmToWav(filePath);
         // Delete original webm file
         try {
           fs.unlinkSync(filePath);
         } catch (e) {
           tlog('Failed to delete original webm file:', (e as Error).message);
         }
-        tlog('Audio recording converted to mp3:', finalPath);
+        tlog('Audio recording converted to wav:', finalPath);
       }
     } catch (conversionError) {
       tlog('Conversion error (using original file):', getErrorMessage(conversionError));

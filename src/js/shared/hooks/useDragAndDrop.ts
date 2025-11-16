@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
+import { showToast, ToastMessages } from "../utils/toast";
 
 interface UseDragAndDropOptions {
   onVideoSelected: (path: string) => void;
@@ -220,28 +221,20 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     try {
       // Validate path before proceeding
       if (!raw || typeof raw !== "string" || raw.includes(".file/id=") || raw.length < 2) {
-        if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("invalid file path - please use upload button instead", "error");
-        }
+        showToast(ToastMessages.INVALID_FILE_PATH_UPLOAD, "error");
         return;
       }
 
-      if (typeof (window as any).showToast === "function") {
-        (window as any).showToast("validating video…", "info");
-      }
+      showToast(ToastMessages.VALIDATING_VIDEO, "info");
       const ext = raw.split(".").pop()?.toLowerCase() || "";
       const ok = { mov: 1, mp4: 1 }[ext] === 1;
       if (!ok) {
-        if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("only mp4 and mov supported", "error");
-        }
+        showToast(ToastMessages.ONLY_MP4_MOV_SUPPORTED, "error");
         return;
       }
       const size = await statFileSizeBytes(raw);
       if (size > 1024 * 1024 * 1024) {
-        if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("video exceeds 1gb (not allowed)", "error");
-        }
+        showToast(ToastMessages.VIDEO_EXCEEDS_1GB, "error");
         return;
       }
 
@@ -262,10 +255,17 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       }
 
       // Upload to server
-      if (typeof (window as any).showToast === "function") {
-        (window as any).showToast("uploading video…", "info");
-      }
+      showToast(ToastMessages.UPLOADING_VIDEO, "info");
       try {
+        // Cancel any existing video upload
+        if ((window as any).videoUploadController) {
+          (window as any).videoUploadController.abort();
+        }
+        
+        // Create new AbortController for this upload
+        const controller = new AbortController();
+        (window as any).videoUploadController = controller;
+        
         await ensureAuthToken();
         const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
         const body = { path: raw, apiKey: settings.syncApiKey || "" };
@@ -273,24 +273,40 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+        
+        // Check if upload was aborted
+        if (controller.signal.aborted) {
+          return;
+        }
+        
         const j = await r.json().catch(() => null);
         if (r.ok && j && j.ok && j.url) {
+          // Check again if upload was aborted before updating state
+          if (controller.signal.aborted) {
+            return;
+          }
           (window as any).uploadedVideoUrl = j.url;
           localStorage.setItem("uploadedVideoUrl", j.url);
+          showToast(ToastMessages.VIDEO_UPLOADED_SUCCESSFULLY, "success");
         } else {
           const errorMsg = j?.error || "server error";
-          if ((window as any).showToast) {
-            (window as any).showToast(`video upload failed: ${errorMsg.toLowerCase()}`, "error");
-          }
+          showToast(ToastMessages.VIDEO_UPLOAD_FAILED(errorMsg), "error");
+        }
+        
+        // Clear controller reference if this was the current upload
+        if ((window as any).videoUploadController === controller) {
+          (window as any).videoUploadController = null;
         }
       } catch (e: any) {
-        if ((window as any).showToast) {
-          const errorMsg = e.name === "AbortError" ? "upload timeout" : 
-                          e.message?.includes("Failed to fetch") ? "server connection failed" : 
-                          e.message?.toLowerCase() || "unknown error";
-          (window as any).showToast(`video upload failed: ${errorMsg}`, "error");
+        // Ignore abort errors
+        if (e.name === "AbortError") {
+          return;
         }
+        const errorMsg = e.message?.includes("Failed to fetch") ? "server connection failed" : 
+                        e.message?.toLowerCase() || "unknown error";
+        showToast(ToastMessages.VIDEO_UPLOAD_FAILED(errorMsg), "error");
       }
 
     } catch (_) {}
@@ -301,28 +317,20 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     try {
       // Validate path before proceeding
       if (!raw || typeof raw !== "string" || raw.includes(".file/id=") || raw.length < 2) {
-        if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("invalid file path - please use upload button instead", "error");
-        }
+        showToast(ToastMessages.INVALID_FILE_PATH_UPLOAD, "error");
         return;
       }
 
-      if (typeof (window as any).showToast === "function") {
-        (window as any).showToast("validating audio…", "info");
-      }
+      showToast(ToastMessages.VALIDATING_AUDIO, "info");
       const ext = raw.split(".").pop()?.toLowerCase() || "";
       const ok = { wav: 1, mp3: 1 }[ext] === 1;
       if (!ok) {
-        if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("only mp3 and wav supported", "error");
-        }
+        showToast(ToastMessages.ONLY_MP3_WAV_SUPPORTED, "error");
         return;
       }
       const size = await statFileSizeBytes(raw);
       if (size > 1024 * 1024 * 1024) {
-        if (typeof (window as any).showToast === "function") {
-          (window as any).showToast("audio exceeds 1gb (not allowed)", "error");
-        }
+        showToast(ToastMessages.AUDIO_EXCEEDS_1GB, "error");
         return;
       }
 
@@ -345,10 +353,17 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       }
 
       // Upload to server
-      if (typeof (window as any).showToast === "function") {
-        (window as any).showToast("uploading audio…", "info");
-      }
+      showToast(ToastMessages.UPLOADING_AUDIO, "info");
       try {
+        // Cancel any existing audio upload
+        if ((window as any).audioUploadController) {
+          (window as any).audioUploadController.abort();
+        }
+        
+        // Create new AbortController for this upload
+        const controller = new AbortController();
+        (window as any).audioUploadController = controller;
+        
         await ensureAuthToken();
         const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
         const body = { path: raw, apiKey: settings.syncApiKey || "" };
@@ -356,24 +371,40 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+        
+        // Check if upload was aborted
+        if (controller.signal.aborted) {
+          return;
+        }
+        
         const j = await r.json().catch(() => null);
         if (r.ok && j && j.ok && j.url) {
+          // Check again if upload was aborted before updating state
+          if (controller.signal.aborted) {
+            return;
+          }
           (window as any).uploadedAudioUrl = j.url;
           localStorage.setItem("uploadedAudioUrl", j.url);
+          showToast(ToastMessages.AUDIO_UPLOADED_SUCCESSFULLY, "success");
         } else {
           const errorMsg = j?.error || "server error";
-          if ((window as any).showToast) {
-            (window as any).showToast(`audio upload failed: ${errorMsg.toLowerCase()}`, "error");
-          }
+          showToast(ToastMessages.AUDIO_UPLOAD_FAILED(errorMsg), "error");
+        }
+        
+        // Clear controller reference if this was the current upload
+        if ((window as any).audioUploadController === controller) {
+          (window as any).audioUploadController = null;
         }
       } catch (e: any) {
-        if ((window as any).showToast) {
-          const errorMsg = e.name === "AbortError" ? "upload timeout" : 
-                          e.message?.includes("Failed to fetch") ? "server connection failed" : 
-                          e.message?.toLowerCase() || "unknown error";
-          (window as any).showToast(`audio upload failed: ${errorMsg}`, "error");
+        // Ignore abort errors
+        if (e.name === "AbortError") {
+          return;
         }
+        const errorMsg = e.message?.includes("Failed to fetch") ? "server connection failed" : 
+                        e.message?.toLowerCase() || "unknown error";
+        showToast(ToastMessages.AUDIO_UPLOAD_FAILED(errorMsg), "error");
       }
     } catch (_) {}
   }, [statFileSizeBytes, authHeaders, ensureAuthToken, onAudioSelected]);
@@ -381,140 +412,214 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
   // Handle drop event
   const handleDropEvent = useCallback(async (e: DragEvent, kind: "video" | "audio") => {
     try {
-      const paths = extractFilePathsFromDrop(e);
+      const dataTransfer = e.dataTransfer;
+      const hasFiles = dataTransfer?.files && dataTransfer.files.length > 0;
+      const types = Array.from(dataTransfer?.types || []);
+      const hasFileTypes = types.some((type: string) => 
+        type === 'Files' || type === 'application/x-moz-file' || type.startsWith('application/x-ns-file')
+      );
 
+      debugLog("[DnD] Drop event received", { 
+        hasFiles, 
+        hasFileTypes, 
+        kind,
+        types: types
+      });
+
+      // FIRST: Always check selection IMMEDIATELY on drop when in Premiere/AE
+      // CEP can't get file paths from drag-and-drop when dragging from Premiere bins/AE folders
+      // So we "fake it" by checking what's selected RIGHT NOW when drop happens
+      try {
+        // Use window.HOST_CONFIG if available (set by host detection), otherwise try to detect
+        let isPPRO = false;
+        let isAE = false;
+        
+        if ((window as any).HOST_CONFIG) {
+          const hostConfig = (window as any).HOST_CONFIG;
+          const { HOST_IDS } = await import("../../../shared/host");
+          isPPRO = hostConfig.hostId === HOST_IDS.PPRO;
+          isAE = hostConfig.hostId === HOST_IDS.AEFT;
+        } else if ((window as any).CSInterface) {
+          // Fallback: try to detect using CSInterface
+          try {
+            const cs = new (window as any).CSInterface();
+            const env = cs.getHostEnvironment?.();
+            if (env) {
+              const appId = (env.appId || "").toUpperCase();
+              const appName = (env.appName || "").toUpperCase();
+              const { HOST_IDS } = await import("../../../shared/host");
+              isPPRO = appId.includes(HOST_IDS.PPRO) || appName.includes("PREMIERE");
+              isAE = appId.includes(HOST_IDS.AEFT) || appName.includes("AFTER EFFECTS");
+            }
+          } catch (detectErr) {
+            debugError("[DnD] Error detecting host", detectErr);
+          }
+        }
+
+        if (isPPRO || isAE) {
+          debugLog("[DnD] In Premiere/AE - checking bin/project selection IMMEDIATELY on drop", { isPPRO, isAE });
+
+          // "Fake" drag-and-drop: Get file path from what's currently selected in the bin/project panel
+          // For Premiere: Check getCurrentProjectViewSelection() - returns what's selected in the bin
+          // For AE: Check app.project.activeItem - returns the active item in the project panel
+          // The app object is available directly in ExtendScript context, no need to load scripts
+          const cs = new (window as any).CSInterface();
+          let script = "";
+          if (isPPRO) {
+                script = `
+                (function() {
+                  try {
+                    // Immediately call getCurrentProjectViewSelection() to see what's selected in the bin
+                    if (typeof app !== 'undefined' && app.getCurrentProjectViewSelection) {
+                      var selection = app.getCurrentProjectViewSelection();
+                      if (selection && selection.length > 0) {
+                        var item = selection[0];
+                        if (item && typeof item.getMediaPath === 'function') {
+                          var path = item.getMediaPath();
+                          if (path) {
+                            return JSON.stringify({ ok: true, path: path });
+                          } else {
+                            return JSON.stringify({ ok: false, error: 'no path' });
+                          }
+                        } else {
+                          return JSON.stringify({ ok: false, error: 'no getMediaPath' });
+                        }
+                      } else {
+                        return JSON.stringify({ ok: false, error: 'no selection' });
+                      }
+                    } else {
+                      return JSON.stringify({ ok: false, error: 'app.getCurrentProjectViewSelection not available' });
+                    }
+                  } catch(e) {
+                    return JSON.stringify({ ok: false, error: String(e) });
+                  }
+                })();
+              `;
+            } else if (isAE) {
+              script = `
+                (function() {
+                  try {
+                    if (typeof app !== 'undefined' && app.project && app.project.activeItem) {
+                      var item = app.project.activeItem;
+                      if (item && item.file) {
+                        var file = item.file;
+                        if (file && file.fsName) {
+                          return JSON.stringify({ ok: true, path: file.fsName });
+                        } else {
+                          return JSON.stringify({ ok: false, error: 'no fsName' });
+                        }
+                      } else {
+                        return JSON.stringify({ ok: false, error: 'no file' });
+                      }
+                    } else {
+                      return JSON.stringify({ ok: false, error: 'app.project.activeItem not available' });
+                    }
+                  } catch(e) {
+                    return JSON.stringify({ ok: false, error: String(e) });
+                  }
+                })();
+              `;
+          }
+
+          if (script) {
+                debugLog("[DnD] Executing selection script", { scriptLength: script.length, isPPRO, isAE });
+                const result = await new Promise<{ ok: boolean; path?: string; error?: string }>((resolve) => {
+                  cs.evalScript(script, (r: string) => {
+                    debugLog("[DnD] evalScript callback received", { 
+                      raw: r, 
+                      type: typeof r, 
+                      length: r?.length,
+                      firstChars: r?.substring(0, 100)
+                    });
+                    try {
+                      // Handle case where evalScript returns the JSON string directly
+                      let parsed;
+                      if (!r || r.trim().length === 0) {
+                        debugError("[DnD] Empty response from evalScript", { raw: r });
+                        parsed = { ok: false, error: 'empty response' };
+                      } else if (typeof r === 'string' && r.trim().startsWith('{')) {
+                        parsed = JSON.parse(r);
+                      } else if (typeof r === 'string' && r.trim().length > 0) {
+                        // Try to parse as-is - might be wrapped in quotes or have extra whitespace
+                        const cleaned = r.trim().replace(/^["']|["']$/g, '');
+                        parsed = JSON.parse(cleaned || "{}");
+                      } else {
+                        debugError("[DnD] Unexpected response type", { raw: r, type: typeof r });
+                        parsed = { ok: false, error: 'unexpected response type' };
+                      }
+                      debugLog("[DnD] Parsed result", { parsed });
+                      resolve(parsed);
+                    } catch (parseErr) {
+                      debugError("[DnD] Failed to parse selection result", { raw: r, error: parseErr });
+                      resolve({ ok: false, error: `parse error: ${parseErr}` });
+                    }
+                  });
+                });
+
+                debugLog("[DnD] Project selection result", { ok: result.ok, path: result.path, error: result.error });
+                
+                if (result.ok && result.path && result.path.trim().length > 0) {
+                  const cleanPath = result.path.trim();
+                  // Validate the path matches the kind
+                  const ext = cleanPath.split(".").pop()?.toLowerCase() || "";
+                  const videoExtOk = { mov: 1, mp4: 1 }[ext] === 1;
+                  const audioExtOk = { wav: 1, mp3: 1 }[ext] === 1;
+                  
+                  debugLog("[DnD] File type validation", { ext, videoExtOk, audioExtOk, kind, path: cleanPath });
+                  
+                  if ((kind === "video" && videoExtOk) || (kind === "audio" && audioExtOk)) {
+                    debugLog("[DnD] ✅ SUCCESS: Processing dropped file from project selection", { path: cleanPath, kind });
+                    if (kind === "video") {
+                      await handleDroppedVideo(cleanPath);
+                    } else {
+                      await handleDroppedAudio(cleanPath);
+                    }
+                    return; // Successfully handled from project selection, exit early
+                  } else {
+                    // Path doesn't match the expected kind
+                    debugLog("[DnD] File type mismatch", { ext, videoExtOk, audioExtOk, kind, path: cleanPath });
+                    if (videoExtOk && kind === "audio") {
+                      // User dropped video in audio zone - show error
+                      showToast(ToastMessages.PLEASE_DROP_AUDIO_FILE, "error");
+                      return;
+                    } else if (audioExtOk && kind === "video") {
+                      // User dropped audio in video zone - show error
+                      showToast(ToastMessages.PLEASE_DROP_VIDEO_FILE, "error");
+                      return;
+                    } else {
+                      // Unknown file type - log and continue to file path handling
+                      debugLog("[DnD] Unknown file type from selection, trying file paths", { ext, path: cleanPath });
+                    }
+                  }
+                } else {
+                  debugLog("[DnD] Selection check returned no valid path", { ok: result.ok, error: result.error });
+                }
+              }
+          }
+      } catch (projectSelectionErr) {
+        debugLog("[DnD] Project selection check failed, falling back to file paths", { error: projectSelectionErr });
+        // Continue to file path handling below
+      }
+      
+      // SECOND: Extract and handle file paths from drop event (fallback if selection didn't work or not in Premiere/AE)
+      const paths = extractFilePathsFromDrop(e);
+      
       if (!paths.length) {
         // Check if we have file references that need to be resolved
         const hasFileReferences = checkForFileReferences(e);
+        
+        debugLog("[DnD] No paths found after project selection check", { 
+          hasFiles, 
+          hasFileTypes, 
+          hasFileReferences, 
+          kind,
+          types: types,
+          pathsLength: paths.length
+        });
+
+        // Fall back to file picker for file references
         if (hasFileReferences) {
-          // Try to get file path from Premiere bin selection or AE active item
-          try {
-            if ((window as any).CSInterface) {
-              const cs = new (window as any).CSInterface();
-              const appId = cs.getApplicationID();
-              const { HOST_IDS } = await import("../../../shared/host");
-              const isPPRO = appId && (appId.includes(HOST_IDS.PPRO) || appId.includes("Premiere"));
-              const isAE = appId && (appId.includes(HOST_IDS.AEFT) || appId.includes("AfterEffects"));
-
-              if (isPPRO || isAE) {
-                // Get file path from project selection
-                const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
-                const hostFile = isPPRO ? "/host/ppro.jsx" : "/host/ae.jsx";
-                const escPath = String(extPath + hostFile).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-                
-                // Load host script
-                await new Promise<void>((resolve) => {
-                  cs.evalScript(`$.evalFile("${escPath}")`, () => resolve());
-                });
-
-                // Get file path from Premiere bin selection
-                // When dragging from Premiere bin, get the path from the selected item
-                let script = "";
-                if (isPPRO) {
-                  script = `
-                    try {
-                      if (typeof app !== 'undefined' && app.getCurrentProjectViewSelection) {
-                        var selection = app.getCurrentProjectViewSelection();
-                        if (selection && selection.length > 0) {
-                          var item = selection[0];
-                          if (item && typeof item.getMediaPath === 'function') {
-                            var path = item.getMediaPath();
-                            if (path) {
-                              JSON.stringify({ ok: true, path: path });
-                            } else {
-                              JSON.stringify({ ok: false, error: 'no path' });
-                            }
-                          } else {
-                            JSON.stringify({ ok: false, error: 'no getMediaPath' });
-                          }
-                        } else {
-                          JSON.stringify({ ok: false, error: 'no selection' });
-                        }
-                      } else {
-                        JSON.stringify({ ok: false, error: 'not available' });
-                      }
-                    } catch(e) {
-                      JSON.stringify({ ok: false, error: String(e) });
-                    }
-                  `;
-                } else if (isAE) {
-                  script = `
-                    try {
-                      if (typeof app !== 'undefined' && app.project && app.project.activeItem) {
-                        var item = app.project.activeItem;
-                        if (item && item.file) {
-                          var file = item.file;
-                          if (file && file.fsName) {
-                            JSON.stringify({ ok: true, path: file.fsName });
-                          } else {
-                            JSON.stringify({ ok: false, error: 'no fsName' });
-                          }
-                        } else {
-                          JSON.stringify({ ok: false, error: 'no file' });
-                        }
-                      } else {
-                        JSON.stringify({ ok: false, error: 'not available' });
-                      }
-                    } catch(e) {
-                      JSON.stringify({ ok: false, error: String(e) });
-                    }
-                  `;
-                }
-
-                if (script) {
-                  const result = await new Promise<{ ok: boolean; path?: string; error?: string }>((resolve) => {
-                    cs.evalScript(script, (r: string) => {
-                      try {
-                        const parsed = JSON.parse(r || "{}");
-                        resolve(parsed);
-                      } catch (_) {
-                        resolve({ ok: false, error: "parse error" });
-                      }
-                    });
-                  });
-
-                  if (result.ok && result.path) {
-                    // Validate the path matches the kind
-                    const ext = result.path.split(".").pop()?.toLowerCase() || "";
-                    const videoExtOk = { mov: 1, mp4: 1 }[ext] === 1;
-                    const audioExtOk = { wav: 1, mp3: 1 }[ext] === 1;
-                    
-                    if ((kind === "video" && videoExtOk) || (kind === "audio" && audioExtOk)) {
-                      if (kind === "video") {
-                        await handleDroppedVideo(result.path);
-                      } else {
-                        await handleDroppedAudio(result.path);
-                      }
-                      return;
-                    } else {
-                      // Path doesn't match the expected kind, but might still be valid
-                      // Try to determine kind from extension and handle accordingly
-                      if (videoExtOk && kind === "audio") {
-                        // User dropped video in audio zone - show error
-                        if (typeof (window as any).showToast === "function") {
-                          (window as any).showToast("please drop an audio file", "error");
-                        }
-                        return;
-                      } else if (audioExtOk && kind === "video") {
-                        // User dropped audio in video zone - show error
-                        if (typeof (window as any).showToast === "function") {
-                          (window as any).showToast("please drop a video file", "error");
-                        }
-                        return;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          } catch (_) {
-            // Fall through to file picker fallback
-          }
-
-          // Fall back to file picker for file references
-          if (typeof (window as any).showToast === "function") {
-            (window as any).showToast("resolving file reference…", "info");
-          }
+          showToast(ToastMessages.RESOLVING_FILE_REFERENCE, "info");
           try {
             const path = await (window as any).openFileDialog(kind);
             if (path) {
@@ -537,10 +642,10 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       // Pick first path matching kind
       const picked = pickFirstMatchingByKind(paths, kind);
       if (!picked) {
-        if (typeof (window as any).showToast === "function") {
-          const message = kind === "video" ? "only mp4 and mov supported" : "only mp3 and wav supported";
-          (window as any).showToast(message, "error");
-        }
+        const message = kind === "video" 
+          ? ToastMessages.ONLY_MP4_MOV_SUPPORTED 
+          : ToastMessages.ONLY_MP3_WAV_SUPPORTED;
+        showToast(message, "error");
         return;
       }
 
@@ -573,7 +678,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       return false;
     };
 
-    // Add handlers to the main dropzone
     const handleDragEnter = (e: DragEvent) => {
       if (isInteractiveElement(e.target)) return;
       try {
@@ -620,8 +724,17 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           zoneEl.classList.remove("is-dragover");
         } catch (_) {}
 
-        // Delegate to the main drop handler
-        await handleDropEvent(e, kind);
+        debugLog("[DnD] Drop event received", { 
+          kind, 
+          files: e.dataTransfer?.files?.length || 0,
+          types: Array.from(e.dataTransfer?.types || []),
+          items: e.dataTransfer?.items?.length || 0
+        });
+
+        // Delegate to the main drop handler - wrap in Promise to catch all errors
+        Promise.resolve(handleDropEvent(e, kind)).catch((err) => {
+          debugError("[DnD] Error in drop handler promise", err);
+        });
       } catch (err) {
         debugError("[DnD] Error in drop handler", err);
       }
@@ -685,9 +798,13 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     const handleDocumentDrop = (e: DragEvent) => {
       e.preventDefault();
     };
-
-    document.addEventListener("dragover", handleDocumentDragOver, false);
-    document.addEventListener("drop", handleDocumentDrop, false);
+    
+    try {
+      document.addEventListener("dragover", handleDocumentDragOver, false);
+      document.addEventListener("drop", handleDocumentDrop, false);
+    } catch (err) {
+      debugError("[DnD] Error adding document listeners", err);
+    }
 
     // Attach handlers to dropzones when they're available
     let videoCleanup: (() => void) | null = null;
@@ -738,16 +855,20 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     }, 500);
 
     return () => {
-      document.removeEventListener("dragover", handleDocumentDragOver, false);
-      document.removeEventListener("drop", handleDocumentDrop, false);
-      clearTimeout(timer);
-      clearTimeout(timer2);
-      clearInterval(interval);
-      if (videoCleanup) {
-        videoCleanup();
-      }
-      if (audioCleanup) {
-        audioCleanup();
+      try {
+        document.removeEventListener("dragover", handleDocumentDragOver, false);
+        document.removeEventListener("drop", handleDocumentDrop, false);
+        clearTimeout(timer);
+        clearTimeout(timer2);
+        clearInterval(interval);
+        if (videoCleanup) {
+          videoCleanup();
+        }
+        if (audioCleanup) {
+          audioCleanup();
+        }
+      } catch (err) {
+        debugError("[DnD] Error in cleanup", err);
       }
     };
   }, [attachDropHandlers]);

@@ -577,7 +577,7 @@
 }
 
 .history-toast.show {
-  transform: translateX(-50%) translateY(0);
+  /* transform is set inline by toast.ts to support stacking */
   opacity: 1;
 }
 
