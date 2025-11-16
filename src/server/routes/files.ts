@@ -24,6 +24,13 @@ router.get('/wav/file', async (req, res) => {
     res.setHeader('Content-Type', 'audio/wav');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Length', fileSize);
+    // Prevent browser caching of audio metadata
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    // Generate unique ETag based on file path + mtime + size to prevent ETag-based caching
+    const etag = `"${Buffer.from(real + stat.mtimeMs + stat.size).toString('base64').substring(0, 27)}"`;
+    res.setHeader('ETag', etag);
     
     // Handle Range requests for faster metadata loading
     if (range) {
@@ -32,11 +39,18 @@ router.get('/wav/file', async (req, res) => {
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunksize = (end - start) + 1;
       
+      // Generate unique ETag for range requests too
+      const etag = `"${Buffer.from(real + stat.mtimeMs + stat.size).toString('base64').substring(0, 27)}"`;
       res.writeHead(206, {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize,
         'Content-Type': 'audio/wav',
+        // CRITICAL: Include cache headers in writeHead - it overwrites previous headers!
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'ETag': etag,
       });
       
       const s = fs.createReadStream(real, { start, end });
@@ -77,6 +91,13 @@ router.get('/mp3/file', async (req, res) => {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Length', fileSize);
+    // Prevent browser caching of audio metadata
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    // Generate unique ETag based on file path + mtime + size to prevent ETag-based caching
+    const etag = `"${Buffer.from(real + stat.mtimeMs + stat.size).toString('base64').substring(0, 27)}"`;
+    res.setHeader('ETag', etag);
     
     // Handle Range requests for faster metadata loading
     if (range) {
@@ -85,11 +106,18 @@ router.get('/mp3/file', async (req, res) => {
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunksize = (end - start) + 1;
       
+      // Generate unique ETag for range requests too
+      const etag = `"${Buffer.from(real + stat.mtimeMs + stat.size).toString('base64').substring(0, 27)}"`;
       res.writeHead(206, {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize,
         'Content-Type': 'audio/mpeg',
+        // CRITICAL: Include cache headers in writeHead - it overwrites previous headers!
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'ETag': etag,
       });
       
       const s = fs.createReadStream(real, { start, end });
@@ -124,6 +152,10 @@ router.get('/waveform/file', async (req, res) => {
     const stat = fs.statSync(real);
     if (!stat.isFile()) return res.status(400).json({ error: 'not a file' });
     res.setHeader('Content-Type', 'application/octet-stream');
+    // Prevent browser caching of waveform data
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     const s = fs.createReadStream(real);
     s.pipe(res);
     res.on('close', () => {

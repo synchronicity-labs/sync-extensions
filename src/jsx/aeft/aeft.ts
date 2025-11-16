@@ -566,6 +566,7 @@ export function AEFT_exportInOutVideo(payloadJson) {
     }
 
     var rq = app.project.renderQueue;
+    try { rq.items.clear(); } catch(_){ }
     var item = rq.items.add(comp);
     try { item.applyTemplate('Best Settings'); } catch(_){ }
     // timeSpanStart is evaluated in the comp's display time domain.
@@ -589,7 +590,18 @@ export function AEFT_exportInOutVideo(payloadJson) {
       var mp4 = new File(SYNC_getUploadsDir() + '/sync_inout_' + (new Date().getTime()) + '.mp4');
       try { om.file = mp4; } catch(_){ }
       try { rq.render(); } catch (eRender) { return _respond({ ok:false, error:'Render failed: '+String(eRender) }); }
-      var waited=0; while(waited<180000){ try{ if(mp4 && mp4.exists) break; }catch(_){ } $.sleep(200); waited+=200; }
+      var waited=0; 
+      while(waited<180000){ 
+        try{ 
+          if(mp4 && mp4.exists && mp4.length>0) break; 
+          if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.DONE) break;
+          if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.FAILED) {
+            return _respond({ ok:false, error:'Render failed' });
+          }
+        }catch(_){ } 
+        $.sleep(200); 
+        waited+=200; 
+      }
       if (!mp4 || !mp4.exists) return _respond({ ok:false, error:'Render timeout' });
       
       // Check file size - reject if over 1GB
@@ -610,18 +622,29 @@ export function AEFT_exportInOutVideo(payloadJson) {
     var srcMov = new File(SYNC_getUploadsDir() + '/sync_inout_' + (new Date().getTime()) + '.mov');
     try { om.file = srcMov; } catch(_){ }
     try { rq.render(); } catch (eRender2) { return _respond({ ok:false, error:'Render failed: '+String(eRender2) }); }
-      var waited2=0; while(waited2<180000){ try{ if(srcMov && srcMov.exists) break; }catch(_){ } $.sleep(200); waited2+=200; }
-      if (!srcMov || !srcMov.exists) return _respond({ ok:false, error:'Render timeout (src)' });
-      
-      // Check file size - reject if over 1GB
-      var fileSize = 0;
-      try { fileSize = srcMov.length; } catch(e){ }
-      if (fileSize > 1024 * 1024 * 1024) {
-        try { srcMov.remove(); } catch(_){ }
-        return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
-      }
-      
-      return _respond({ ok:true, path: srcMov.fsName, note:'prores render completed' });
+    var waited2=0; 
+    while(waited2<180000){ 
+      try{ 
+        if(srcMov && srcMov.exists && srcMov.length>0) break; 
+        if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.DONE) break;
+        if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.FAILED) {
+          return _respond({ ok:false, error:'Render failed' });
+        }
+      }catch(_){ } 
+      $.sleep(200); 
+      waited2+=200; 
+    }
+    if (!srcMov || !srcMov.exists) return _respond({ ok:false, error:'Render timeout (src)' });
+    
+    // Check file size - reject if over 1GB
+    var fileSize = 0;
+    try { fileSize = srcMov.length; } catch(e){ }
+    if (fileSize > 1024 * 1024 * 1024) {
+      try { srcMov.remove(); } catch(_){ }
+      return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+    }
+    
+    return _respond({ ok:true, path: srcMov.fsName, note:'prores render completed' });
   } catch (e) {
     try {
       var logFile = _syncDebugLogFile();

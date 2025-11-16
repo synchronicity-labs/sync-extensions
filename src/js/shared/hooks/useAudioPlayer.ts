@@ -189,6 +189,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       }
       playerInitialized.current = false;
       waveformBarsRef.current = [];
+      // CRITICAL: Clear cached AudioBuffer to prevent stale waveform data
       audioBufferRef.current = null;
       audioFinishedRef.current = false;
       if (animationFrameIdRef.current) {
@@ -250,6 +251,8 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             if (pathParam) {
               // Re-encode to ensure consistent comparison
               urlObj.searchParams.set('path', encodeURIComponent(decodeURIComponent(pathParam)));
+              // CRITICAL: Include cache buster in comparison - different cache busters = different files
+              // Don't remove cache buster - it's part of the URL identity
               normalized = urlObj.toString();
             }
           }
@@ -348,12 +351,11 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           const ctx2 = canvas.getContext("2d");
           if (ctx2 && dpr !== 1) ctx2.scale(dpr, dpr);
 
-          // If we already have the audio buffer for THIS audio source, rebuild bars with new dimensions
-          if (audioBufferRef.current && normalizedCurrentSrcCheck === normalizedAudioSrc) {
-            waveformBarsRef.current = buildBarsFromBuffer(audioBufferRef.current, canvas, displayWidth, displayHeight);
-            debugLog("[Waveform] Rebuilt", { bars: waveformBarsRef.current.length, size: `${displayWidth}x${displayHeight}` });
-            renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
-            return;
+          // CRITICAL: Never reuse cached buffer when extracting audio - always fetch fresh
+          // The cached buffer might be from a previous extraction with wrong data
+          // Clear it and always decode fresh to ensure correct waveform
+          if (audioBufferRef.current) {
+            audioBufferRef.current = null;
           }
 
           function normalizePath(p: string | null): string {
@@ -421,7 +423,8 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           
           // This endpoint is now public to avoid blank waveform when token fails
           await ensureAuthToken();
-          const waveformUrl = `${getApiUrl("/waveform/file")}?${new URLSearchParams({ path: localPath })}`;
+          // Add cache buster to waveform URL to prevent browser caching
+          const waveformUrl = `${getApiUrl("/waveform/file")}?${new URLSearchParams({ path: localPath })}&_t=${Date.now()}`;
           debugLog("[Waveform] Fetching from", { waveformUrl });
           const resp = await fetch(waveformUrl, {
             headers: authHeaders(),
@@ -453,7 +456,6 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           }
           debugLog("[Waveform] Fetch successful, decoding");
           const ab = await resp.arrayBuffer();
-          debugLog("[Waveform] ArrayBuffer size", { size: ab ? ab.byteLength : 0 });
           
           // Final check before decoding
           const checkSrcBeforeDecode = audio.getAttribute("src") || audio.src;
@@ -509,8 +511,25 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           }
           
           // Store the buffer for future resizes (only if still matches current audio source)
-          audioBufferRef.current = buf;
-          debugLog("[Waveform] Decoded successfully", { sampleRate: buf.sampleRate, length: buf.length });
+          // CRITICAL: Double-check audio source still matches before storing buffer
+          const finalCheckSrc = audio.getAttribute("src") || audio.src;
+          const normalizedFinalCheckSrc = normalizeUrlForComparison(finalCheckSrc);
+          if (normalizedFinalCheckSrc === normalizedAudioSrc && normalizedAudioSrc) {
+            audioBufferRef.current = buf;
+          } else {
+            // Audio source changed during decode - don't store buffer
+            debugLog('[useAudioPlayer] Audio src changed during decode, not storing buffer', {
+              expectedSrc: audioSrc?.substring(0, 100) + '...',
+              actualSrc: finalCheckSrc?.substring(0, 100) + '...',
+            });
+            audioBufferRef.current = null;
+          }
+          debugLog("[Waveform] Decoded successfully", { 
+            sampleRate: buf.sampleRate, 
+            length: buf.length,
+            duration: audio.duration,
+          });
+          
           waveformBarsRef.current = buildBarsFromBuffer(buf, canvas, displayWidth, displayHeight);
           debugLog("[Waveform] Generated", { bars: waveformBarsRef.current.length });
           renderWaveform(canvas, waveformBarsRef.current, 0, displayWidth, displayHeight);
@@ -825,41 +844,31 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           e.stopPropagation();
         }
         
-        debugLog('[useAudioPlayer] toggleAudioPlay: Called', {
-          paused: audio.paused,
-          readyState: audio.readyState,
-          duration: audio.duration,
-          currentTime: audio.currentTime,
-          src: audio.src?.substring(0, 100) + '...',
-        });
-        
         if (audio.paused) {
           // Ensure we start from the beginning if at the end
           if (audio.duration > 0 && audio.currentTime >= audio.duration - 0.1) {
             audio.currentTime = 0;
           }
           
-          // Check if audio is ready to play
-          if (audio.readyState === 0) {
-            debugLog('[useAudioPlayer] toggleAudioPlay: Audio has no data, loading...');
-            // Audio has no data, try to load it
+          // Check if audio has enough data to play
+          // readyState: 0=HAVE_NOTHING, 1=HAVE_METADATA, 2=HAVE_CURRENT_DATA, 3=HAVE_FUTURE_DATA, 4=HAVE_ENOUGH_DATA
+          if (audio.readyState === 0 || audio.readyState === 1) {
+            // Audio has no data or only metadata - force load to get actual audio data
             audio.load();
-            // Wait for metadata before playing
+            // Wait for canplay event (when enough data is loaded to play)
             const playWhenReady = () => {
               audio.currentTime = 0; // Ensure we start at the beginning
               audio.play().catch((err) => {
                 debugError('[useAudioPlayer] toggleAudioPlay: Play failed after loading', err);
               });
-              audio.removeEventListener('loadedmetadata', playWhenReady);
+              audio.removeEventListener('canplay', playWhenReady);
             };
-            audio.addEventListener('loadedmetadata', playWhenReady, { once: true });
+            audio.addEventListener('canplay', playWhenReady, { once: true });
             return;
           }
           
           try {
             await audio.play();
-            debugLog('[useAudioPlayer] toggleAudioPlay: Play started successfully');
-            // Update button state via play event handler (which gets current button from DOM)
           } catch (err) {
             debugError('[useAudioPlayer] toggleAudioPlay: Play failed, will retry on canplay', err);
             // If play failed, wait for canplay event and retry
@@ -874,30 +883,16 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           }
         } else {
           audio.pause();
-          // Update button state via pause event handler (which gets current button from DOM)
         }
       };
 
       // Play/pause button - attach click handler
       if (playBtn) {
-        debugLog('[useAudioPlayer] initPlayer: Attaching play button click handler');
-        
-        // Enhanced toggleAudioPlay with logging
-        const enhancedToggleAudioPlay = async (e?: Event) => {
+        const handlePlayClick = async (e?: Event) => {
           if (e) {
             e.stopPropagation();
             e.preventDefault();
           }
-          debugLog('[useAudioPlayer] Play button clicked', {
-            audioPaused: audio.paused,
-            readyState: audio.readyState,
-            duration: audio.duration,
-            src: audio.src?.substring(0, 100) + '...',
-            networkState: audio.networkState,
-            error: audio.error,
-          });
-          
-          // Call the original toggleAudioPlay
           await toggleAudioPlay(e);
         };
         
@@ -906,7 +901,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         playBtn.parentNode?.replaceChild(newPlayBtn, playBtn);
         
         // Attach new listener to the fresh node
-        newPlayBtn.addEventListener("click", enhancedToggleAudioPlay);
+        newPlayBtn.addEventListener("click", handlePlayClick);
         
         // Also ensure button is clickable
         newPlayBtn.style.pointerEvents = 'auto';

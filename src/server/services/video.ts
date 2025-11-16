@@ -11,7 +11,15 @@ export async function extractAudioFromVideo(videoPath, outputFormat = 'wav', dir
   const ext = path.extname(videoPath).toLowerCase();
   const baseDir = path.dirname(videoPath);
   const outputDir = dirs && dirs.uploads ? dirs.uploads : baseDir;
-  const outputPath = path.join(outputDir, path.basename(videoPath).replace(/\.[^.]+$/, `.${outputFormat}`));
+  
+  // Generate unique filename to prevent browser caching issues
+  // Pattern: inout_TIMESTAMP_RANDOM.ext (matches pattern used in ppro.ts)
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 10000);
+  const baseName = path.basename(videoPath, ext).replace(/[^a-zA-Z0-9_-]/g, '_'); // Sanitize base name
+  const outputPath = path.join(outputDir, `inout_${timestamp}_${random}_${baseName}.${outputFormat}`);
+  
+  tlog('[video] extractAudioFromVideo output path', outputPath);
   
   try {
     // Support MP4, MOV, and WebM
@@ -57,8 +65,11 @@ async function extractAudioWithFFmpeg(videoPath, outputPath, format) {
         .audioBitrate('192k')
         .audioFrequency(44100);
     } else if (format === 'wav') {
-      // Try copy first (instant for compatible formats)
-      command.audioCodec('copy');
+      // CRITICAL: Always re-encode to PCM WAV (format 1) for browser compatibility
+      // Using 'copy' can result in compressed audio (format 255) which browsers can't decode properly
+      command.audioCodec('pcm_s16le')
+        .audioFrequency(48000)
+        .audioChannels(2);
     } else {
       // Re-encode for other formats
       command.audioCodec('pcm_s16le')

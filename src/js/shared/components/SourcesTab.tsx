@@ -38,7 +38,9 @@ const SourcesTab: React.FC = () => {
   
   const prevActiveTabRef = useRef<string>("sources");
   const [forceVideoRerender, setForceVideoRerender] = useState<number>(0);
+  const [forceAudioRerender, setForceAudioRerender] = useState<number>(0);
   const audioPathCacheBusterRef = useRef<Map<string, number>>(new Map());
+  const audioSrcSetTimeRef = useRef<number>(Date.now());
 
   useDragAndDrop({
     onVideoSelected: setVideoPath,
@@ -621,7 +623,9 @@ const SourcesTab: React.FC = () => {
 
         const data = await parseJsonResponse<{ ok?: boolean; audioPath?: string; error?: string }>(response);
         if (response.ok && data?.ok && data?.audioPath) {
-          // Clear waveform and audio state first
+          debugLog('[SourcesTab] Extract audio: Success', { audioPath: data.audioPath });
+          
+          // CRITICAL: Clear waveform canvas and cached buffer first
           const canvas = document.getElementById("waveformCanvas") as HTMLCanvasElement;
           if (canvas) {
             const ctx = canvas.getContext("2d");
@@ -629,36 +633,67 @@ const SourcesTab: React.FC = () => {
               ctx.clearRect(0, 0, canvas.width || 600, canvas.height || 80);
             }
           }
-          
-          // Force React to re-render audio element with new key to clear browser cache
-          // Increment forceVideoRerender to trigger React re-render with new key
-          setForceVideoRerender(prev => prev + 1);
-          
-          // Also aggressively clear audio element DOM state
-          const audio = document.getElementById('audioPlayer') as HTMLAudioElement;
-          if (audio) {
-            audio.pause();
-            audio.currentTime = 0;
-            // Set to empty data URL to break browser cache
-            audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-            audio.load();
-            // Remove src completely
-            audio.removeAttribute('src');
-            debugLog('[SourcesTab] Extract audio: Audio element cleared, forcing React re-render', {
-              forceRerenderTriggered: true,
-            });
+          // Clear any cached AudioBuffer references to force fresh waveform fetch
+          if ((window as any).audioBufferRef) {
+            (window as any).audioBufferRef.current = null;
           }
           
-          // Update window globals FIRST so waveform can find the path immediately
+          // CRITICAL: Set cache buster with FRESH timestamp BEFORE any state changes
+          // This ensures the URL will be unique and force browser to fetch fresh data
+          const cacheBusterTimestamp = Date.now();
+          audioPathCacheBusterRef.current.set(data.audioPath, cacheBusterTimestamp);
+          
+          // CRITICAL: Update window globals FIRST so waveform can find the path immediately
           (window as any).selectedAudio = data.audioPath;
           (window as any).selectedAudioUrl = null;
           (window as any).selectedAudioIsUrl = false;
           
-          // Update cache buster for this path to force reload (file might have been overwritten)
-          audioPathCacheBusterRef.current.set(data.audioPath, Date.now());
+          // CRITICAL: Force audio element recreation by incrementing rerender counter
+          // This ensures React completely recreates the audio element, breaking browser cache
+          setForceAudioRerender(prev => prev + 1);
           
-          // Update the audio path - this will trigger React to update audioSrc and the useEffect will update the audio element
+          // CRITICAL: Set the audio path - React will create a fresh audio element with new key
+          // The useEffect will handle reloading the audio element with the new src
           await setAudioPath(data.audioPath);
+          
+          // CRITICAL: After React has rendered the new audio element, ensure it loads properly
+          // The useEffect will handle reloading, but we need to wait for it to finish
+          // Wait a bit for React to render and useEffect to run
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Verify the audio element has the correct src and force load if needed
+          const audioEl = document.getElementById("audioPlayer") as HTMLAudioElement;
+          if (audioEl && data.audioPath) {
+            const cacheBuster = audioPathCacheBusterRef.current.get(data.audioPath);
+            if (cacheBuster) {
+              const ext = data.audioPath.toLowerCase().split('.').pop();
+              const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
+              const encodedPath = encodeURIComponent(data.audioPath);
+              const expectedSrc = getApiUrl(`${route}?path=${encodedPath}&_t=${cacheBuster}`);
+              
+              // If src doesn't match or readyState is still 1, force reload
+              if (audioEl.src !== expectedSrc || audioEl.readyState === 1) {
+                debugLog('[SourcesTab] Extract audio: Audio element needs reload', {
+                  currentSrc: audioEl.src?.substring(0, 100) + '...',
+                  expectedSrc: expectedSrc.substring(0, 100) + '...',
+                  readyState: audioEl.readyState,
+                });
+                audioEl.pause();
+                audioEl.currentTime = 0;
+                audioEl.src = '';
+                audioEl.removeAttribute('src');
+                audioEl.load();
+                
+                setTimeout(() => {
+                  if (audioEl) {
+                    audioEl.src = expectedSrc;
+                    audioEl.load();
+                    debugLog('[SourcesTab] Extract audio: Forced reload complete');
+                  }
+                }, 50);
+              }
+            }
+          }
           
           // Update UI state
           if (typeof (window as any).updateLipsyncButton === "function") {
@@ -1040,9 +1075,9 @@ const SourcesTab: React.FC = () => {
     if (!audio) return;
     
     let expectedSrc = '';
-    if (selection.audioIsUrl && selection.audioUrl) {
-      expectedSrc = selection.audioUrl;
-    } else if (selection.audio) {
+    // CRITICAL: Always prefer LOCAL file path over R2 URL for preview
+    // R2 URL is used for cost estimation and lipsync, but preview should use local file
+    if (selection.audio) {
       const ext = selection.audio.toLowerCase().split('.').pop();
       const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
       const encodedPath = encodeURIComponent(selection.audio);
@@ -1052,11 +1087,14 @@ const SourcesTab: React.FC = () => {
       }
       const cacheBuster = `&_t=${audioPathCacheBusterRef.current.get(selection.audio)}`;
       expectedSrc = getApiUrl(`${route}?path=${encodedPath}${cacheBuster}`);
+    } else if (selection.audioIsUrl && selection.audioUrl) {
+      // Only use R2 URL if we don't have a local file path (matches audioSrc logic)
+      expectedSrc = selection.audioUrl;
     }
     
     if (!expectedSrc) return;
         
-    // Update duration display function
+    // Update duration display function (define first)
     const updateDurationDisplay = () => {
       const timeDisplay = document.getElementById('audioTime');
       if (!timeDisplay) return;
@@ -1077,37 +1115,48 @@ const SourcesTab: React.FC = () => {
         });
     };
     
-    // Always reload when audio path changes (even if URL looks the same, file might be different)
+    // Check current src
+    const currentSrc = audio.src || audio.getAttribute('src') || '';
+    
     // Extract the base URL without cache buster for comparison
-    const currentSrcBase = audio.src.split('&_t=')[0];
+    const currentSrcBase = currentSrc.split('&_t=')[0];
     const expectedSrcBase = expectedSrc.split('&_t=')[0];
-    const currentCacheBuster = audio.src.includes('&_t=') ? audio.src.split('&_t=')[1] : null;
+    const currentCacheBuster = currentSrc.includes('&_t=') ? currentSrc.split('&_t=')[1] : null;
     const expectedCacheBuster = expectedSrc.split('&_t=')[1];
     
-    // Always reload if cache buster is different (indicates file was updated)
+    // CRITICAL: Always reload if:
+    // 1. Base URL is different (different file)
+    // 2. Cache buster is different (file was updated/extracted)
+    // 3. Src doesn't match exactly
+    // 4. Audio element was just recreated (check if readyState is 0 or if src was just set)
+    // This ensures we always fetch fresh data when extracting audio
     const needsReload = currentSrcBase !== expectedSrcBase || 
                         currentCacheBuster !== expectedCacheBuster ||
-                        audio.src !== expectedSrc;
+                        currentSrc !== expectedSrc ||
+                        audio.readyState === 0; // Element just created, needs to load
     
-    if (needsReload) {
+    // If src matches exactly AND audio is already loaded, just update display
+    if (currentSrc === expectedSrc && audio.readyState >= 2) {
+      updateDurationDisplay();
+      return;
+    }
+    
+    if (needsReload && expectedSrc) {
       const oldSrc = audio.src;
       audio.pause();
       audio.currentTime = 0;
-      // Aggressively clear audio element to force browser to release cached audio
-      // Set to empty data URL first to break any caching
-      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+      // CRITICAL: Clear src completely - don't use data URL as it causes metadata caching
+      audio.src = '';
+      audio.removeAttribute('src');
       audio.load();
-      // Small delay to ensure browser releases the old audio completely
+      // Wait for browser to release old audio
       setTimeout(() => {
         const audioEl = document.getElementById('audioPlayer') as HTMLAudioElement;
-        if (audioEl) {
+        if (audioEl && expectedSrc) {
+          // Update ref when we set the new src (for metadata freshness detection)
+          audioSrcSetTimeRef.current = Date.now();
+          // Set src directly - cache buster is already in expectedSrc
           audioEl.src = expectedSrc;
-          // Add a random query param to ensure cache busting works
-          if (!expectedSrc.includes('&_t=')) {
-            audioEl.src = expectedSrc + (expectedSrc.includes('?') ? '&' : '?') + '_t=' + Date.now();
-          } else {
-            audioEl.src = expectedSrc;
-          }
           audioEl.load();
           debugLog('[SourcesTab] Audio src changed, reloading', {
             oldSrc: oldSrc.substring(0, 100) + '...',
@@ -1115,7 +1164,14 @@ const SourcesTab: React.FC = () => {
             cacheBusterChanged: currentCacheBuster !== expectedCacheBuster,
           });
         }
-      }, 100);
+      }, 50);
+    } else if (!expectedSrc && audio.src) {
+      // If expectedSrc is empty but audio has src, clear it
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = '';
+      audio.removeAttribute('src');
+      audio.load();
     } else if (audio.readyState >= 1) {
       // Already loaded and matches - just ensure we're at the start
       if (audio.currentTime > 0 && audio.paused) {
@@ -1139,6 +1195,12 @@ const SourcesTab: React.FC = () => {
     
     audio.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
     audio.addEventListener('durationchange', onDurationChange);
+    
+    // Update timestamp when src is set (for metadata freshness detection)
+    // Only update if src actually changed (not just on every render)
+    if (audio.src && audio.src !== '') {
+      audioSrcSetTimeRef.current = Date.now();
+    }
     
     // Force load to trigger metadata loading
     if (audio.readyState === 0) {
@@ -2102,19 +2164,28 @@ const SourcesTab: React.FC = () => {
             {(selection.audio || selection.audioUrl) && (
                 <div className="custom-audio-player">
                   <audio 
-                    key={`audio-${selection.audio || selection.audioUrl || 'none'}-${forceVideoRerender}`}
+                    key={`audio-${selection.audio || selection.audioUrl || 'none'}-${forceAudioRerender}-${selection.audio ? (audioPathCacheBusterRef.current.get(selection.audio) || '') : ''}`}
                     id="audioPlayer" 
                     src={(() => {
                       // CEP blocks file:// URLs - use HTTP proxy route instead
-                      if (selection.audioIsUrl && selection.audioUrl) {
-                        // Already an HTTP URL
-                        return selection.audioUrl;
-                      } else if (selection.audio) {
+                      // CRITICAL: Always prefer LOCAL file path over R2 URL for preview
+                      // R2 URL is used for cost estimation and lipsync, but preview should use local file
+                      // This matches the audioSrc computation logic (line 102-118)
+                      if (selection.audio) {
+                        // Use local file path for preview (even if audioUrl exists)
                         // Use server proxy route for local files (works in CEP)
                         const ext = selection.audio.toLowerCase().split('.').pop();
                         const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
                         const encodedPath = encodeURIComponent(selection.audio);
-                        return getApiUrl(`${route}?path=${encodedPath}`);
+                        // Add cache-busting parameter - must match audioSrc computation
+                        if (!audioPathCacheBusterRef.current.has(selection.audio)) {
+                          audioPathCacheBusterRef.current.set(selection.audio, Date.now());
+                        }
+                        const cacheBuster = `&_t=${audioPathCacheBusterRef.current.get(selection.audio)}`;
+                        return getApiUrl(`${route}?path=${encodedPath}${cacheBuster}`);
+                      } else if (selection.audioIsUrl && selection.audioUrl) {
+                        // Only use R2 URL if we don't have a local file path (matches audioSrc logic)
+                        return selection.audioUrl;
                       }
                       return '';
                     })()}
