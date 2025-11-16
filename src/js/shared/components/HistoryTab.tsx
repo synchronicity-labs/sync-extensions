@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, Component, ErrorInfo, ReactNode, useMemo, useCallback } from "react";
+import { DownloadCloud, ArrowRightToLine, Link, WifiOff, AlertCircle, KeyRound, Clapperboard, Video } from "lucide-react";
 import { useHistory } from "../hooks/useHistory";
 import { useTabs } from "../hooks/useTabs";
 import { useCore } from "../hooks/useCore";
@@ -181,6 +182,67 @@ const HistoryTabContent: React.FC = () => {
     }
   }, [activeTab]);
 
+  // Pre-load thumbnails during loading screen (before UI becomes visible)
+  const preloadThumbnailsRef = useRef<string>('');
+  
+  useEffect(() => {
+    if (activeTab !== "history") {
+      preloadThumbnailsRef.current = '';
+      return;
+    }
+    
+    const safeJobsArray = Array.isArray(jobs) ? jobs : [];
+
+    // Pre-generate thumbnails for first batch of jobs during loading screen
+    if (safeJobsArray.length > 0 && isLoading) {
+      const pageSize = 10;
+      const firstBatch = safeJobsArray.slice(0, pageSize);
+      const batchKey = firstBatch.map(j => j?.id || '').join(',');
+      
+      // Only preload if this batch hasn't been preloaded yet
+      if (batchKey && batchKey !== preloadThumbnailsRef.current) {
+        preloadThumbnailsRef.current = batchKey;
+        
+        debugLog('[HistoryTab] Pre-loading thumbnails during loading screen', { 
+          count: firstBatch.length 
+        });
+        
+        // Load cached thumbnails first
+        const loadPromises = firstBatch
+          .filter(job => job?.id && (job.status === 'COMPLETED' || job.status === 'completed'))
+          .map(async (job) => {
+            try {
+              const cached = await (window as any).loadThumbnail?.(job.id);
+              if (cached) {
+                return { jobId: job.id, thumbnail: cached };
+              }
+            } catch (e) {
+              // Ignore errors
+            }
+            return null;
+          });
+        
+        Promise.all(loadPromises).then(loadResults => {
+          const cachedUrls: Record<string, string> = {};
+          loadResults.forEach(result => {
+            if (result && result.thumbnail) {
+              cachedUrls[result.jobId] = result.thumbnail;
+            }
+          });
+          
+          if (Object.keys(cachedUrls).length > 0) {
+            setThumbnailUrls(prev => ({ ...prev, ...cachedUrls }));
+          }
+        });
+        
+        // Start generating missing thumbnails in background
+        generateThumbnailsForJobs(firstBatch).catch(error => {
+          debugError('[HistoryTab] Error pre-generating thumbnails', error);
+        });
+      }
+    }
+  }, [activeTab, isLoading, jobs]);
+
   // Trigger first page load when jobs are loaded and displayedCount is 0
   // Matching main branch: initially show first 10 items, then set displayedCount to 10
   // This ensures we start with 10 items visible
@@ -354,84 +416,6 @@ const HistoryTabContent: React.FC = () => {
     };
   }, []); // Empty deps - function uses imported utility
 
-  // Re-initialize Lucide icons - only when new items are added, not on every render
-  const prevDisplayedCountForIconsRef = useRef(displayedCount);
-  useEffect(() => {
-    if (activeTab === "history" && window.lucide && window.lucide.createIcons) {
-      // Aggressive icon normalization function
-      const normalizeIcons = () => {
-        document.querySelectorAll('.history-btn i').forEach((icon: any) => {
-          const svg = icon.querySelector('svg');
-          if (svg) {
-            // Force size attributes
-            svg.setAttribute('width', '16');
-            svg.setAttribute('height', '16');
-            svg.style.width = '16px';
-            svg.style.height = '16px';
-            svg.style.maxWidth = '16px';
-            svg.style.maxHeight = '16px';
-            svg.style.minWidth = '16px';
-            svg.style.minHeight = '16px';
-            svg.setAttribute('stroke-width', '2');
-            // Force size on all child elements
-            svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
-              el.setAttribute('stroke-width', '2');
-            });
-          }
-        });
-      };
-      
-      // Only re-initialize if displayedCount actually changed (new items added)
-      if (displayedCount !== prevDisplayedCountForIconsRef.current) {
-        prevDisplayedCountForIconsRef.current = displayedCount;
-        const timer = setTimeout(() => {
-          window.lucide.createIcons();
-          normalizeIcons();
-          // Run again after a short delay to catch any late-rendered icons
-          setTimeout(normalizeIcons, 100);
-        }, 200);
-        return () => clearTimeout(timer);
-      } else {
-        // Still normalize existing icons even if count didn't change
-        normalizeIcons();
-        const timer = setTimeout(normalizeIcons, 100);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [activeTab, displayedCount]);
-
-  // Use MutationObserver to catch icons created dynamically
-  useEffect(() => {
-    if (activeTab === "history") {
-      const observer = new MutationObserver(() => {
-        document.querySelectorAll('.history-btn i svg').forEach((svg: any) => {
-          if (svg.getAttribute('width') !== '16' || svg.getAttribute('height') !== '16') {
-            svg.setAttribute('width', '16');
-            svg.setAttribute('height', '16');
-            svg.style.width = '16px';
-            svg.style.height = '16px';
-            svg.style.maxWidth = '16px';
-            svg.style.maxHeight = '16px';
-            svg.style.minWidth = '16px';
-            svg.style.minHeight = '16px';
-            svg.setAttribute('stroke-width', '2');
-            svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
-              el.setAttribute('stroke-width', '2');
-            });
-          }
-        });
-      });
-
-      const historyWrapper = document.querySelector('.history-wrapper');
-      if (historyWrapper) {
-        observer.observe(historyWrapper, {
-          childList: true,
-          subtree: true
-        });
-        return () => observer.disconnect();
-      }
-    }
-  }, [activeTab]);
 
   // Infinite scroll using IntersectionObserver - matching main branch
   const isLoadingMoreRef = useRef(false);
@@ -1098,7 +1082,7 @@ const HistoryTabContent: React.FC = () => {
                       }}
                       title="save to disk"
                     >
-                      <i data-lucide="cloud-download"></i>
+                      <DownloadCloud size={16} />
                       <span>save</span>
                     </button>
                     <button
@@ -1109,18 +1093,18 @@ const HistoryTabContent: React.FC = () => {
                       }}
                       title="insert into timeline"
                     >
-                      <i data-lucide="copy-plus"></i>
+                      <ArrowRightToLine size={16} />
                       <span>insert</span>
                     </button>
                   </>
                 ) : (
                   <>
                     <button className="history-btn history-btn-disabled" disabled title="save to disk">
-                      <i data-lucide="cloud-download"></i>
+                      <DownloadCloud size={16} />
                       <span>save</span>
                     </button>
                     <button className="history-btn history-btn-disabled" disabled title="insert into timeline">
-                      <i data-lucide="copy-plus"></i>
+                      <ArrowRightToLine size={16} />
                       <span>insert</span>
                     </button>
                   </>
@@ -1137,11 +1121,11 @@ const HistoryTabContent: React.FC = () => {
                     }}
                     title="copy output link"
                   >
-                    <i data-lucide="link"></i>
+                    <Link size={16} />
                   </button>
                 ) : (
                   <button className="history-btn-icon history-btn-disabled" disabled title="copy output link">
-                    <i data-lucide="link"></i>
+                    <Link size={16} />
                   </button>
                 )}
                 <button
@@ -1169,7 +1153,7 @@ const HistoryTabContent: React.FC = () => {
             {serverState?.isOffline ? (
               <div className="history-empty-state">
                 <div className="history-empty-icon">
-                  <i data-lucide="wifi-off"></i>
+                  <WifiOff size={24} />
                 </div>
                 <div className="history-empty-message">
                   hmm... you might be offline, or<br />
@@ -1206,7 +1190,7 @@ const HistoryTabContent: React.FC = () => {
           ) : hasError || serverError ? (
             <div className="history-empty-state">
               <div className="history-empty-icon">
-                <i data-lucide="alert-circle"></i>
+                <AlertCircle size={24} />
               </div>
               <div className="history-empty-message">
                 {serverError || "failed to load history. please try again."}
@@ -1215,7 +1199,7 @@ const HistoryTabContent: React.FC = () => {
           ) : !hasApiKey ? (
             <div className="history-empty-state">
               <div className="history-empty-icon icon-key">
-                <i data-lucide="key-round"></i>
+                <KeyRound size={24} />
               </div>
               <div className="history-empty-message">
                 please add your api key in <a onClick={() => setActiveTab && setActiveTab("settings")}>settings</a>.
@@ -1228,7 +1212,7 @@ const HistoryTabContent: React.FC = () => {
           ) : safeJobs.length === 0 ? (
             <div className="history-empty-state">
               <div className="history-empty-icon">
-                <i data-lucide="clapperboard"></i>
+                <Clapperboard size={24} />
               </div>
               <div className="history-empty-message">
                 no generations yet. <a onClick={() => setActiveTab && setActiveTab("sources")}>get started</a>

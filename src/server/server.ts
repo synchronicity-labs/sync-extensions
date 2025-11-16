@@ -302,6 +302,7 @@ app.use((req, res, next) => {
     '/mp3/file',
     '/wav/file',
     '/waveform/file',
+    '/video/file',
     '/telemetry/test',
     '/telemetry/posthog-status',
     '/telemetry/session-replay'

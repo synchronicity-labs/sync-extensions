@@ -1,80 +1,77 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
-import { debugLog, debugError } from "../utils/debugLog";
+import { debugLog } from "../utils/debugLog";
 import { showToast, ToastMessages } from "../utils/toast";
+import { getSettings, setStorageItem } from "../utils/storage";
+import { STORAGE_KEYS, DELAYS } from "../utils/constants";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface UseDragAndDropOptions {
   onVideoSelected: (path: string) => void;
   onAudioSelected: (path: string) => void;
 }
 
-// Track if drop is currently being processed to prevent multiple simultaneous drops
 const dropProcessingFlags: { video: boolean; audio: boolean } = {
   video: false,
   audio: false,
 };
 
-// Track if a specific file path is currently being processed to prevent duplicate handling
 const processingPaths: Set<string> = new Set();
 
-/**
- * Drag and drop functionality for video and audio files
- * Based on the main branch ui/dnd.js implementation
- */
 export const useDragAndDrop = (options: UseDragAndDropOptions) => {
   const { onVideoSelected, onAudioSelected } = options;
   const { authHeaders, ensureAuthToken } = useCore();
   const videoZoneRef = useRef<HTMLDivElement | null>(null);
   const audioZoneRef = useRef<HTMLDivElement | null>(null);
 
-  // Stat file size using CSInterface
   const statFileSizeBytes = useCallback(async (absPath: string): Promise<number> => {
-    return new Promise((resolve) => {
-      try {
-        if (!(window as any).CSInterface) {
+    return Promise.race([
+      new Promise<number>((resolve) => {
+        try {
+          if (!(window as any).CSInterface) {
+            resolve(0);
+            return;
+          }
+          const cs = new (window as any).CSInterface();
+          const safe = String(absPath).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+          const es = `(function(){try{var f=new File("${safe}");if(f&&f.exists){return String(f.length||0);}return '0';}catch(e){return '0';}})()`;
+          cs.evalScript(es, (r: string) => {
+            const n = Number(r || 0);
+            resolve(isNaN(n) ? 0 : n);
+          });
+        } catch (_) {
           resolve(0);
-          return;
         }
-        const cs = new (window as any).CSInterface();
-        const safe = String(absPath).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        const es = `(function(){try{var f=new File("${safe}");if(f&&f.exists){return String(f.length||0);}return '0';}catch(e){return '0';}})()`;
-        cs.evalScript(es, (r: string) => {
-          const n = Number(r || 0);
-          resolve(isNaN(n) ? 0 : n);
-        });
-      } catch (_) {
-        resolve(0);
-      }
-    });
+      }),
+      new Promise<number>((resolve) => {
+        setTimeout(() => {
+          debugLog("[DnD] statFileSizeBytes timeout", { path: absPath });
+          resolve(0);
+        }, DELAYS.RETRY_LONG);
+      })
+    ]);
   }, []);
 
-  // Normalize path from URI
   const normalizePathFromUri = useCallback((uri: string): string => {
     try {
       if (!uri || typeof uri !== "string") return "";
       if (!uri.startsWith("file://")) return "";
 
-      // Skip file reference URLs (macOS specific issue)
       if (uri.includes(".file/id=")) return "";
 
       let u = uri.replace(/^file:\/\//, "");
-      // Handle file://localhost/...
       if (u.startsWith("localhost/")) u = u.slice("localhost/".length);
-      // On macOS, u already starts with '/'
       if (u[0] !== "/") u = "/" + u;
 
-      // Decode URI components carefully
       try {
         u = decodeURIComponent(u);
       } catch (_) {
-        // Fallback: just replace common encoded characters
         try {
           u = u.replace(/%20/g, " ").replace(/%2F/g, "/");
         } catch (_) {}
       }
 
-      // Final validation: ensure we have a valid path
       if (!u || u.length < 2 || !u.startsWith("/")) return "";
 
       return u;
@@ -83,17 +80,18 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     }
   }, []);
 
-  // Extract file paths from drop event
   const extractFilePathsFromDrop = useCallback((e: DragEvent): string[] => {
     const out: string[] = [];
     try {
-      const dt = e.dataTransfer || {};
+      const dt = e.dataTransfer;
+      if (!dt) {
+        return out;
+      }
 
-      // 1) Direct file list (may include .path in CEP/Chromium)
+      // 1) Check files array
       if (dt.files && dt.files.length) {
         for (let i = 0; i < dt.files.length; i++) {
           const f = dt.files[i];
-          // Check for .path property (Electron/CEP)
           if (f && (f as any).path && typeof (f as any).path === "string" && (f as any).path.length > 0) {
             const cleanPath = String((f as any).path).trim();
             if (cleanPath && !cleanPath.startsWith(".file/id=") && !cleanPath.includes(".file/id=")) {
@@ -127,7 +125,8 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
       // 3) text/uri-list (Finder drops file:// URIs)
       try {
-        const uriList = dt.getData && dt.getData("text/uri-list");
+        if (dt.getData) {
+          const uriList = dt.getData("text/uri-list");
         if (uriList && typeof uriList === "string") {
           uriList.split(/\r?\n/).forEach((line) => {
             const s = String(line || "").trim();
@@ -137,12 +136,14 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
             const p = normalizePathFromUri(s);
             if (p) out.push(p);
           });
+          }
         }
       } catch (_) {}
 
       // 4) text/plain fallback (sometimes provides file:/// or absolute path)
       try {
-        const txt = dt.getData && dt.getData("text/plain");
+        if (dt.getData) {
+          const txt = dt.getData("text/plain");
         if (txt && typeof txt === "string") {
           const lines = txt.split(/\r?\n/);
           lines.forEach((line) => {
@@ -157,6 +158,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
               out.push(s);
             }
           });
+          }
         }
       } catch (_) {}
     } catch (_) {}
@@ -174,7 +176,10 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
   // Check for file references
   const checkForFileReferences = useCallback((e: DragEvent): boolean => {
     try {
-      const dt = e.dataTransfer || {};
+      const dt = e.dataTransfer;
+      if (!dt) {
+        return false;
+      }
 
       // Check dataTransferItems for file references
       if (dt.items && dt.items.length > 0) {
@@ -193,16 +198,20 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
       // Check for file reference URLs in text data
       try {
-        const uriList = dt.getData && dt.getData("text/uri-list");
-        if (uriList && uriList.includes(".file/id=")) {
+        if (dt.getData) {
+          const uriList = dt.getData("text/uri-list");
+          if (uriList && typeof uriList === "string" && uriList.includes(".file/id=")) {
           return true;
+          }
         }
       } catch (_) {}
 
       try {
-        const txt = dt.getData && dt.getData("text/plain");
-        if (txt && txt.includes(".file/id=")) {
+        if (dt.getData) {
+          const txt = dt.getData("text/plain");
+          if (txt && typeof txt === "string" && txt.includes(".file/id=")) {
           return true;
+          }
         }
       } catch (_) {}
 
@@ -257,18 +266,13 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         return;
       }
 
-      // Set video selection
-      (window as any).selectedVideoIsTemp = false;
-      (window as any).selectedVideo = raw;
-      debugLog("[Video Selection] Drag & drop selected", { video: (window as any).selectedVideo });
-
-      // Show uploading toast before calling setVideoPath (which handles the upload)
-      showToast(ToastMessages.UPLOADING_VIDEO, "info");
+      // Show loading toast - setVideoPath will handle upload and show loading overlay
+      showToast(ToastMessages.LOADING, "info");
       
-      // Notify parent component - setVideoPath will handle the upload
+      // Call onVideoSelected which will show loading overlay and handle upload
+      // Video preview stays visible with loading state
       await onVideoSelected(raw);
 
-      // Call update functions like main branch
       if (typeof (window as any).updateLipsyncButton === "function") {
         (window as any).updateLipsyncButton();
       }
@@ -276,7 +280,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         (window as any).renderInputPreview("drag-drop");
       }
 
-      // Clear the processing flag after a delay to allow the upload to complete
       setTimeout(() => {
         processingPaths.delete(raw);
       }, 2000);
@@ -285,10 +288,8 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     }
   }, [statFileSizeBytes, authHeaders, ensureAuthToken, onVideoSelected]);
 
-  // Handle dropped audio
   const handleDroppedAudio = useCallback(async (raw: string) => {
     try {
-      // Validate path before proceeding
       if (!raw || typeof raw !== "string" || raw.includes(".file/id=") || raw.length < 2) {
         showToast(ToastMessages.INVALID_FILE_PATH_UPLOAD, "error");
         return;
@@ -307,36 +308,29 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         return;
       }
 
-      // Set audio selection
       (window as any).selectedAudioIsTemp = false;
       (window as any).selectedAudio = raw;
 
-      // Notify parent component
       onAudioSelected(raw);
 
-      // Call update functions like main branch
       if (typeof (window as any).updateLipsyncButton === "function") {
         (window as any).updateLipsyncButton();
       }
       if (typeof (window as any).renderInputPreview === "function") {
         (window as any).renderInputPreview("drag-drop");
       }
-      // Don't call updateInputStatus here - it will be called by useEffect when both are ready
 
-      // Upload to server
       showToast(ToastMessages.UPLOADING_AUDIO, "info");
       try {
-        // Cancel any existing audio upload
         if ((window as any).audioUploadController) {
           (window as any).audioUploadController.abort();
         }
         
-        // Create new AbortController for this upload
         const controller = new AbortController();
         (window as any).audioUploadController = controller;
         
         await ensureAuthToken();
-        const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+        const settings = getSettings();
         const body = { path: raw, apiKey: settings.syncApiKey || "" };
         const r = await fetch(getApiUrl("/upload"), {
           method: "POST",
@@ -345,31 +339,27 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           signal: controller.signal,
         });
         
-        // Check if upload was aborted
         if (controller.signal.aborted) {
           return;
         }
         
-        const j = await r.json().catch(() => null);
+        const j = await parseJsonResponse<{ ok?: boolean; url?: string; error?: string }>(r);
         if (r.ok && j && j.ok && j.url) {
-          // Check again if upload was aborted before updating state
           if (controller.signal.aborted) {
             return;
           }
           (window as any).uploadedAudioUrl = j.url;
-          localStorage.setItem("uploadedAudioUrl", j.url);
+          setStorageItem(STORAGE_KEYS.UPLOADED_AUDIO_URL, j.url);
           showToast(ToastMessages.AUDIO_UPLOADED_SUCCESSFULLY, "success");
         } else {
           const errorMsg = j?.error || "server error";
           showToast(ToastMessages.AUDIO_UPLOAD_FAILED(errorMsg), "error");
         }
         
-        // Clear controller reference if this was the current upload
         if ((window as any).audioUploadController === controller) {
           (window as any).audioUploadController = null;
         }
       } catch (e: any) {
-        // Ignore abort errors
         if (e.name === "AbortError") {
           return;
         }
@@ -423,7 +413,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
               isAE = appId.includes(HOST_IDS.AEFT) || appName.includes("AFTER EFFECTS");
             }
           } catch (detectErr) {
-            debugError("[DnD] Error detecting host", detectErr);
+            debugLog("[DnD] Error detecting host", detectErr);
           }
         }
 
@@ -494,44 +484,49 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
 
           if (script) {
                 debugLog("[DnD] Executing selection script", { scriptLength: script.length, isPPRO, isAE });
-                const result = await new Promise<{ ok: boolean; path?: string; error?: string }>((resolve) => {
-                  cs.evalScript(script, (r: string) => {
-                    debugLog("[DnD] evalScript callback received", { 
-                      raw: r, 
-                      type: typeof r, 
-                      length: r?.length,
-                      firstChars: r?.substring(0, 100)
-                    });
-                    try {
-                      // Handle case where evalScript returns the JSON string directly
-                      let parsed;
-                      if (!r || r.trim().length === 0) {
-                        debugError("[DnD] Empty response from evalScript", { raw: r });
-                        parsed = { ok: false, error: 'empty response' };
-                      } else if (typeof r === 'string' && r.trim().startsWith('{')) {
-                        parsed = JSON.parse(r);
-                      } else if (typeof r === 'string' && r.trim().length > 0) {
-                        // Try to parse as-is - might be wrapped in quotes or have extra whitespace
-                        const cleaned = r.trim().replace(/^["']|["']$/g, '');
-                        parsed = JSON.parse(cleaned || "{}");
-                      } else {
-                        debugError("[DnD] Unexpected response type", { raw: r, type: typeof r });
-                        parsed = { ok: false, error: 'unexpected response type' };
+                const result = await Promise.race<{ ok: boolean; path?: string; error?: string }>([
+                  new Promise<{ ok: boolean; path?: string; error?: string }>((resolve) => {
+                    cs.evalScript(script, (r: string) => {
+                      debugLog("[DnD] evalScript callback received", { 
+                        raw: r, 
+                        type: typeof r, 
+                        length: r?.length,
+                        firstChars: r?.substring(0, 100)
+                      });
+                      try {
+                        let parsed;
+                        if (!r || r.trim().length === 0) {
+                          debugLog("[DnD] Empty response from evalScript", { raw: r });
+                          parsed = { ok: false, error: 'empty response' };
+                        } else if (typeof r === 'string' && r.trim().startsWith('{')) {
+                          parsed = JSON.parse(r);
+                        } else if (typeof r === 'string' && r.trim().length > 0) {
+                          const cleaned = r.trim().replace(/^["']|["']$/g, '');
+                          parsed = JSON.parse(cleaned || "{}");
+                        } else {
+                          debugLog("[DnD] Unexpected response type", { raw: r, type: typeof r });
+                          parsed = { ok: false, error: 'unexpected response type' };
+                        }
+                        debugLog("[DnD] Parsed result", { parsed });
+                        resolve(parsed);
+                      } catch (parseErr) {
+                        debugLog("[DnD] Failed to parse selection result", { raw: r, error: parseErr });
+                        resolve({ ok: false, error: `parse error: ${parseErr}` });
                       }
-                      debugLog("[DnD] Parsed result", { parsed });
-                      resolve(parsed);
-                    } catch (parseErr) {
-                      debugError("[DnD] Failed to parse selection result", { raw: r, error: parseErr });
-                      resolve({ ok: false, error: `parse error: ${parseErr}` });
-                    }
-                  });
-                });
+                    });
+                  }),
+                  new Promise<{ ok: boolean; path?: string; error?: string }>((resolve) => {
+                    setTimeout(() => {
+                      debugLog("[DnD] evalScript timeout - Premiere/AE did not respond in time");
+                      resolve({ ok: false, error: 'timeout' });
+                    }, DELAYS.HEALTH_CHECK);
+                  })
+                ]);
 
                 debugLog("[DnD] Project selection result", { ok: result.ok, path: result.path, error: result.error });
                 
                 if (result.ok && result.path && result.path.trim().length > 0) {
                   const cleanPath = result.path.trim();
-                  // Validate the path matches the kind
                   const ext = cleanPath.split(".").pop()?.toLowerCase() || "";
                   const videoExtOk = { mov: 1, mp4: 1 }[ext] === 1;
                   const audioExtOk = { wav: 1, mp3: 1 }[ext] === 1;
@@ -540,43 +535,45 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
                   
                   if ((kind === "video" && videoExtOk) || (kind === "audio" && audioExtOk)) {
                     debugLog("[DnD] ✅ SUCCESS: Processing dropped file from project selection", { path: cleanPath, kind });
-                    if (kind === "video") {
-                      await handleDroppedVideo(cleanPath);
-                    } else {
-                      await handleDroppedAudio(cleanPath);
+                    try {
+                      if (kind === "video") {
+                        await handleDroppedVideo(cleanPath);
+                      } else {
+                        await handleDroppedAudio(cleanPath);
+                      }
+                      return;
+                    } catch (processErr) {
+                      debugLog("[DnD] Error processing dropped file from selection", { error: processErr, path: cleanPath });
+                      showToast("Failed to process file from selection", "error");
+                      return;
                     }
-                    return; // Successfully handled from project selection, exit early
                   } else {
-                    // Path doesn't match the expected kind
                     debugLog("[DnD] File type mismatch", { ext, videoExtOk, audioExtOk, kind, path: cleanPath });
                     if (videoExtOk && kind === "audio") {
-                      // User dropped video in audio zone - show error
                       showToast(ToastMessages.PLEASE_DROP_AUDIO_FILE, "error");
                       return;
                     } else if (audioExtOk && kind === "video") {
-                      // User dropped audio in video zone - show error
                       showToast(ToastMessages.PLEASE_DROP_VIDEO_FILE, "error");
                       return;
                     } else {
-                      // Unknown file type - log and continue to file path handling
                       debugLog("[DnD] Unknown file type from selection, trying file paths", { ext, path: cleanPath });
                     }
                   }
                 } else {
                   debugLog("[DnD] Selection check returned no valid path", { ok: result.ok, error: result.error });
+                  if (result.error === 'timeout') {
+                    debugLog("[DnD] Selection check timed out, falling back to file paths");
+                  }
                 }
               }
           }
       } catch (projectSelectionErr) {
         debugLog("[DnD] Project selection check failed, falling back to file paths", { error: projectSelectionErr });
-        // Continue to file path handling below
       }
       
-      // SECOND: Extract and handle file paths from drop event (fallback if selection didn't work or not in Premiere/AE)
       const paths = extractFilePathsFromDrop(e);
       
       if (!paths.length) {
-        // Check if we have file references that need to be resolved
         const hasFileReferences = checkForFileReferences(e);
         
         debugLog("[DnD] No paths found after project selection check", { 
@@ -588,7 +585,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           pathsLength: paths.length
         });
 
-        // Fall back to file picker for file references
         if (hasFileReferences) {
           showToast(ToastMessages.RESOLVING_FILE_REFERENCE, "info");
           try {
@@ -602,15 +598,12 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
               return;
             }
           } catch (_) {
-            // Silently fail
           }
         }
 
-        // No paths found and no file references - silently return (main branch behavior)
         return;
       }
 
-      // Pick first path matching kind
       const picked = pickFirstMatchingByKind(paths, kind);
       if (!picked) {
         const message = kind === "video" 
@@ -626,17 +619,14 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         await handleDroppedAudio(picked);
       }
     } catch (err) {
-      debugError("[DnD] Error in handleDropEvent", err);
+      debugLog("[DnD] Error in handleDropEvent", err);
     }
   }, [extractFilePathsFromDrop, checkForFileReferences, pickFirstMatchingByKind, handleDroppedVideo, handleDroppedAudio, onVideoSelected, onAudioSelected]);
 
-  // Attach drop handlers to a zone element
   const attachDropHandlers = useCallback((zoneEl: HTMLElement, kind: "video" | "audio") => {
-    // Helper to check if target is a button or interactive element
     const isInteractiveElement = (target: EventTarget | null): boolean => {
       if (!target) return false;
       const el = target as HTMLElement;
-      // Check if it's a button, link, or inside an interactive container
       if (el.tagName === "BUTTON" || 
           el.tagName === "A" || 
           el.closest("button") !== null || 
@@ -679,7 +669,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     const handleDragLeave = (e: DragEvent) => {
       if (isInteractiveElement(e.target)) return;
       try {
-        // Only remove dragover if we're actually leaving the dropzone
         if (!zoneEl.contains(e.relatedTarget as Node)) {
           zoneEl.classList.remove("is-dragover");
         }
@@ -711,41 +700,50 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           items: e.dataTransfer?.items?.length || 0
         });
 
-        // Set processing flag
         dropProcessingFlags[kind] = true;
 
-        try {
-          // Delegate to the main drop handler - properly await it
-          await handleDropEvent(e, kind);
-        } catch (err) {
-          debugError("[DnD] Error in drop handler promise", err);
-        } finally {
-          // Clear processing flag immediately when done
-          // Use a small delay only to prevent rapid duplicate drops from the same event
-          setTimeout(() => {
+        let dropEventCompleted = false;
+        const dropTimeout = setTimeout(() => {
+          if (!dropEventCompleted) {
+            debugLog("[DnD] Drop event timeout - clearing processing flag", { kind });
             dropProcessingFlags[kind] = false;
-          }, 100);
+            try {
+              zoneEl.classList.remove("is-dragover");
+            } catch (_) {}
+          }
+        }, DELAYS.THUMBNAIL_TIMEOUT);
+
+        try {
+          await handleDropEvent(e, kind);
+          dropEventCompleted = true;
+        } catch (err) {
+          debugLog("[DnD] Error in drop handler promise", err);
+          dropEventCompleted = true;
+        } finally {
+          clearTimeout(dropTimeout);
+          dropProcessingFlags[kind] = false;
+          try {
+            zoneEl.classList.remove("is-dragover");
+          } catch (_) {}
         }
       } catch (err) {
-        debugError("[DnD] Error in drop handler", err);
+        debugLog("[DnD] Error in drop handler", err);
         dropProcessingFlags[kind] = false;
+        try {
+          zoneEl.classList.remove("is-dragover");
+        } catch (_) {}
       }
     };
 
-    // Use capture phase so dropzone handlers run before document-level handlers
     zoneEl.addEventListener("dragenter", handleDragEnter, true);
     zoneEl.addEventListener("dragover", handleDragOver, true);
     zoneEl.addEventListener("dragleave", handleDragLeave, true);
     zoneEl.addEventListener("drop", handleDrop, true);
 
-    // Also add handlers to child elements for dragenter/dragover/dragleave to ensure visual feedback
-    // BUT skip buttons and other interactive elements to avoid blocking clicks
-    // NOTE: We don't attach drop handlers to children - events will bubble up to the zone element
     const childElements = zoneEl.querySelectorAll("*");
     const childHandlers: Array<{ element: Element; handlers: Array<{ event: string; handler: EventListener }> }> = [];
     
     childElements.forEach((child) => {
-      // Skip buttons and other interactive elements
       if (child.tagName === "BUTTON" || 
           child.tagName === "A" || 
           child.closest("button") || 
@@ -754,8 +752,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         return;
       }
       
-      // Only attach dragenter/dragover/dragleave to children, NOT drop
-      // Drop events will bubble up to the zone element naturally
       const handlers = [
         { event: "dragenter", handler: handleDragEnter as EventListener },
         { event: "dragover", handler: handleDragOver as EventListener },
@@ -769,7 +765,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       childHandlers.push({ element: child, handlers });
     });
 
-    // Return cleanup function
     return () => {
       zoneEl.removeEventListener("dragenter", handleDragEnter, true);
       zoneEl.removeEventListener("dragover", handleDragOver, true);
@@ -784,23 +779,17 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
     };
   }, [handleDropEvent]);
 
-  // Initialize drag and drop
   useEffect(() => {
-    // Only prevent navigation on dragover - dropzone handlers will handle actual drops
-    // This prevents the browser from navigating away when files are dragged over the panel
     const handleDocumentDragOver = (e: DragEvent) => {
       e.preventDefault();
     };
     
     try {
-      // Always prevent default on dragover to avoid navigation
       document.addEventListener("dragover", handleDocumentDragOver, false);
-      // Don't add a document-level drop handler - let dropzone handlers handle all drops
     } catch (err) {
-      debugError("[DnD] Error adding document listeners", err);
+      debugLog("[DnD] Error adding document listeners", err);
     }
 
-    // Attach handlers to dropzones when they're available
     let videoCleanup: (() => void) | null = null;
     let audioCleanup: (() => void) | null = null;
 
@@ -809,7 +798,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       const audioZone = document.getElementById("audioDropzone");
 
       if (videoZone) {
-        // Always re-attach handlers to ensure they're fresh
         if (videoCleanup) {
           videoCleanup();
         }
@@ -817,7 +805,6 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         videoCleanup = attachDropHandlers(videoZone, "video");
       }
       if (audioZone) {
-        // Always re-attach handlers to ensure they're fresh
         if (audioCleanup) {
           audioCleanup();
         }
@@ -826,19 +813,13 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       }
     };
 
-    // Try to initialize immediately
     initZones();
 
-    // Also try after a short delay in case elements aren't ready yet
-    const timer = setTimeout(initZones, 100);
+    const timer = setTimeout(initZones, DELAYS.RETRY);
+    const timer2 = setTimeout(initZones, DELAYS.RETRY_MEDIUM);
     
-    // Also try after a longer delay
-    const timer2 = setTimeout(initZones, 500);
-    
-    // Also check periodically in case elements are added dynamically
-    // Only check for a limited time to avoid infinite polling
     let checkCount = 0;
-    const maxChecks = 20; // Check for up to 10 seconds (20 * 500ms)
+    const maxChecks = 20;
     const interval = setInterval(() => {
       checkCount++;
       if (checkCount >= maxChecks) {
@@ -846,7 +827,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         return;
       }
       initZones();
-    }, 500);
+    }, DELAYS.RETRY_MEDIUM);
 
     return () => {
       try {
@@ -861,7 +842,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
           audioCleanup();
         }
       } catch (err) {
-        debugError("[DnD] Error in cleanup", err);
+        debugLog("[DnD] Error in cleanup", err);
       }
     };
   }, [attachDropHandlers]);

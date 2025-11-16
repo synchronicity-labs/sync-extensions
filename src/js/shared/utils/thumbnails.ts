@@ -4,6 +4,7 @@
  */
 
 import { debugLog as debugLogFn } from './debugLog';
+import { renderIconAsHTML } from './iconUtils';
 
 // Cache directory in Application Support
 const CACHE_DIR = 'sync. extensions/sync-thumbnails';
@@ -541,11 +542,8 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
           if (wrapper && !wrapper.querySelector('.history-thumbnail-placeholder')) {
             const placeholder = document.createElement('div');
             placeholder.className = 'history-thumbnail-placeholder';
-            placeholder.innerHTML = '<i data-lucide="video"></i>';
+            placeholder.innerHTML = renderIconAsHTML('video', { size: 24 });
             wrapper.appendChild(placeholder);
-            if (typeof (window as any).lucide !== 'undefined' && (window as any).lucide.createIcons) {
-              (window as any).lucide.createIcons();
-            }
           }
         }
       }

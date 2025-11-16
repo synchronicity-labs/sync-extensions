@@ -21,11 +21,17 @@
   align-items: stretch;
 }
 
+/* When audio is present (with or without video), set exact spacing - 16px gap between video/audio, 16px bottom */
+.sources-container:has(.audio-upload.has-media) {
+  padding-bottom: 16px;
+  gap: 0;
+}
+
 /* When both video and audio are loaded, adjust padding and prevent scroll */
 .sources-container.has-both {
   flex: 1;
   overflow: hidden;
-  padding: var(--spacing-lg) var(--spacing-xl) 0 var(--spacing-xl); /* No bottom padding - buttons handle spacing */
+  padding: var(--spacing-lg) var(--spacing-xl) 16px var(--spacing-xl); /* 16px bottom padding for audio spacing */
   gap: 0; /* No gap - video fills space, buttons stick to bottom */
   align-items: stretch;
   display: flex;
@@ -54,7 +60,6 @@
 /* Base styles shared by both video and audio upload sections */
 .video-upload,
 .audio-upload {
-  flex: 1;
   border: 1px dashed var(--border-tertiary);
   border-radius: var(--radius-lg);
   max-height: none;
@@ -67,14 +72,23 @@
 .video-upload {
   background: var(--bg-black);
   min-height: 277px;
-  height: 277px;
+  flex: 1;
 }
 
 /* Audio: 3 rows of buttons = video height + 1 button row + 1 gap = 325px */
 .audio-upload {
   background: var(--bg-secondary);
-  min-height: 325px;
-  height: 325px;
+  flex: 1;
+}
+
+.video-upload:not(.has-media) {
+  flex: 3 1 0% !important;
+  min-height: 400px;
+}
+
+.audio-upload:not(.has-media) {
+  flex: 1 1 0% !important;
+  min-height: 200px !important;
 }
 
 .video-upload.has-media,
@@ -100,18 +114,16 @@
   height: auto;
 }
 
-/* When both loaded, video container needs to fill ALL remaining space with equal black bars */
 .sources-container.has-both .video-upload.has-media {
   flex: 1 1 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: 0; /* Force flex to work */
-  margin-bottom: 16px; /* 16px above audio preview section */
+  height: 0;
+  margin-bottom: 0;
   box-sizing: border-box;
 }
 
-/* Ensure video preview fills the video container properly */
 .sources-container.has-both #videoPreview {
   width: 100%;
   flex: 1;
@@ -121,7 +133,6 @@
   min-height: 0;
 }
 
-/* Audio with media: fixed height, never shrink */
 .audio-upload.has-media {
   height: auto;
   min-height: 40px;
@@ -131,47 +142,25 @@
   margin: 0;
   flex: 0 0 auto;
   width: 100%;
-  margin-top: 16px; /* 16px above audio preview */
-  margin-bottom: 0; /* No margin bottom - sticky positioning handles spacing */
-  position: sticky;
-  bottom: 24px; /* 24px below audio preview (overridden by has-both) */
-  z-index: 10;
-  align-self: flex-end;
-}
-
-/* When audio follows video (default - not has-both) */
-.video-upload.has-media + .audio-upload.has-media {
-  margin-top: 24px; /* 24px above audio preview (after video preview) */
-  margin-bottom: 24px; /* 24px below audio preview (before bottom bar) */
-}
-
-/* When has-both is active, audio should stick to bottom */
-.sources-container.has-both {
-  position: relative;
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .sources-container.has-both .audio-upload.has-media {
-  margin-top: 0 !important; /* No margin-top */
-  margin-bottom: 0; /* No margin bottom - sticky positioning handles spacing */
-  position: sticky;
-  bottom: 16px !important; /* 16px below audio preview */
-  z-index: 10;
+  margin-top: 0;
+  margin-bottom: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* Create 24px spacer above audio preview using pseudo-element (TEMPORARY TEST - should be 16px) */
 .sources-container.has-both .audio-upload.has-media::before {
   content: '';
   display: block;
-  height: 24px;
+  height: 16px;
   width: 100%;
   flex-shrink: 0;
-  order: -1; /* Place before audio preview content */
+  order: -1;
 }
-
-/* Audio upload now shares base styles with video-upload above */
-/* Only specific overrides needed here */
 
 
 
@@ -222,6 +211,10 @@
 #audioDropzone {
   min-height: calc(var(--spacing-xl) * 5); /* 120px */
   align-items: center;
+}
+
+.audio-upload:not(.has-media) #audioDropzone {
+  min-height: 0;
 }
 
 /* Dropzone drag state - consolidated for video and audio */

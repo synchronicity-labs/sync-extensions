@@ -4,7 +4,10 @@ import { useNLE } from "./useNLE";
 import { getApiUrl } from "../utils/serverConfig";
 import { HOST_IDS } from "../../../shared/host";
 import { showToast, ToastMessages } from "../utils/toast";
-import { debugLog, debugError } from "../utils/debugLog";
+import { debugLog } from "../utils/debugLog";
+import { getSettings, getStorageItem, setStorageItem } from "../utils/storage";
+import { STORAGE_KEYS } from "../utils/constants";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface MediaSelection {
   video: string | null;
@@ -40,18 +43,41 @@ export const useMedia = () => {
       // Use window.nle as fallback if hook's nle is not ready yet
       const nleToUse = nle || (window as any).nle;
       if (!nleToUse) {
-        debugError('openFileDialog: nle not available', { kind });
-        return null;
-      }
-      
-      // Check for evalExtendScript (set up by windowGlobals)
-      if (typeof (window as any).evalExtendScript !== 'function') {
-        debugError('openFileDialog: evalExtendScript not available', { kind });
+        debugLog('openFileDialog: nle not available', { kind });
         return null;
       }
       
       try {
         const hostId = nleToUse.getHostId();
+        
+        // For Resolve, use window.selectVideo/selectAudio directly (set up by nle-resolve.ts)
+        if (hostId === HOST_IDS.RESOLVE) {
+          if (kind === "video") {
+            if (typeof (window as any).selectVideo === 'function') {
+              const path = await (window as any).selectVideo();
+              return path;
+            } else {
+              debugLog('openFileDialog: window.selectVideo not available for Resolve', { kind });
+              return null;
+            }
+          } else {
+            if (typeof (window as any).selectAudio === 'function') {
+              const path = await (window as any).selectAudio();
+              return path;
+            } else {
+              debugLog('openFileDialog: window.selectAudio not available for Resolve', { kind });
+              return null;
+            }
+          }
+        }
+        
+        // For CEP hosts (Premiere/AE), use evalExtendScript
+        // Check for evalExtendScript (set up by windowGlobals)
+        if (typeof (window as any).evalExtendScript !== 'function') {
+          debugLog('openFileDialog: evalExtendScript not available', { kind });
+          return null;
+        }
+        
         const isAE = hostId === HOST_IDS.AEFT;
         const fn = isAE ? "AEFT_showFileDialog" : "PPRO_showFileDialog";
         const payload = { kind };
@@ -61,7 +87,7 @@ export const useMedia = () => {
         if (result?.ok && result?.path) {
           return result.path;
         } else if (result?.error) {
-          debugError('openFileDialog: File dialog error', { kind, error: result.error });
+          debugLog('openFileDialog: File dialog error', { kind, error: result.error });
           showToast(result.error, "error");
           return null;
         } else {
@@ -69,7 +95,7 @@ export const useMedia = () => {
           return null;
         }
       } catch (error) {
-        debugError('openFileDialog: Exception', { kind, error });
+        debugLog('openFileDialog: Exception', { kind, error });
         return null;
       }
     },
@@ -91,52 +117,50 @@ export const useMedia = () => {
 
   const selectVideo = useCallback(async () => {
     try {
-      // Show toast when opening file picker
       showToast(ToastMessages.OPENING_VIDEO_PICKER, "info");
       const path = await openFileDialog("video");
       if (path) {
+        // Set video path - preview will show after upload completes
+        debugLog('[useMedia] selectVideo: Setting video path', { path });
         setSelection((prev) => ({
           ...prev,
           video: path,
-          videoUrl: null,
+          videoUrl: null, // Will be set after upload completes
           videoIsTemp: false,
           videoIsUrl: false,
         }));
         
-        // Update global state for backward compatibility
         (window as any).selectedVideo = path;
         (window as any).selectedVideoIsTemp = false;
+        debugLog('[useMedia] selectVideo: Video path set', { 
+          path, 
+          selectedVideo: (window as any).selectedVideo 
+        });
         
-        // Call update functions like main branch
         if (typeof (window as any).updateLipsyncButton === "function") {
           (window as any).updateLipsyncButton();
         }
         if (typeof (window as any).renderInputPreview === "function") {
           (window as any).renderInputPreview("upload");
         }
-        // Don't call updateInputStatus here - it will be called by useEffect when upload completes
         
-        // Upload to server
+        // Upload to R2 - preview will show once URL is available
+        showToast(ToastMessages.LOADING, "info");
         try {
-          // Cancel any existing video upload (from useMedia)
           if (videoUploadControllerRef.current) {
             videoUploadControllerRef.current.abort();
           }
           
-          // Cancel any existing video upload (from useDragAndDrop or useRecording)
           if ((window as any).videoUploadController) {
             (window as any).videoUploadController.abort();
           }
           
-          // Create new AbortController for this upload
           const controller = new AbortController();
           videoUploadControllerRef.current = controller;
           (window as any).videoUploadController = controller;
           
-          // Show loading toast (matches main branch)
-          showToast(ToastMessages.LOADING, "info");
           await ensureAuthToken();
-          const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+          const settings = getSettings();
           const response = await fetch(getApiUrl("/upload"), {
             method: "POST",
             headers: authHeaders({ "Content-Type": "application/json" }),
@@ -144,28 +168,45 @@ export const useMedia = () => {
             signal: controller.signal,
           });
           
-          // Check if upload was aborted
           if (controller.signal.aborted) {
             return;
           }
           
-          const data = await response.json().catch(() => null);
-          if (response.ok && data?.ok && data?.url) {
-            // Check again if upload was aborted before updating state
+          const data = await parseJsonResponse(response);
+          debugLog('[useMedia] selectVideo: Upload response', { 
+            ok: response.ok, 
+            dataOk: data?.ok, 
+            hasUrl: !!data?.url,
+            url: data?.url?.substring(0, 100) + '...',
+          });
+          if (response.ok && data?.ok && data?.url && data.url.trim() !== '') {
             if (controller.signal.aborted) {
+              debugLog('[useMedia] selectVideo: Upload aborted, skipping URL set');
               return;
             }
+            // Set videoUrl after upload completes - preview will now show
+            debugLog('[useMedia] selectVideo: Setting videoUrl', { url: data.url.substring(0, 100) + '...' });
             setSelection((prev) => ({
               ...prev,
               videoUrl: data.url,
             }));
             (window as any).uploadedVideoUrl = data.url;
-            localStorage.setItem("uploadedVideoUrl", data.url);
-            // Show success toast (matches main branch)
+            (window as any).selectedVideoUrl = data.url;
+            setStorageItem(STORAGE_KEYS.UPLOADED_VIDEO_URL, data.url);
+            debugLog('[useMedia] selectVideo: videoUrl set', { 
+              videoUrl: data.url.substring(0, 100) + '...',
+              uploadedVideoUrl: (window as any).uploadedVideoUrl?.substring(0, 100) + '...',
+            });
             showToast(ToastMessages.VIDEO_UPLOADED_SUCCESSFULLY, "success");
+          } else {
+            debugError('[useMedia] selectVideo: Upload failed or no URL', { 
+              responseOk: response.ok,
+              dataOk: data?.ok,
+              hasUrl: !!data?.url,
+              error: data?.error,
+            });
           }
           
-          // Clear controller references if this was the current upload
           if (videoUploadControllerRef.current === controller) {
             videoUploadControllerRef.current = null;
           }
@@ -173,23 +214,18 @@ export const useMedia = () => {
             (window as any).videoUploadController = null;
           }
         } catch (error: any) {
-          // Ignore abort errors
           if (error?.name === 'AbortError') {
             return;
           }
-          // Upload failed, continue anyway
         }
       }
     } catch (error) {
-      debugError('selectVideo_error', error);
-      // Error already handled in openFileDialog (toast shown)
-      // Just return without updating selection
+      debugLog('selectVideo_error', error);
     }
   }, [openFileDialog, authHeaders, ensureAuthToken]);
 
   const selectAudio = useCallback(async () => {
     try {
-      // Show toast when opening file picker
       showToast(ToastMessages.OPENING_AUDIO_PICKER, "info");
       const path = await openFileDialog("audio");
       if (path) {
@@ -201,40 +237,32 @@ export const useMedia = () => {
           audioIsUrl: false,
         }));
         
-        // Update global state for backward compatibility
         (window as any).selectedAudio = path;
         (window as any).selectedAudioIsTemp = false;
         
-        // Call update functions like main branch
         if (typeof (window as any).updateLipsyncButton === "function") {
           (window as any).updateLipsyncButton();
         }
         if (typeof (window as any).renderInputPreview === "function") {
           (window as any).renderInputPreview("upload");
         }
-        // Don't call updateInputStatus here - it will be called by useEffect when upload completes
         
-        // Upload to server
         try {
-          // Cancel any existing audio upload (from useMedia)
           if (audioUploadControllerRef.current) {
             audioUploadControllerRef.current.abort();
           }
           
-          // Cancel any existing audio upload (from useDragAndDrop or useRecording)
           if ((window as any).audioUploadController) {
             (window as any).audioUploadController.abort();
           }
           
-          // Create new AbortController for this upload
           const controller = new AbortController();
           audioUploadControllerRef.current = controller;
           (window as any).audioUploadController = controller;
           
-          // Show loading toast (matches main branch)
           showToast(ToastMessages.LOADING, "info");
           await ensureAuthToken();
-          const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+          const settings = getSettings();
           const response = await fetch(getApiUrl("/upload"), {
             method: "POST",
             headers: authHeaders({ "Content-Type": "application/json" }),
@@ -242,14 +270,12 @@ export const useMedia = () => {
             signal: controller.signal,
           });
           
-          // Check if upload was aborted
           if (controller.signal.aborted) {
             return;
           }
           
-          const data = await response.json().catch(() => null);
+          const data = await parseJsonResponse(response);
           if (response.ok && data?.ok && data?.url) {
-            // Check again if upload was aborted before updating state
             if (controller.signal.aborted) {
               return;
             }
@@ -258,12 +284,10 @@ export const useMedia = () => {
               audioUrl: data.url,
             }));
             (window as any).uploadedAudioUrl = data.url;
-            localStorage.setItem("uploadedAudioUrl", data.url);
-            // Show success toast (matches main branch)
+            setStorageItem(STORAGE_KEYS.UPLOADED_AUDIO_URL, data.url);
             showToast(ToastMessages.AUDIO_UPLOADED_SUCCESSFULLY, "success");
           }
           
-          // Clear controller references if this was the current upload
           if (audioUploadControllerRef.current === controller) {
             audioUploadControllerRef.current = null;
           }
@@ -271,28 +295,22 @@ export const useMedia = () => {
             (window as any).audioUploadController = null;
           }
         } catch (error: any) {
-          // Ignore abort errors
           if (error?.name === 'AbortError') {
             return;
           }
-          // Upload failed, continue anyway
         }
       }
     } catch (error) {
-      debugError('selectAudio_error', error);
-      // Error already handled in openFileDialog (toast shown)
-      // Just return without updating selection
+      debugLog('selectAudio_error', error);
     }
   }, [openFileDialog, authHeaders, ensureAuthToken]);
 
   const clearVideo = useCallback(() => {
-    // Cancel any ongoing video upload (from useMedia)
     if (videoUploadControllerRef.current) {
       videoUploadControllerRef.current.abort();
       videoUploadControllerRef.current = null;
     }
     
-    // Cancel any ongoing video upload (from useDragAndDrop or other sources)
     if ((window as any).videoUploadController) {
       (window as any).videoUploadController.abort();
       (window as any).videoUploadController = null;
@@ -311,13 +329,11 @@ export const useMedia = () => {
   }, []);
 
   const clearAudio = useCallback(() => {
-    // Cancel any ongoing audio upload (from useMedia)
     if (audioUploadControllerRef.current) {
       audioUploadControllerRef.current.abort();
       audioUploadControllerRef.current = null;
     }
     
-    // Cancel any ongoing audio upload (from useDragAndDrop or other sources)
     if ((window as any).audioUploadController) {
       (window as any).audioUploadController.abort();
       (window as any).audioUploadController = null;
@@ -337,38 +353,58 @@ export const useMedia = () => {
 
 
   const setVideoPath = useCallback(async (videoPath: string, videoUrl?: string | null) => {
-    setSelection((prev) => ({
+    const hasValidUrl = videoUrl !== undefined && videoUrl !== null && videoUrl.trim() !== '';
+    
+    debugLog('[useMedia] setVideoPath: Called', { 
+      videoPath, 
+      hasValidUrl,
+      videoUrl: videoUrl?.substring(0, 100) + '...',
+    });
+    
+    // Set video path - preview will show after upload completes
+    setSelection((prev) => {
+      const newState = {
       ...prev,
       video: videoPath,
-      videoUrl: videoUrl !== undefined ? videoUrl : null,
+        videoUrl: hasValidUrl ? videoUrl : null, // Will be set after upload completes
       videoIsTemp: false,
-      videoIsUrl: videoUrl !== undefined && videoUrl !== null,
-    }));
+        videoIsUrl: hasValidUrl,
+      };
+      debugLog('[useMedia] setVideoPath: Setting selection state', {
+        video: newState.video,
+        videoUrl: newState.videoUrl?.substring(0, 100) + '...',
+        videoIsUrl: newState.videoIsUrl,
+      });
+      return newState;
+    });
     (window as any).selectedVideo = videoPath;
-    (window as any).selectedVideoUrl = videoUrl || null;
-    (window as any).selectedVideoIsUrl = videoUrl !== undefined && videoUrl !== null;
+    (window as any).selectedVideoUrl = hasValidUrl ? videoUrl : null;
+    (window as any).selectedVideoIsUrl = hasValidUrl;
     (window as any).selectedVideoIsTemp = false;
+    debugLog('[useMedia] setVideoPath: Window globals set', {
+      selectedVideo: (window as any).selectedVideo,
+      selectedVideoUrl: (window as any).selectedVideoUrl?.substring(0, 100) + '...',
+      selectedVideoIsUrl: (window as any).selectedVideoIsUrl,
+    });
     
-    // Upload to server (only if not already a URL)
-    if (!videoUrl) {
+    // Upload to R2 if no URL provided - preview will show once URL is available
+    if (!hasValidUrl) {
+      showToast(ToastMessages.LOADING, "info");
       try {
-        // Cancel any existing video upload (from useMedia)
         if (videoUploadControllerRef.current) {
           videoUploadControllerRef.current.abort();
         }
         
-        // Cancel any existing video upload (from useDragAndDrop or useRecording)
         if ((window as any).videoUploadController) {
           (window as any).videoUploadController.abort();
         }
         
-        // Create new AbortController for this upload
         const controller = new AbortController();
         videoUploadControllerRef.current = controller;
         (window as any).videoUploadController = controller;
         
         await ensureAuthToken();
-        const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+        const settings = getSettings();
         const response = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
@@ -376,26 +412,46 @@ export const useMedia = () => {
           signal: controller.signal,
         });
         
-        // Check if upload was aborted
         if (controller.signal.aborted) {
           return;
         }
         
-        const data = await response.json().catch(() => null);
-        if (response.ok && data?.ok && data?.url) {
-          // Check again if upload was aborted before updating state
+        const data = await parseJsonResponse<{ ok?: boolean; url?: string; error?: string }>(response);
+        debugLog('[useMedia] setVideoPath: Upload response', { 
+          ok: response.ok, 
+          dataOk: data?.ok, 
+          hasUrl: !!data?.url,
+          url: data?.url?.substring(0, 100) + '...',
+        });
+        if (response.ok && data?.ok && data?.url && data.url.trim() !== '') {
           if (controller.signal.aborted) {
+            debugLog('[useMedia] setVideoPath: Upload aborted, skipping URL set');
             return;
           }
+          // Set videoUrl after upload completes - preview will now show
+          debugLog('[useMedia] setVideoPath: Setting videoUrl from upload', { 
+            url: data.url.substring(0, 100) + '...' 
+          });
           setSelection((prev) => ({
             ...prev,
             videoUrl: data.url,
           }));
           (window as any).uploadedVideoUrl = data.url;
-          localStorage.setItem("uploadedVideoUrl", data.url);
+          (window as any).selectedVideoUrl = data.url;
+          setStorageItem(STORAGE_KEYS.UPLOADED_VIDEO_URL, data.url);
+          debugLog('[useMedia] setVideoPath: videoUrl set from upload', { 
+            videoUrl: data.url.substring(0, 100) + '...',
+            uploadedVideoUrl: (window as any).uploadedVideoUrl?.substring(0, 100) + '...',
+          });
+        } else {
+          debugError('[useMedia] setVideoPath: Upload failed or no URL', { 
+            responseOk: response.ok,
+            dataOk: data?.ok,
+            hasUrl: !!data?.url,
+            error: data?.error,
+          });
         }
         
-        // Clear controller references if this was the current upload
         if (videoUploadControllerRef.current === controller) {
           videoUploadControllerRef.current = null;
         }
@@ -403,11 +459,9 @@ export const useMedia = () => {
           (window as any).videoUploadController = null;
         }
       } catch (error: any) {
-        // Ignore abort errors
         if (error?.name === 'AbortError') {
           return;
         }
-        // Upload failed, continue anyway
       }
     }
   }, [authHeaders, ensureAuthToken]);
@@ -425,26 +479,22 @@ export const useMedia = () => {
     (window as any).selectedAudioIsUrl = audioUrl !== undefined && audioUrl !== null;
     (window as any).selectedAudioIsTemp = false;
     
-    // Upload to server (only if not already a URL)
     if (!audioUrl) {
       try {
-        // Cancel any existing audio upload (from useMedia)
         if (audioUploadControllerRef.current) {
           audioUploadControllerRef.current.abort();
         }
         
-        // Cancel any existing audio upload (from useDragAndDrop or useRecording)
         if ((window as any).audioUploadController) {
           (window as any).audioUploadController.abort();
         }
         
-        // Create new AbortController for this upload
         const controller = new AbortController();
         audioUploadControllerRef.current = controller;
         (window as any).audioUploadController = controller;
         
         await ensureAuthToken();
-        const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+        const settings = getSettings();
         const response = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
@@ -452,14 +502,12 @@ export const useMedia = () => {
           signal: controller.signal,
         });
         
-        // Check if upload was aborted
         if (controller.signal.aborted) {
           return;
         }
         
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<{ ok?: boolean; url?: string; error?: string }>(response);
         if (response.ok && data?.ok && data?.url) {
-          // Check again if upload was aborted before updating state
           if (controller.signal.aborted) {
             return;
           }
@@ -468,10 +516,9 @@ export const useMedia = () => {
             audioUrl: data.url,
           }));
           (window as any).uploadedAudioUrl = data.url;
-          localStorage.setItem("uploadedAudioUrl", data.url);
+          setStorageItem(STORAGE_KEYS.UPLOADED_AUDIO_URL, data.url);
         }
         
-        // Clear controller references if this was the current upload
         if (audioUploadControllerRef.current === controller) {
           audioUploadControllerRef.current = null;
         }
@@ -479,11 +526,9 @@ export const useMedia = () => {
           (window as any).audioUploadController = null;
         }
       } catch (error: any) {
-        // Ignore abort errors
         if (error?.name === 'AbortError') {
           return;
         }
-        // Upload failed, continue anyway
       }
     }
   }, [authHeaders, ensureAuthToken]);

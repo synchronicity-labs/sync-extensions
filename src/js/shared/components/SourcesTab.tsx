@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Upload, MousePointerSquareDashed, Webcam, Link, Mic, MousePointerClick, TextSelect, FileVideo2, FileVideo, Clapperboard, FileAudio, AudioLines, Play, Pause, Trash2, Volume2, VolumeX, Search, ArrowRight, Languages, X, DownloadCloud, CircleFadingPlus } from "lucide-react";
+import React, { useState, useEffect, useRef, memo } from "react";
+import { Upload, MousePointerSquareDashed, Webcam, Link, Mic, TextSelect, FileVideo2, FileVideo, Clapperboard, FileAudio, AudioLines, Play, Trash2, Search, ArrowRight, Languages, X, DownloadCloud, CircleFadingPlus, WifiOff } from "lucide-react";
 import { useMedia } from "../hooks/useMedia";
 import { useRecording } from "../hooks/useRecording";
 import { useNLE } from "../hooks/useNLE";
@@ -13,8 +13,13 @@ import TTSInterface from "./TTSInterface";
 import TTSVoiceCloneModal from "./TTSVoiceCloneModal";
 import { useVideoPlayer } from "../hooks/useVideoPlayer";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
-import { debugLog, debugError } from "../utils/debugLog";
 import { showToast, ToastMessages } from "../utils/toast";
+import { renderIconAsHTML } from "../utils/iconUtils";
+import { getStorageItem } from "../utils/storage";
+import { STORAGE_KEYS, DELAYS } from "../utils/constants";
+import { parseJsonResponse } from "../utils/fetchUtils";
+import { debugLog, debugError } from "../utils/debugLog";
+import { formatTime } from "../utils/stringUtils";
 
 const SourcesTab: React.FC = () => {
   const { selection, selectVideo, selectAudio, clearVideo, clearAudio, setVideoPath, setAudioPath } = useMedia();
@@ -23,7 +28,7 @@ const SourcesTab: React.FC = () => {
   const { activeTab, setActiveTab } = useTabs();
   const { settings } = useSettings();
   const { serverState } = useCore();
-  const [urlInputMode, setUrlInputMode] = useState<"video" | "audio" | null>(null);
+  const [, setUrlInputMode] = useState<"video" | "audio" | null>(null);
   const [videoUrlValue, setVideoUrlValue] = useState("");
   const [audioUrlValue, setAudioUrlValue] = useState("");
   const [ttsInterfaceOpen, setTtsInterfaceOpen] = useState(false);
@@ -31,19 +36,28 @@ const SourcesTab: React.FC = () => {
   const [ttsVoiceCloneModalOpen, setTtsVoiceCloneModalOpen] = useState(false);
   const isOffline = serverState?.isOffline || false;
   
-  // Track when "ready for lipsync" was last shown to prevent spam
   const readyForLipsyncShownRef = useRef<number>(0);
 
-  // Initialize drag and drop
   useDragAndDrop({
     onVideoSelected: setVideoPath,
     onAudioSelected: setAudioPath,
   });
-
-  // Initialize video player
   const videoSrc = (selection.video || selection.videoUrl) 
     ? (selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? selection.video : null))
     : null;
+  
+  // Debug logging for video source
+  useEffect(() => {
+    debugLog('[SourcesTab] videoSrc changed', {
+      videoSrc,
+      hasVideo: !!selection.video,
+      hasVideoUrl: !!selection.videoUrl,
+      videoIsUrl: selection.videoIsUrl,
+      video: selection.video,
+      videoUrl: selection.videoUrl,
+    });
+  }, [videoSrc, selection.video, selection.videoUrl, selection.videoIsUrl]);
+  
   useVideoPlayer(videoSrc);
 
   // Initialize audio player
@@ -52,20 +66,16 @@ const SourcesTab: React.FC = () => {
     : null;
   useAudioPlayer(audioSrc);
 
-  // Watch for when both video and audio are ready and call updateInputStatus once
   useEffect(() => {
-    // Check if both video and audio are ready (have URLs or are URLs themselves)
     const hasVideoReady = (selection.videoIsUrl && selection.videoUrl) || 
-      (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || localStorage.getItem("uploadedVideoUrl")));
+      (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_VIDEO_URL)));
     
     const hasAudioReady = (selection.audioIsUrl && selection.audioUrl) || 
-      (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || localStorage.getItem("uploadedAudioUrl")));
+      (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_AUDIO_URL)));
     
-    // Only call updateInputStatus when both become ready
     if (hasVideoReady && hasAudioReady) {
       const now = Date.now();
       const timeSinceLastShown = now - readyForLipsyncShownRef.current;
-      // Only show if it hasn't been shown in the last 3 seconds
       if (timeSinceLastShown > 3000) {
         if (typeof (window as any).updateInputStatus === "function") {
           (window as any).updateInputStatus();
@@ -74,33 +84,24 @@ const SourcesTab: React.FC = () => {
     }
   }, [selection.video, selection.videoUrl, selection.videoIsUrl, selection.audio, selection.audioUrl, selection.audioIsUrl]);
 
-  // Expose functions on window for backward compatibility with original code
   useEffect(() => {
-    // Expose setVideoPath and setAudioPath for useRecording
     (window as any).setVideoPath = setVideoPath;
     (window as any).setAudioPath = setAudioPath;
     
-    // Update lipsync button function
     (window as any).updateLipsyncButton = () => {
       const btn = document.getElementById("lipsyncBtn");
       if (!btn) return;
       
-      // Check if video is ready (URL or local file with R2 URL)
       const hasVideoReady = (selection.videoIsUrl && selection.videoUrl) || 
-        (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || localStorage.getItem("uploadedVideoUrl")));
+        (selection.video && !selection.videoIsUrl && ((window as any).uploadedVideoUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_VIDEO_URL)));
       
-      // Check if audio is ready (URL or local file with R2 URL)
       const hasAudioReady = (selection.audioIsUrl && selection.audioUrl) || 
-        (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || localStorage.getItem("uploadedAudioUrl")));
+        (selection.audio && !selection.audioIsUrl && ((window as any).uploadedAudioUrl || getStorageItem<string>(STORAGE_KEYS.UPLOADED_AUDIO_URL)));
       
       (btn as HTMLButtonElement).disabled = !(hasVideoReady && hasAudioReady);
     };
 
-    // Render input preview function
     (window as any).renderInputPreview = (source?: string) => {
-      // In React, the preview is rendered conditionally based on selection state
-      // This function is kept for backward compatibility but doesn't need to do anything
-      // since React handles the rendering automatically
       if (typeof (window as any).debugLog === "function") {
         (window as any).debugLog("renderInputPreview_called", {
           selectedVideo: selection.video,
@@ -112,14 +113,11 @@ const SourcesTab: React.FC = () => {
       }
     };
 
-    // Update input status function
     (window as any).updateInputStatus = () => {
       const status = document.getElementById("statusMessage");
       if (status) {
         status.textContent = "";
       }
-      // Only show "ready for lipsync" when both video and audio are selected
-      // Prevent showing it multiple times in quick succession (within 3 seconds)
       const now = Date.now();
       const timeSinceLastShown = now - readyForLipsyncShownRef.current;
       if ((selection.video || selection.videoUrl) && (selection.audio || selection.audioUrl)) {
@@ -130,14 +128,10 @@ const SourcesTab: React.FC = () => {
       }
     };
 
-    // Video functions
     (window as any).selectVideo = selectVideo;
     (window as any).selectVideoInOut = async () => {
       if (nle?.exportInOutVideo) {
-        // Map settings.renderVideo to codec value
-        // For Premiere: mp4 -> h264, prores_422 -> prores_422, prores_422hq -> prores_422hq
-        // For After Effects: mp4 -> h264, anything else -> prores (handled in aeft.ts)
-        let codec = "h264"; // default
+        let codec = "h264";
         if (settings.renderVideo === "mp4" || settings.renderVideo === "h264") {
           codec = "h264";
         } else if (settings.renderVideo === "prores_422") {
@@ -146,14 +140,25 @@ const SourcesTab: React.FC = () => {
           codec = "prores_422hq";
         }
         
+        // Show loading toast immediately - keep showing until URL is ready
+        showToast(ToastMessages.LOADING, "info");
+        
         const result = await nle.exportInOutVideo({ codec });
         if (result?.ok && result?.path) {
+          // setVideoPath will show loading overlay and handle upload
+          // Video preview stays visible with loading state
           await setVideoPath(result.path);
+          
+          // Update UI state after upload completes
+          if (typeof (window as any).updateLipsyncButton === "function") {
+            (window as any).updateLipsyncButton();
+          }
+          if (typeof (window as any).renderInputPreview === "function") {
+            (window as any).renderInputPreview("inout");
+          }
         } else if (result?.error) {
           // Show error toast
-          if ((window as any).showToast) {
-            (window as any).showToast(result.error, "error");
-          }
+          showToast(result.error, "error");
         }
       }
     };
@@ -171,12 +176,12 @@ const SourcesTab: React.FC = () => {
         if (videoUploadVisual) {
           videoUploadVisual.style.transition = 'opacity 0.2s ease';
           videoUploadVisual.style.opacity = '0';
-          setTimeout(() => { videoUploadVisual.style.display = 'none'; }, 200);
+          setTimeout(() => { videoUploadVisual.style.display = 'none'; }, DELAYS.UPLOAD_VISUAL_HIDE);
         }
         if (videoUploadActions) {
           videoUploadActions.style.transition = 'opacity 0.2s ease';
           videoUploadActions.style.opacity = '0';
-          setTimeout(() => { videoUploadActions.style.display = 'none'; }, 200);
+          setTimeout(() => { videoUploadActions.style.display = 'none'; }, DELAYS.UPLOAD_VISUAL_HIDE);
         }
         if (videoDropzone) videoDropzone.classList.add('url-input-mode');
         if (videoUrlInput) {
@@ -185,7 +190,7 @@ const SourcesTab: React.FC = () => {
             videoUrlInput.classList.add('show');
             const field = document.getElementById('videoUrlField') as HTMLInputElement;
             if (field) {
-              setTimeout(() => field.focus(), 100);
+              setTimeout(() => field.focus(), DELAYS.FOCUS);
             }
           }, 10);
         }
@@ -221,7 +226,7 @@ const SourcesTab: React.FC = () => {
               <div class="recording-container">
                 <video id="videoRecordPreview" class="recording-preview" autoplay muted playsinline></video>
                 <button class="recording-close-btn" id="videoBackBtn">
-                  <i data-lucide="x"></i>
+                  ${renderIconAsHTML("x", { size: 24 })}
                 </button>
                 <div class="recording-device-switcher" id="videoDeviceSwitcher">
                   <select id="videoDeviceSelect" class="device-select">
@@ -234,12 +239,6 @@ const SourcesTab: React.FC = () => {
               </div>
             `;
             
-            // Initialize icons
-            if ((window as any).lucide && (window as any).lucide.createIcons) {
-              (window as any).lucide.createIcons();
-            }
-            
-            // Setup handlers
             const stopBtn = document.getElementById('videoStopBtn');
             if (stopBtn) {
               stopBtn.addEventListener('click', () => {
@@ -251,7 +250,6 @@ const SourcesTab: React.FC = () => {
             if (backBtn) {
               backBtn.addEventListener('click', () => {
                 stopRecording();
-                // Reset UI
                 videoDropzone.style.display = 'flex';
                 videoPreview.style.display = 'none';
                 videoSection.classList.remove('recording');
@@ -261,10 +259,8 @@ const SourcesTab: React.FC = () => {
             }
           }
           
-          // Start recording
           await startRecording("video");
           
-          // Attach stream to video element after recording starts
           setTimeout(() => {
             const video = document.getElementById('videoRecordPreview') as HTMLVideoElement;
             if (video && (window as any).__recordingStream) {
@@ -272,9 +268,7 @@ const SourcesTab: React.FC = () => {
             }
           }, 300);
         } catch (error) {
-          debugError('Video recording error', error);
-          // Error handling and UI reset is done in useRecording hook
-          // Just ensure UI is reset here as well
+          debugLog('Video recording error', error);
           const videoSection = document.getElementById('videoSection');
           const videoDropzone = document.getElementById('videoDropzone');
           const videoPreview = document.getElementById('videoPreview');
@@ -284,7 +278,6 @@ const SourcesTab: React.FC = () => {
         }
     };
 
-    // Audio functions
     (window as any).selectAudio = selectAudio;
     (window as any).selectAudioInOut = async () => {
       debugLog('[SourcesTab] selectAudioInOut called', { 
@@ -323,18 +316,18 @@ const SourcesTab: React.FC = () => {
             }
             // Don't call updateInputStatus here - useEffect will handle it when state changes
           } else if (result?.error) {
-            debugError('[SourcesTab] Export error', { error: result.error });
+            debugLog('[SourcesTab] Export error', { error: result.error });
             // Show error toast
             showToast(result.error, "error");
           } else {
             debugLog('[SourcesTab] Export completed but no path or error', { result });
           }
         } catch (error) {
-          debugError('[SourcesTab] exportInOutAudio exception', error);
+          debugLog('[SourcesTab] exportInOutAudio exception', error);
           showToast(ToastMessages.EXPORT_FAILED((error as Error).message), "error");
         }
       } else {
-        debugError('[SourcesTab] exportInOutAudio not available', { hasNLE: !!nle });
+        debugLog('[SourcesTab] exportInOutAudio not available', { hasNLE: !!nle });
       }
     };
     (window as any).selectAudioUrl = () => {
@@ -351,12 +344,12 @@ const SourcesTab: React.FC = () => {
         if (audioUploadVisual) {
           audioUploadVisual.style.transition = 'opacity 0.2s ease';
           audioUploadVisual.style.opacity = '0';
-          setTimeout(() => { audioUploadVisual.style.display = 'none'; }, 200);
+          setTimeout(() => { audioUploadVisual.style.display = 'none'; }, DELAYS.UPLOAD_VISUAL_HIDE);
         }
         if (audioUploadActions) {
           audioUploadActions.style.transition = 'opacity 0.2s ease';
           audioUploadActions.style.opacity = '0';
-          setTimeout(() => { audioUploadActions.style.display = 'none'; }, 200);
+          setTimeout(() => { audioUploadActions.style.display = 'none'; }, DELAYS.UPLOAD_VISUAL_HIDE);
         }
         if (audioDropzone) audioDropzone.classList.add('url-input-mode');
         if (audioUrlInput) {
@@ -365,7 +358,7 @@ const SourcesTab: React.FC = () => {
             audioUrlInput.classList.add('show');
             const field = document.getElementById('audioUrlField') as HTMLInputElement;
             if (field) {
-              setTimeout(() => field.focus(), 100);
+              setTimeout(() => field.focus(), DELAYS.FOCUS);
             }
           }, 10);
         }
@@ -413,15 +406,10 @@ const SourcesTab: React.FC = () => {
                   <span class="recording-timer" id="audioTimer">00:00</span>
                 </button>
                 <button class="recording-close-btn" id="audioBackBtn">
-                  <i data-lucide="x"></i>
+                  ${renderIconAsHTML("x", { size: 24 })}
                 </button>
               </div>
             `;
-            
-            // Initialize icons
-            if ((window as any).lucide && (window as any).lucide.createIcons) {
-              (window as any).lucide.createIcons();
-            }
             
             // Setup handlers
             const stopBtn = document.getElementById('audioStopBtn');
@@ -446,7 +434,7 @@ const SourcesTab: React.FC = () => {
           // Start recording
           await startRecording("audio");
         } catch (error) {
-          debugError('Audio recording error', error);
+          debugLog('Audio recording error', error);
           // Error handling and UI reset is done in useRecording hook
           // Just ensure UI is reset here as well
           const audioSection = document.getElementById('audioSection');
@@ -475,7 +463,7 @@ const SourcesTab: React.FC = () => {
           body: JSON.stringify({ videoPath, videoUrl, format: "wav" }),
         });
 
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<{ ok?: boolean; audioPath?: string; error?: string }>(response);
         if (response.ok && data?.ok && data?.audioPath) {
           await setAudioPath(data.audioPath);
           
@@ -500,7 +488,7 @@ const SourcesTab: React.FC = () => {
           }
         }
       } catch (error) {
-        debugError("Error extracting audio from video", error);
+        debugLog("Error extracting audio from video", error);
         if ((window as any).showToast) {
           (window as any).showToast("Error extracting audio: " + (error as Error).message, "error");
         }
@@ -547,23 +535,23 @@ const SourcesTab: React.FC = () => {
         <div class="post-lipsync-actions" id="postLipsyncActions">
           <div class="post-lipsync-actions-left">
             <button class="post-action-btn" id="save-${job.id}">
-              <i data-lucide="cloud-download"></i>
+              ${renderIconAsHTML("cloud-download", { size: 16 })}
               <span>save</span>
             </button>
             <button class="post-action-btn" id="insert-${job.id}">
-              <i data-lucide="copy-plus"></i>
+              ${renderIconAsHTML("arrow-right-to-line", { size: 16 })}
               <span>insert</span>
             </button>
           </div>
           <div class="post-lipsync-actions-right">
             <button class="post-action-btn-icon" id="copy-link-${job.id}" title="copy output link">
-              <i data-lucide="link"></i>
+              ${renderIconAsHTML("link", { size: 16 })}
             </button>
             <button class="post-action-btn-icon" id="copy-id-${job.syncJobId || job.id}" title="copy job id">
               <span class="post-action-btn-id-text">id</span>
             </button>
             <button class="post-action-btn-icon" id="clear-completed" title="clear">
-              <i data-lucide="eraser"></i>
+              ${renderIconAsHTML("eraser", { size: 16 })}
             </button>
           </div>
         </div>`;
@@ -630,40 +618,6 @@ const SourcesTab: React.FC = () => {
             (window as any).clearCompletedJob();
           }
         });
-      }
-      
-      // Initialize Lucide icons for the new buttons
-      if ((window as any).lucide && (window as any).lucide.createIcons) {
-        setTimeout(() => {
-          (window as any).lucide.createIcons();
-          
-          // Ensure consistent icon sizing and styling
-          document.querySelectorAll('.post-action-btn i, .post-action-btn-icon i').forEach((icon: any) => {
-            // Constrain the <i> element itself
-            icon.style.width = '16px';
-            icon.style.height = '16px';
-            icon.style.minWidth = '16px';
-            icon.style.minHeight = '16px';
-            icon.style.maxWidth = '16px';
-            icon.style.maxHeight = '16px';
-            
-            const svg = icon.querySelector('svg');
-            if (svg) {
-              svg.setAttribute('width', '16');
-              svg.setAttribute('height', '16');
-              svg.style.width = '16px';
-              svg.style.height = '16px';
-              svg.style.minWidth = '16px';
-              svg.style.minHeight = '16px';
-              svg.style.maxWidth = '16px';
-              svg.style.maxHeight = '16px';
-              svg.setAttribute('stroke-width', '2');
-              svg.querySelectorAll('path, circle, rect, line, polyline, polygon').forEach((el: any) => {
-                el.setAttribute('stroke-width', '2');
-              });
-            }
-          });
-        }, 100);
       }
     };
 
@@ -829,6 +783,162 @@ const SourcesTab: React.FC = () => {
   // Use event delegation on the sources container - this works even if buttons are recreated
   // Use refs to store handlers so they don't get recreated on every render
   const handleClickRef = useRef<((e: MouseEvent) => void) | null>(null);
+  
+  // Note: Video src is now managed entirely by React's src prop
+  // The useVideoPlayer hook handles initialization and event listeners
+  // No need for direct DOM manipulation here
+  
+  // Force metadata loading for URL-based videos (preload="auto" alone isn't always enough)
+  useEffect(() => {
+    if (!selection.videoIsUrl || !selection.videoUrl) return;
+    
+      const video = document.getElementById('mainVideo') as HTMLVideoElement;
+    if (!video) return;
+    
+    // Check if src is already set and matches
+    const expectedSrc = selection.videoUrl;
+    if (video.src === expectedSrc && video.readyState >= 1) {
+      // Already loaded metadata - ensure we're at the start
+      if (video.currentTime > 0 && video.paused) {
+        video.currentTime = 0;
+      }
+      // Ensure play overlay is visible
+      const playOverlay = document.getElementById('videoPlayOverlay');
+      if (playOverlay && video.paused) {
+        playOverlay.classList.remove('hidden');
+      }
+        return;
+      }
+      
+    // Ensure src is set - reset currentTime when src changes
+    if (video.src !== expectedSrc) {
+      video.pause();
+      video.currentTime = 0;
+      video.src = expectedSrc;
+    }
+    
+    // Only force load if video has no data - don't reset if player is already initialized
+    if (video.readyState === 0) {
+      debugLog('[SourcesTab] Forcing metadata load for URL-based video', {
+        src: video.src.substring(0, 100) + '...',
+        readyState: video.readyState,
+      });
+      // Set preload before loading
+      video.preload = 'auto';
+      video.load();
+        
+      // Reset to start when metadata loads
+      const onLoadedMetadata = () => {
+        video.currentTime = 0;
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      };
+      video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+      
+      // Ensure play overlay is visible after load
+      const playOverlay = document.getElementById('videoPlayOverlay');
+      if (playOverlay) {
+        playOverlay.classList.remove('hidden');
+      }
+    }
+  }, [selection.videoIsUrl, selection.videoUrl]);
+  
+  // Force metadata loading for audio (both local and URL-based)
+  useEffect(() => {
+    const audio = document.getElementById('audioPlayer') as HTMLAudioElement;
+    if (!audio) return;
+    
+    let expectedSrc = '';
+    if (selection.audioIsUrl && selection.audioUrl) {
+      expectedSrc = selection.audioUrl;
+    } else if (selection.audio) {
+      const ext = selection.audio.toLowerCase().split('.').pop();
+      const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
+      const encodedPath = encodeURIComponent(selection.audio);
+      expectedSrc = getApiUrl(`${route}?path=${encodedPath}`);
+    }
+    
+    if (!expectedSrc) return;
+        
+    // Update duration display function
+    const updateDurationDisplay = () => {
+      const timeDisplay = document.getElementById('audioTime');
+      if (!timeDisplay) return;
+      
+      const duration = audio.duration || 0;
+      const currentTime = audio.currentTime || 0;
+      const durationStr = (duration && isFinite(duration) && duration > 0) 
+        ? formatTime(duration) 
+        : '--';
+      const currentStr = formatTime(currentTime);
+      timeDisplay.innerHTML = `<span class="time-current">${currentStr}</span> <span class="time-total">/ ${durationStr}</span>`;
+        
+      debugLog('[SourcesTab] Audio duration display updated', {
+        duration,
+        currentTime,
+        durationStr,
+        readyState: audio.readyState,
+        });
+    };
+    
+    // Check if src is already set and matches
+    if (audio.src === expectedSrc && audio.readyState >= 1) {
+      // Already loaded metadata - ensure we're at the start
+      if (audio.currentTime > 0 && audio.paused) {
+        audio.currentTime = 0;
+      }
+      updateDurationDisplay();
+      return;
+    }
+    
+    // Ensure src is set - reset currentTime when src changes
+    if (audio.src !== expectedSrc) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = expectedSrc;
+        }
+        
+    // Attach metadata listeners BEFORE calling load()
+    const onLoadedMetadata = () => {
+      // Reset to start when metadata loads
+      audio.currentTime = 0;
+      updateDurationDisplay();
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('durationchange', onDurationChange);
+    };
+    
+    const onDurationChange = () => {
+      updateDurationDisplay();
+    };
+    
+    audio.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+    audio.addEventListener('durationchange', onDurationChange);
+    
+    // Force load to trigger metadata loading
+    if (audio.readyState === 0) {
+      debugLog('[SourcesTab] Forcing metadata load for audio', {
+        src: audio.src.substring(0, 100) + '...',
+        readyState: audio.readyState,
+        audioIsUrl: selection.audioIsUrl,
+        hasAudio: !!selection.audio,
+        hasAudioUrl: !!selection.audioUrl,
+      });
+      audio.load();
+    } else {
+      // Metadata might already be loading, check again after a short delay
+      setTimeout(() => {
+        if (audio.readyState >= 1 && audio.duration > 0) {
+          audio.currentTime = 0; // Ensure we're at start
+          updateDurationDisplay();
+        }
+      }, 100);
+    }
+    
+    // Cleanup
+    return () => {
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('durationchange', onDurationChange);
+    };
+  }, [selection.audio, selection.audioIsUrl, selection.audioUrl]);
   
   useEffect(() => {
     if (activeTab !== "sources") {
@@ -1012,7 +1122,7 @@ const SourcesTab: React.FC = () => {
               break;
           }
         } catch (error) {
-          debugError('[SourcesTab] Error handling action', { action, error });
+          debugLog('[SourcesTab] Error handling action', { action, error });
         }
       };
       
@@ -1038,9 +1148,9 @@ const SourcesTab: React.FC = () => {
         attachHandlers();
       } else if (retries < maxRetries) {
         retries++;
-        setTimeout(trySetup, 100);
+        setTimeout(trySetup, DELAYS.SETUP_RETRY);
       } else {
-        debugError('[SourcesTab] Failed to setup handlers after max retries');
+        debugLog('[SourcesTab] Failed to setup handlers after max retries');
       }
     };
     
@@ -1063,18 +1173,6 @@ const SourcesTab: React.FC = () => {
       }
     };
   }, [activeTab]); // Only depend on activeTab - functions are accessed from window
-  
-  // Re-initialize Lucide icons when tab becomes active
-  useEffect(() => {
-    if (activeTab === "sources") {
-      const timer = setTimeout(() => {
-        if ((window as any).lucide && (window as any).lucide.createIcons) {
-          (window as any).lucide.createIcons();
-        }
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [activeTab]);
 
   return (
     <>
@@ -1082,7 +1180,7 @@ const SourcesTab: React.FC = () => {
         {isOffline ? (
           <div className="offline-state">
             <div className="offline-icon">
-              <i data-lucide="wifi-off"></i>
+              <WifiOff />
             </div>
             <div className="offline-message">
               hmm... you might be offline, or<br />
@@ -1133,7 +1231,7 @@ const SourcesTab: React.FC = () => {
                           await (window as any).selectVideo();
                         }
                       } catch (error) {
-                        debugError('[SourcesTab] Error in video upload', error);
+                        debugLog('[SourcesTab] Error in video upload', error);
                         showToast(`Error opening file picker: ${(error as Error).message}`, 'error');
                       }
                     }}
@@ -1276,15 +1374,29 @@ const SourcesTab: React.FC = () => {
                     
                     setUrlInputMode(null);
                     setVideoUrlValue("");
+                    
+                    // Ensure dropzone is hidden before closing URL input
+                    const videoDropzone = document.getElementById('videoDropzone');
+                    const videoUploadVisual = document.getElementById('videoUploadVisual');
+                    const videoUploadActions = document.getElementById('videoUploadActions');
+                    if (videoDropzone) {
+                      videoDropzone.style.display = 'none';
+                      videoDropzone.classList.remove('url-input-mode');
+                    }
+                    if (videoUploadVisual) {
+                      videoUploadVisual.style.display = 'none';
+                    }
+                    if (videoUploadActions) {
+                      videoUploadActions.style.display = 'none';
+                    }
+                    
                     // Close URL input
                     const videoUrlInput = document.getElementById('videoUrlInput');
+                    const videoSection = document.getElementById('videoSection');
                     if (videoUrlInput) {
                       videoUrlInput.classList.remove('show');
                       setTimeout(() => {
                         if (videoUrlInput) videoUrlInput.style.display = 'none';
-                        const videoDropzone = document.getElementById('videoDropzone');
-                        if (videoDropzone) videoDropzone.classList.remove('url-input-mode');
-                        const videoSection = document.getElementById('videoSection');
                         if (videoSection) videoSection.classList.remove('url-input-active');
                       }, 200);
                     }
@@ -1295,34 +1407,138 @@ const SourcesTab: React.FC = () => {
               </div>
             </div>
             {/* Always render videoPreview so it's available for output videos from history */}
+            {/* Show video when we have a video path or URL */}
             <div id="videoPreview" style={{ display: (selection.video || selection.videoUrl) ? "flex" : "none" }}>
               <div className="custom-video-player">
                 <video 
                   id="mainVideo" 
                   className="video-element" 
-                  src={selection.videoIsUrl && selection.videoUrl ? selection.videoUrl : (selection.video ? `file://${selection.video.replace(/ /g, '%20')}` : '')} 
-                  preload="metadata" 
+                  src={(() => {
+                    // CEP blocks file:// URLs (error code 4: MEDIA_ERR_SRC_NOT_SUPPORTED)
+                    // Use HTTP proxy route instead, similar to /wav/file and /mp3/file
+                    let computedSrc = '';
+                    if (selection.videoIsUrl && selection.videoUrl) {
+                      // Already an HTTP URL
+                      computedSrc = selection.videoUrl;
+                    } else if (selection.video) {
+                      // Use server proxy route for local files (works in CEP)
+                      const encodedPath = encodeURIComponent(selection.video);
+                      computedSrc = getApiUrl(`/video/file?path=${encodedPath}`);
+                    }
+                    debugLog('[SourcesTab] Video src computed', {
+                      computedSrc: computedSrc.substring(0, 100) + '...',
+                      videoIsUrl: selection.videoIsUrl,
+                      hasVideoUrl: !!selection.videoUrl,
+                      hasVideo: !!selection.video,
+                      video: selection.video,
+                      videoUrl: selection.videoUrl?.substring(0, 100) + '...',
+                    });
+                    return computedSrc;
+                  })()}
+                  preload="auto" 
                   playsInline
+                  onLoadStart={(e) => {
+                    const video = e.target as HTMLVideoElement;
+                    debugLog('[SourcesTab] Video onLoadStart', {
+                      src: video.src,
+                      currentSrc: video.currentSrc,
+                      networkState: video.networkState,
+                      readyState: video.readyState,
+                      hasVideo: !!selection.video,
+                      hasVideoUrl: !!selection.videoUrl,
+                      videoIsUrl: selection.videoIsUrl,
+                    });
+                  }}
                   onLoadedMetadata={(e) => {
-                    if ((window as any).debugLog) {
-                      (window as any).debugLog('[SourcesTab] Video onLoadedMetadata', {
-                        duration: (e.target as HTMLVideoElement).duration,
-                        readyState: (e.target as HTMLVideoElement).readyState,
-                        src: (e.target as HTMLVideoElement).src,
+                    const video = e.target as HTMLVideoElement;
+                    debugLog('[SourcesTab] Video onLoadedMetadata', {
+                      duration: video.duration,
+                      videoWidth: video.videoWidth,
+                      videoHeight: video.videoHeight,
+                      readyState: video.readyState,
+                      networkState: video.networkState,
+                      src: video.src,
+                      currentSrc: video.currentSrc,
+                      hasVideo: !!selection.video,
+                      hasVideoUrl: !!selection.videoUrl,
+                      videoIsUrl: selection.videoIsUrl,
+                    });
+                    if (!video.duration || video.duration === 0 || !isFinite(video.duration)) {
+                      debugError('[SourcesTab] Video has invalid duration', {
+                        duration: video.duration,
+                        readyState: video.readyState,
+                        networkState: video.networkState,
+                        src: video.src,
+                        error: video.error,
                       });
                     }
+                  }}
+                  onLoadedData={(e) => {
+                    const video = e.target as HTMLVideoElement;
+                    debugLog('[SourcesTab] Video onLoadedData', {
+                      duration: video.duration,
+                      readyState: video.readyState,
+                      networkState: video.networkState,
+                      src: video.src,
+                    });
+                  }}
+                  onCanPlay={(e) => {
+                    const video = e.target as HTMLVideoElement;
+                    debugLog('[SourcesTab] Video onCanPlay', {
+                      duration: video.duration,
+                      readyState: video.readyState,
+                      src: video.src,
+                    });
                   }}
                   onError={(e) => {
-                    if ((window as any).debugError) {
-                      (window as any).debugError('[SourcesTab] Video onError', {
-                        error: e,
-                        src: (e.target as HTMLVideoElement).src,
-                        networkState: (e.target as HTMLVideoElement).networkState,
-                        errorCode: (e.target as HTMLVideoElement).error?.code,
-                      });
-                    }
+                    const video = e.target as HTMLVideoElement;
+                    const error = video.error;
+                    // Extract error details immediately before they might be lost
+                    const errorCode = error?.code;
+                    const errorMessage = error?.message;
+                    const MEDIA_ERR_ABORTED = error?.MEDIA_ERR_ABORTED;
+                    const MEDIA_ERR_NETWORK = error?.MEDIA_ERR_NETWORK;
+                    const MEDIA_ERR_DECODE = error?.MEDIA_ERR_DECODE;
+                    const MEDIA_ERR_SRC_NOT_SUPPORTED = error?.MEDIA_ERR_SRC_NOT_SUPPORTED;
+                    
+                    // Log to console FIRST with full details
+                    console.error('[SourcesTab] Video onError - FULL DETAILS:', {
+                      error,
+                      errorCode,
+                      errorMessage,
+                      MEDIA_ERR_ABORTED,
+                      MEDIA_ERR_NETWORK,
+                      MEDIA_ERR_DECODE,
+                      MEDIA_ERR_SRC_NOT_SUPPORTED,
+                      src: video.src,
+                      currentSrc: video.currentSrc,
+                      networkState: video.networkState,
+                      readyState: video.readyState,
+                    });
+                    
+                    // Then log via debugLog (debugError doesn't serialize objects properly)
+                    debugLog('[SourcesTab] Video onError - DETAILS', {
+                      errorCode,
+                      errorMessage,
+                      MEDIA_ERR_ABORTED,
+                      MEDIA_ERR_NETWORK,
+                      MEDIA_ERR_DECODE,
+                      MEDIA_ERR_SRC_NOT_SUPPORTED,
+                      src: video.src,
+                      currentSrc: video.currentSrc,
+                      networkState: video.networkState,
+                      readyState: video.readyState,
+                      hasVideo: !!selection.video,
+                      hasVideoUrl: !!selection.videoUrl,
+                      videoIsUrl: selection.videoIsUrl,
+                      videoPreviewDisplay: window.getComputedStyle(document.getElementById('videoPreview') || document.body).display,
+                    });
                   }}
-                />
+                >
+                  {selection.video && !selection.videoIsUrl && (
+                    <source src={getApiUrl(`/video/file?path=${encodeURIComponent(selection.video)}`)} type="video/mp4" />
+                  )}
+                </video>
                 {/* Center play button overlay */}
                 <div className="video-play-overlay" id="videoPlayOverlay">
                   <button className="center-play-btn" id="centerPlayBtn">
@@ -1353,7 +1569,49 @@ const SourcesTab: React.FC = () => {
                       <div className="video-frame-info" id="videoFrameInfo">0 / 0</div>
                     </div>
                     <div className="video-right-controls">
-                      <button className="video-control-btn video-delete-btn" onClick={clearVideo}>
+                      <button className="video-control-btn video-delete-btn" onClick={() => {
+                        clearVideo();
+                        const videoDropzone = document.getElementById('videoDropzone');
+                        const videoUploadVisual = document.getElementById('videoUploadVisual');
+                        const videoUploadActions = document.getElementById('videoUploadActions');
+                        const videoSection = document.getElementById('videoSection');
+                        const videoPreview = document.getElementById('videoPreview');
+                        const videoUrlInput = document.getElementById('videoUrlInput');
+                        const audioSection = document.getElementById('audioSection');
+                        
+                        if (videoDropzone) {
+                          videoDropzone.style.display = 'flex';
+                          videoDropzone.classList.remove('url-input-mode');
+                        }
+                        if (videoUploadVisual) {
+                          videoUploadVisual.style.display = 'flex';
+                          videoUploadVisual.style.opacity = '1';
+                        }
+                        if (videoUploadActions) {
+                          videoUploadActions.style.display = 'flex';
+                          videoUploadActions.style.opacity = '1';
+                        }
+                        if (videoSection) {
+                          videoSection.classList.remove('url-input-active', 'has-media');
+                        }
+                        if (videoPreview) {
+                          videoPreview.style.display = 'none';
+                        }
+                        if (videoUrlInput) {
+                          videoUrlInput.style.display = 'none';
+                          videoUrlInput.classList.remove('show');
+                        }
+                        
+                        if (audioSection && (selection.audio || selection.audioUrl)) {
+                          audioSection.style.marginTop = '';
+                          audioSection.style.marginBottom = '';
+                          audioSection.style.position = '';
+                          audioSection.style.bottom = '';
+                        }
+                        
+                        setUrlInputMode(null);
+                        setVideoUrlValue("");
+                      }}>
                         <Trash2 size={16} />
                   </button>
                     </div>
@@ -1414,7 +1672,7 @@ const SourcesTab: React.FC = () => {
                           await (window as any).selectAudio();
                         }
                       } catch (error) {
-                        debugError('[SourcesTab] Error in audio upload', error);
+                        debugLog('[SourcesTab] Error in audio upload', error);
                         showToast(`Error opening file picker: ${(error as Error).message}`, 'error');
                       }
                     }}
@@ -1566,15 +1824,29 @@ const SourcesTab: React.FC = () => {
                     
                     setUrlInputMode(null);
                     setAudioUrlValue("");
+                    
+                    // Ensure dropzone is hidden before closing URL input
+                    const audioDropzone = document.getElementById('audioDropzone');
+                    const audioUploadVisual = document.getElementById('audioUploadVisual');
+                    const audioUploadActions = document.getElementById('audioUploadActions');
+                    if (audioDropzone) {
+                      audioDropzone.style.display = 'none';
+                      audioDropzone.classList.remove('url-input-mode');
+                    }
+                    if (audioUploadVisual) {
+                      audioUploadVisual.style.display = 'none';
+                    }
+                    if (audioUploadActions) {
+                      audioUploadActions.style.display = 'none';
+                    }
+                    
                     // Close URL input
                     const audioUrlInput = document.getElementById('audioUrlInput');
+                    const audioSection = document.getElementById('audioSection');
                     if (audioUrlInput) {
                       audioUrlInput.classList.remove('show');
                       setTimeout(() => {
                         if (audioUrlInput) audioUrlInput.style.display = 'none';
-                        const audioDropzone = document.getElementById('audioDropzone');
-                        if (audioDropzone) audioDropzone.classList.remove('url-input-mode');
-                        const audioSection = document.getElementById('audioSection');
                         if (audioSection) audioSection.classList.remove('url-input-active');
                       }, 200);
                     }
@@ -1588,7 +1860,20 @@ const SourcesTab: React.FC = () => {
                 <div className="custom-audio-player">
                   <audio 
                     id="audioPlayer" 
-                    src={selection.audioIsUrl && selection.audioUrl ? selection.audioUrl : (selection.audio ? `file://${selection.audio.replace(/ /g, '%20')}` : '')} 
+                    src={(() => {
+                      // CEP blocks file:// URLs - use HTTP proxy route instead
+                      if (selection.audioIsUrl && selection.audioUrl) {
+                        // Already an HTTP URL
+                        return selection.audioUrl;
+                      } else if (selection.audio) {
+                        // Use server proxy route for local files (works in CEP)
+                        const ext = selection.audio.toLowerCase().split('.').pop();
+                        const route = ext === 'mp3' ? '/mp3/file' : '/wav/file';
+                        const encodedPath = encodeURIComponent(selection.audio);
+                        return getApiUrl(`${route}?path=${encodedPath}`);
+                      }
+                      return '';
+                    })()}
                     preload="auto"
                     onLoadedMetadata={(e) => {
                       if ((window as any).debugLog) {
@@ -1665,7 +1950,40 @@ const SourcesTab: React.FC = () => {
                       <div className="dubbing-dropdown-scrollbar"></div>
                     </div>
                   </div>
-                  <button className="audio-delete-btn" onClick={clearAudio}>
+                  <button className="audio-delete-btn" onClick={() => {
+                    clearAudio();
+                    const audioDropzone = document.getElementById('audioDropzone');
+                    const audioUploadVisual = document.getElementById('audioUploadVisual');
+                    const audioUploadActions = document.getElementById('audioUploadActions');
+                    const audioSection = document.getElementById('audioSection');
+                    const audioPreview = document.getElementById('audioPreview');
+                    const audioUrlInput = document.getElementById('audioUrlInput');
+                    
+                    if (audioDropzone) {
+                      audioDropzone.style.display = 'flex';
+                      audioDropzone.classList.remove('url-input-mode');
+                    }
+                    if (audioUploadVisual) {
+                      audioUploadVisual.style.display = 'flex';
+                      audioUploadVisual.style.opacity = '1';
+                    }
+                    if (audioUploadActions) {
+                      audioUploadActions.style.display = 'flex';
+                      audioUploadActions.style.opacity = '1';
+                    }
+                    if (audioSection) {
+                      audioSection.classList.remove('url-input-active', 'has-media');
+                    }
+                    if (audioPreview) {
+                      audioPreview.style.display = 'none';
+                    }
+                    if (audioUrlInput) {
+                      audioUrlInput.style.display = 'none';
+                      audioUrlInput.classList.remove('show');
+                    }
+                    setUrlInputMode(null);
+                    setAudioUrlValue("");
+                  }}>
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -1694,7 +2012,7 @@ const SourcesTab: React.FC = () => {
       <TTSVoiceCloneModal
         isOpen={ttsVoiceCloneModalOpen}
         onClose={() => setTtsVoiceCloneModalOpen(false)}
-        onVoiceCreated={(voiceId, voiceName) => {
+        onVoiceCreated={() => {
           // Voice is already selected in the modal
         }}
       />
@@ -1702,4 +2020,5 @@ const SourcesTab: React.FC = () => {
   );
 };
 
-export default SourcesTab;
+// Memoize SourcesTab to prevent unnecessary re-renders
+export default memo(SourcesTab);

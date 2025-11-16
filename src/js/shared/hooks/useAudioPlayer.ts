@@ -204,21 +204,36 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         return;
       }
       
-      // Check if audio preview is visible
+      // Check if audio preview is visible (but don't block - React may not have updated DOM yet)
       const isVisible = window.getComputedStyle(audioPreview).display !== 'none';
       if (!isVisible) {
-        return;
+        debugLog('[useAudioPlayer] initPlayer: Preview not visible, but allowing init anyway (React may not have updated DOM yet)');
+        // Don't return - allow initialization even if preview appears hidden
       }
       
       // Check if audio has src set
       const currentSrc = audio.getAttribute('src') || audio.src;
       if (!currentSrc) {
+        debugLog('[useAudioPlayer] initPlayer: No audio src set yet');
         return;
       }
       
       // Now initialize
       const playBtn = document.getElementById("audioPlayBtn");
       const timeDisplay = document.getElementById("audioTime");
+      
+      if (!playBtn) {
+        debugLog('[useAudioPlayer] initPlayer: Play button not found');
+        return;
+      }
+      
+      debugLog('[useAudioPlayer] initPlayer: Initializing audio player', {
+        hasPlayBtn: !!playBtn,
+        hasTimeDisplay: !!timeDisplay,
+        audioSrc: currentSrc.substring(0, 100) + '...',
+        readyState: audio.readyState,
+        duration: audio.duration,
+      });
 
       // Reset initialization flag
       if (playerInitialized.current) {
@@ -381,8 +396,19 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       const updateAudioDuration = () => {
         const duration = audio.duration || 0;
         const durationStr = isFinite(duration) && duration > 0 ? formatTime(duration) : "--";
+        const currentTime = audio.currentTime || 0;
+        const currentStr = formatTime(currentTime);
         if (timeDisplay)
-          timeDisplay.innerHTML = `<span class="time-current">0:00</span> <span class="time-total">/ ${durationStr}</span>`;
+          timeDisplay.innerHTML = `<span class="time-current">${currentStr}</span> <span class="time-total">/ ${durationStr}</span>`;
+        
+        // Reset waveform progress to start if at end
+        if (duration > 0 && currentTime >= duration - 0.1) {
+          const w = canvas.clientWidth || canvas.offsetWidth || 600;
+          const h = canvas.clientHeight || canvas.offsetHeight || 80;
+          if (waveformBarsRef.current && waveformBarsRef.current.length) {
+            updateWaveformProgress(canvas, waveformBarsRef.current, 0, w, h);
+          }
+        }
       };
 
       // Check if metadata is already loaded
@@ -413,13 +439,13 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           clearInterval(audioRetryInterval);
           // Try to force load by seeking to a small time
           if (audio.readyState >= 1 && !audio.duration) {
-            const savedTime = audio.currentTime;
             audio.currentTime = 0.1;
             setTimeout(() => {
               if (audio.duration > 0) {
                 updateAudioDuration();
               }
-              audio.currentTime = savedTime;
+              // Reset to 0 to ensure we start at beginning
+              audio.currentTime = 0;
             }, 100);
           }
         } else {
@@ -430,7 +456,8 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             const savedTime = audio.currentTime;
             audio.currentTime = 0.01;
             setTimeout(() => {
-              audio.currentTime = savedTime;
+              // Reset to 0, not savedTime, to ensure we start at beginning
+              audio.currentTime = 0;
             }, 50);
           }
         }
@@ -440,18 +467,28 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       setTimeout(() => {
         if (!audio.duration || audio.duration === 0) {
           // Try seeking to trigger duration load
-          const savedTime = audio.currentTime;
           audio.currentTime = 0.01;
           setTimeout(() => {
             if (audio.duration > 0) {
               updateAudioDuration();
             }
-            audio.currentTime = savedTime;
+            // Reset to 0 to ensure we start at beginning
+            audio.currentTime = 0;
           }, 100);
         }
       }, 500);
+      
+      // Ensure audio starts at the beginning when loaded
+      const resetToStart = () => {
+        if (audio.currentTime > 0 && audio.paused) {
+          audio.currentTime = 0;
+        }
+      };
+      audio.addEventListener('loadedmetadata', resetToStart, { once: true });
+      audio.addEventListener('canplay', resetToStart, { once: true });
 
       // Smooth waveform update using requestAnimationFrame for real-time syncing
+      // No throttling - update on every frame for zero lag
       const updateWaveform = () => {
         if (audioFinishedRef.current || audio.ended || audio.paused) {
           animationFrameIdRef.current = null;
@@ -461,19 +498,30 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         const duration = audio.duration || 0;
         const currentTime = audio.currentTime || 0;
 
+        if (!isFinite(duration) || duration <= 0) {
+          // Keep looping if playing, even without duration yet
+          if (!audio.paused && !audio.ended) {
+            animationFrameIdRef.current = requestAnimationFrame(updateWaveform);
+          } else {
+            animationFrameIdRef.current = null;
+          }
+          return;
+        }
+
         // Check if we've reached the end
-        if (duration > 0 && currentTime >= duration - 0.1) {
+        if (currentTime >= duration - 0.1) {
           audioFinishedRef.current = true;
           animationFrameIdRef.current = null;
           // Reset button to play state
-          if (playBtn) {
-            playBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
+          const currentPlayBtn = document.getElementById("audioPlayBtn");
+          if (currentPlayBtn) {
+            currentPlayBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
             if ((window as any).lucide && (window as any).lucide.createIcons) {
               (window as any).lucide.createIcons();
             }
           }
           // Final update to show completed progress
-          const durationStr = isFinite(duration) ? formatTime(duration) : "0:00";
+          const durationStr = formatTime(duration);
           if (timeDisplay)
             timeDisplay.innerHTML = `<span class="time-current">${durationStr}</span> <span class="time-total">/ ${durationStr}</span>`;
           const w = canvas.clientWidth || canvas.offsetWidth || 600;
@@ -484,28 +532,50 @@ export const useAudioPlayer = (audioSrc: string | null) => {
           return;
         }
 
-        // Update waveform progress smoothly
+        // Update waveform progress smoothly - always update for zero lag
         const w = canvas.clientWidth || canvas.offsetWidth || 600;
         const h = canvas.clientHeight || canvas.offsetHeight || 80;
         if (waveformBarsRef.current && waveformBarsRef.current.length) {
-          const progress = Math.min(1, currentTime / (duration || 1));
+          const progress = Math.max(0, Math.min(1, currentTime / duration));
           updateWaveformProgress(canvas, waveformBarsRef.current, progress, w, h);
         }
 
-        // Continue animation loop
-        animationFrameIdRef.current = requestAnimationFrame(updateWaveform);
+        // Continue animation loop - always request next frame immediately
+        if (!audio.paused && !audio.ended) {
+          animationFrameIdRef.current = requestAnimationFrame(updateWaveform);
+        } else {
+          animationFrameIdRef.current = null;
+        }
       };
 
-      // Update time display
+      // Update time display - sync check (animation loop handles smooth updates)
       const handleTimeUpdate = () => {
         if (audioFinishedRef.current || audio.ended) {
           return;
         }
-        const current = formatTime(audio.currentTime);
+        const currentTime = audio.currentTime || 0;
         const duration = audio.duration || 0;
-        const durationStr = isFinite(duration) ? formatTime(duration) : "0:00";
+        
+        if (!isFinite(duration) || duration <= 0) {
+          return;
+        }
+        
+        // Update time display on timeupdate (more accurate than animation frame)
+        const current = formatTime(currentTime);
+        const durationStr = formatTime(duration);
         if (timeDisplay)
           timeDisplay.innerHTML = `<span class="time-current">${current}</span> <span class="time-total">/ ${durationStr}</span>`;
+        
+        // Sync waveform if animation loop isn't running or there's drift
+        // Animation loop handles smooth updates, this ensures accuracy
+        if (!animationFrameIdRef.current) {
+          const w = canvas.clientWidth || canvas.offsetWidth || 600;
+          const h = canvas.clientHeight || canvas.offsetHeight || 80;
+          if (waveformBarsRef.current && waveformBarsRef.current.length && duration > 0) {
+            const progress = Math.max(0, Math.min(1, currentTime / duration));
+            updateWaveformProgress(canvas, waveformBarsRef.current, progress, w, h);
+          }
+        }
       };
 
       audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -541,6 +611,15 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       // Reset finished flag and start animation loop when play starts
       const handlePlay = () => {
         audioFinishedRef.current = false;
+        // Update play button to pause icon
+        const currentPlayBtn = document.getElementById("audioPlayBtn");
+        if (currentPlayBtn) {
+          currentPlayBtn.innerHTML = '<i data-lucide="pause" style="width: 18px; height: 18px;"></i>';
+          if ((window as any).lucide && (window as any).lucide.createIcons) {
+            (window as any).lucide.createIcons();
+          }
+        }
+        // Always start animation loop immediately for smooth updates
         if (!animationFrameIdRef.current && !audio.paused) {
           animationFrameIdRef.current = requestAnimationFrame(updateWaveform);
         }
@@ -550,6 +629,14 @@ export const useAudioPlayer = (audioSrc: string | null) => {
 
       // Stop animation loop when paused
       const handlePause = () => {
+        // Update play button to play icon
+        const currentPlayBtn = document.getElementById("audioPlayBtn");
+        if (currentPlayBtn) {
+          currentPlayBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
+          if ((window as any).lucide && (window as any).lucide.createIcons) {
+            (window as any).lucide.createIcons();
+          }
+        }
         if (animationFrameIdRef.current) {
           cancelAnimationFrame(animationFrameIdRef.current);
           animationFrameIdRef.current = null;
@@ -559,39 +646,161 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       audio.addEventListener("pause", handlePause);
 
       // Play/pause functionality
-      const toggleAudioPlay = () => {
+      const toggleAudioPlay = async (e?: Event) => {
+        if (e) {
+          e.stopPropagation();
+        }
+        
+        debugLog('[useAudioPlayer] toggleAudioPlay: Called', {
+          paused: audio.paused,
+          readyState: audio.readyState,
+          duration: audio.duration,
+          currentTime: audio.currentTime,
+          src: audio.src?.substring(0, 100) + '...',
+        });
+        
         if (audio.paused) {
-          audio.play();
-          if (playBtn) {
-            playBtn.innerHTML = '<i data-lucide="pause" style="width: 18px; height: 18px;"></i>';
-            if ((window as any).lucide && (window as any).lucide.createIcons) {
-              (window as any).lucide.createIcons();
-            }
+          // Ensure we start from the beginning if at the end
+          if (audio.duration > 0 && audio.currentTime >= audio.duration - 0.1) {
+            audio.currentTime = 0;
+          }
+          
+          // Check if audio is ready to play
+          if (audio.readyState === 0) {
+            debugLog('[useAudioPlayer] toggleAudioPlay: Audio has no data, loading...');
+            // Audio has no data, try to load it
+            audio.load();
+            // Wait for metadata before playing
+            const playWhenReady = () => {
+              audio.currentTime = 0; // Ensure we start at the beginning
+              audio.play().catch((err) => {
+                debugError('[useAudioPlayer] toggleAudioPlay: Play failed after loading', err);
+              });
+              audio.removeEventListener('loadedmetadata', playWhenReady);
+            };
+            audio.addEventListener('loadedmetadata', playWhenReady, { once: true });
+            return;
+          }
+          
+          try {
+            await audio.play();
+            debugLog('[useAudioPlayer] toggleAudioPlay: Play started successfully');
+            // Update button state via play event handler (which gets current button from DOM)
+          } catch (err) {
+            debugError('[useAudioPlayer] toggleAudioPlay: Play failed, will retry on canplay', err);
+            // If play failed, wait for canplay event and retry
+            const retryPlay = () => {
+              audio.currentTime = 0; // Ensure we start at the beginning
+              audio.play().catch((retryErr) => {
+                debugError('[useAudioPlayer] toggleAudioPlay: Retry play also failed', retryErr);
+              });
+              audio.removeEventListener('canplay', retryPlay);
+            };
+            audio.addEventListener('canplay', retryPlay, { once: true });
           }
         } else {
           audio.pause();
-          if (playBtn) {
-            playBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
-            if ((window as any).lucide && (window as any).lucide.createIcons) {
-              (window as any).lucide.createIcons();
-            }
-          }
+          // Update button state via pause event handler (which gets current button from DOM)
         }
       };
 
-      // Play/pause button
+      // Play/pause button - attach click handler
       if (playBtn) {
-        playBtn.addEventListener("click", toggleAudioPlay);
+        debugLog('[useAudioPlayer] initPlayer: Attaching play button click handler');
+        
+        // Enhanced toggleAudioPlay with logging
+        const enhancedToggleAudioPlay = async (e?: Event) => {
+          if (e) {
+            e.stopPropagation();
+            e.preventDefault();
+          }
+          debugLog('[useAudioPlayer] Play button clicked', {
+            audioPaused: audio.paused,
+            readyState: audio.readyState,
+            duration: audio.duration,
+            src: audio.src?.substring(0, 100) + '...',
+            networkState: audio.networkState,
+            error: audio.error,
+          });
+          
+          // Call the original toggleAudioPlay
+          await toggleAudioPlay(e);
+        };
+        
+        // Remove existing listeners by cloning (cleanest way to remove all)
+        const newPlayBtn = playBtn.cloneNode(true) as HTMLElement;
+        playBtn.parentNode?.replaceChild(newPlayBtn, playBtn);
+        
+        // Attach new listener to the fresh node
+        newPlayBtn.addEventListener("click", enhancedToggleAudioPlay);
+        
+        // Also ensure button is clickable
+        newPlayBtn.style.pointerEvents = 'auto';
+        newPlayBtn.style.cursor = 'pointer';
+        newPlayBtn.style.zIndex = '1000';
+        newPlayBtn.style.position = 'relative';
+        
+        // Update play button state based on current audio state
+        if (audio.paused) {
+          newPlayBtn.innerHTML = '<i data-lucide="play" style="width: 18px; height: 18px;"></i>';
+        } else {
+          newPlayBtn.innerHTML = '<i data-lucide="pause" style="width: 18px; height: 18px;"></i>';
+        }
+        if ((window as any).lucide && (window as any).lucide.createIcons) {
+          (window as any).lucide.createIcons();
+        }
+        
+        debugLog('[useAudioPlayer] Play button listener attached', {
+          hasButton: !!newPlayBtn,
+          buttonId: newPlayBtn.id,
+        });
+      } else {
+        debugError('[useAudioPlayer] initPlayer: Play button not found, cannot attach click handler');
+        // Don't mark as initialized if play button isn't found - allow retry
+        return;
       }
 
-      // Click to seek on waveform
-      const handleCanvasClick = (e: MouseEvent) => {
+      // Click and drag to seek on waveform
+      let isDragging = false;
+      
+      const handleCanvasMouseDown = (e: MouseEvent) => {
+        if (!audio.duration) return;
+        e.stopPropagation();
+        e.preventDefault();
+        isDragging = true;
+        
         const rect = canvas.getBoundingClientRect();
-        const pos = (e.clientX - rect.left) / rect.width;
+        const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        audio.currentTime = pos * audio.duration;
+      };
+      
+      const handleCanvasMouseMove = (e: MouseEvent) => {
+        if (!isDragging || !audio.duration) return;
+        e.stopPropagation();
+        e.preventDefault();
+        
+        const rect = canvas.getBoundingClientRect();
+        const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        audio.currentTime = pos * audio.duration;
+      };
+      
+      const handleCanvasMouseUp = () => {
+        isDragging = false;
+      };
+      
+      const handleCanvasClick = (e: MouseEvent) => {
+        if (!audio.duration) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         audio.currentTime = pos * audio.duration;
       };
 
+      canvas.addEventListener("mousedown", handleCanvasMouseDown);
       canvas.addEventListener("click", handleCanvasClick);
+      document.addEventListener("mousemove", handleCanvasMouseMove);
+      document.addEventListener("mouseup", handleCanvasMouseUp);
 
       // Dubbing dropdown functionality
       const dubbingBtn = document.getElementById("dubbingBtn");
@@ -763,9 +972,8 @@ export const useAudioPlayer = (audioSrc: string | null) => {
               return;
             }
 
-            // Show loading state
+            // Show loading state - disable button but keep arrow icon
             dubbingSubmitBtn.setAttribute("disabled", "true");
-            dubbingSubmitBtn.innerHTML = loaderHTML({ size: "sm", color: "white" });
 
             // Disable lipsync button during dubbing
             const lipsyncBtn = document.getElementById("lipsyncBtn");
@@ -778,8 +986,11 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             // Show loading state in audio preview
             const audioPreview = document.getElementById("audioPreview");
             const audioSection = document.getElementById("audioSection");
-            if (audioPreview) {
+            const audioPlayer = document.querySelector(".custom-audio-player");
+            if (audioPreview && audioPlayer) {
               audioPreview.classList.add("loading-audio");
+              // Add loading class to audio player to grey it out
+              (audioPlayer as HTMLElement).classList.add("loading-audio");
               // Also add to audio section to prevent border
               if (audioSection) {
                 audioSection.classList.add("loading-audio");
@@ -787,16 +998,15 @@ export const useAudioPlayer = (audioSrc: string | null) => {
               const loadingOverlay = document.createElement("div");
               loadingOverlay.className = "audio-loading-overlay";
               loadingOverlay.innerHTML = `
-                <div class="audio-loading-spinner">
-                  ${loaderHTML({ size: "sm", color: "white" })}
+                <div class="audio-loading-content">
+                  <div class="audio-loading-spinner">
+                    ${loaderHTML({ size: "sm", color: "white" })}
+                  </div>
+                  <div class="audio-loading-text">dubbing to ${langName?.toLowerCase()}...</div>
                 </div>
-                <div class="audio-loading-text">dubbing to ${langName?.toLowerCase()}...</div>
               `;
-              audioPreview.appendChild(loadingOverlay);
-            }
-
-            if ((window as any).showToast) {
-              (window as any).showToast(`dubbing to ${langName?.toLowerCase()}...`, "info");
+              // Append overlay to audio player, not the entire preview container
+              (audioPlayer as HTMLElement).appendChild(loadingOverlay);
             }
 
             try {
@@ -905,7 +1115,18 @@ export const useAudioPlayer = (audioSrc: string | null) => {
                   debugWarn("[Dubbing] Upload of dubbed audio failed", uploadError);
                 }
 
-                // Re-render the audio preview with the new dubbed audio
+                // Update React state with the new dubbed audio path
+                // Get the uploaded URL if available to prevent double upload
+                const uploadedUrl = (window as any).uploadedAudioUrl || null;
+                if (typeof (window as any).setAudioPath === "function") {
+                  await (window as any).setAudioPath(result.audioPath, uploadedUrl);
+                  debugLog("[Dubbing] Updated audio path via setAudioPath", { audioPath: result.audioPath, url: uploadedUrl });
+                }
+
+                // Update UI state
+                if (typeof (window as any).updateLipsyncButton === "function") {
+                  (window as any).updateLipsyncButton();
+                }
                 if ((window as any).renderInputPreview) {
                   (window as any).renderInputPreview("dubbing");
                 }
@@ -923,9 +1144,13 @@ export const useAudioPlayer = (audioSrc: string | null) => {
               // Remove loading state from audio preview
               const audioPreview = document.getElementById("audioPreview");
               const audioSection = document.getElementById("audioSection");
+              const audioPlayer = document.querySelector(".custom-audio-player");
               if (audioPreview) {
                 audioPreview.classList.remove("loading-audio");
-                const loadingOverlay = audioPreview.querySelector(".audio-loading-overlay");
+              }
+              if (audioPlayer) {
+                (audioPlayer as HTMLElement).classList.remove("loading-audio");
+                const loadingOverlay = audioPlayer.querySelector(".audio-loading-overlay");
                 if (loadingOverlay) {
                   loadingOverlay.remove();
                 }
@@ -977,10 +1202,12 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         audio.removeEventListener("ended", handleEnded);
         audio.removeEventListener("play", handlePlay);
         audio.removeEventListener("pause", handlePause);
-        if (playBtn) {
-          playBtn.removeEventListener("click", toggleAudioPlay);
-        }
+        // Note: playBtn was cloned, so we don't need to remove listeners
+        // The cloned node will be garbage collected
+        canvas.removeEventListener("mousedown", handleCanvasMouseDown);
         canvas.removeEventListener("click", handleCanvasClick);
+        document.removeEventListener("mousemove", handleCanvasMouseMove);
+        document.removeEventListener("mouseup", handleCanvasMouseUp);
 
         // Cleanup dubbing handlers
         if (dubbingBtn && handleDubbingBtnClick) {
@@ -1008,15 +1235,44 @@ export const useAudioPlayer = (audioSrc: string | null) => {
     // Also listen for when metadata loads
     audio.addEventListener("loadedmetadata", initPlayer);
     
-    // Fallback: try after a short delay
+    // Also listen for canplay event
+    audio.addEventListener("canplay", initPlayer, { once: true });
+    
+    // Fallback: retry initialization multiple times to ensure play button is found
+    let initRetryCount = 0;
+    const initMaxRetries = 10;
+    const retryInit = () => {
+      initRetryCount++;
+      debugLog('[useAudioPlayer] Retry initialization attempt', {
+        initRetryCount,
+        initMaxRetries,
+        playerInitialized: playerInitialized.current,
+        hasPlayBtn: !!document.getElementById("audioPlayBtn"),
+        audioSrc: audio.src?.substring(0, 100) + '...',
+      });
+      
+      if (playerInitialized.current) {
+        debugLog('[useAudioPlayer] Already initialized, stopping retries');
+        return;
+      }
+      
+      if (initRetryCount < initMaxRetries) {
+        initPlayer();
+        setTimeout(retryInit, 200);
+      } else {
+        debugError('[useAudioPlayer] Max retries reached, play button may not be initialized');
+      }
+    };
+    
     const timeoutId = setTimeout(() => {
-      initPlayer();
-    }, 500);
+      retryInit();
+    }, 100);
 
     // Cleanup
     return () => {
       if (audio) {
         audio.removeEventListener("loadedmetadata", initPlayer);
+        audio.removeEventListener("canplay", initPlayer);
       }
       clearTimeout(timeoutId);
       if (cleanupRef.current) {
