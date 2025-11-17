@@ -31,6 +31,7 @@ goto :eof
 REM Remove all known extension folder names (new & old, panels, etc.)
 :remove_all_panel_variants
 set base_dir=%~1
+call :rmrf "%base_dir%\com.sync.extension"
 call :rmrf "%base_dir%\com.sync.extension.ae"
 call :rmrf "%base_dir%\com.sync.extension.ppro"
 call :rmrf "%base_dir%\com.sync.extension.ae.panel"
@@ -47,6 +48,7 @@ call :remove_all_panel_variants "%USER_CEP_DIR%"
 
 REM All Users CEP location
 set ALLUSER_CEP_DIR=%ProgramFiles(x86)%\Common Files\Adobe\CEP\extensions
+call :rmrf "%ALLUSER_CEP_DIR%\com.sync.extension"
 call :rmrf "%ALLUSER_CEP_DIR%\com.sync.extension.ae"
 call :rmrf "%ALLUSER_CEP_DIR%\com.sync.extension.ppro"
 call :rmrf "%ALLUSER_CEP_DIR%\com.sync.extension.ae.panel"

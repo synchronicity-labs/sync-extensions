@@ -1,0 +1,333 @@
+/* ============================================
+   MAIN STYLESHEET - Variables, Base Styles & Components
+   ============================================ */
+
+/* ============================================
+   COMPONENT STYLES - Must be imported first
+   ============================================ */
+@use 'components/buttons' as *;
+@use 'components/header' as *;
+@use 'components/sources' as *;
+@use 'components/video-player' as *;
+@use 'components/audio-player' as *;
+@use 'components/history' as *;
+@use 'components/bottom-bar' as *;
+@use 'components/settings' as *;
+@use 'components/modals' as *;
+@use 'components/model-selector' as *;
+@use 'components/tts' as *;
+@use 'components/recording' as *;
+@use 'components/loader' as *;
+@use 'components/responsive' as *;
+
+/* ============================================
+   CSS VARIABLES - Color System
+   ============================================ */
+:root {
+  /* Primary Colors */
+  --color-primary: #ff7700;
+  --color-primary-hover: #e6690a;
+  --color-primary-light: rgba(255, 119, 0, 0.1);
+  --color-primary-light-hover: rgba(255, 119, 0, 0.15);
+  --color-primary-border: rgba(255, 119, 0, 0.3);
+  --color-primary-bg-light: rgba(255, 119, 0, 0.05);
+  
+  /* Accent Colors */
+  --color-blue: #000fff;
+  --color-blue-hover: #0000cc;
+  --color-success: #22c55e;
+  --color-error: #dc2626;
+  --color-error-alt: #ef4444;
+  --color-error-light: rgba(220, 38, 38, 0.1);
+  
+  /* Background Colors */
+  --bg-primary: #18181a;
+  --bg-secondary: #1a1a1c;
+  --bg-tertiary: #0e0e0f;
+  --bg-black: #000000;
+  --bg-dark: #0a0a0b;
+  --bg-surface: #1f1f22;
+  --bg-surface-hover: #1f1f21;
+  --bg-button: #222225;
+  --bg-button-hover: #2a2a2d;
+  --bg-modal: #1a1a1a;
+  --bg-overlay: rgba(0, 0, 0, 0.8);
+  --bg-overlay-light: rgba(0, 0, 0, 0.6);
+  
+  /* Border Colors */
+  --border-primary: #222225;
+  --border-secondary: #2a2a2d;
+  --border-tertiary: #3b3b40;
+  --border-light: rgba(255, 255, 255, 0.1);
+  --border-medium: rgba(255, 255, 255, 0.2);
+  
+  /* Text Colors */
+  --text-primary: #ffffff;
+  --text-secondary: #d4d4d4;
+  --text-tertiary: #a1a1aa;
+  --text-muted: #525258;
+  --text-disabled: #71717a;
+  --text-placeholder: var(--text-muted);
+  
+  /* Overlay Colors */
+  --overlay-white-5: rgba(255, 255, 255, 0.05);
+  --overlay-white-8: rgba(255, 255, 255, 0.08);
+  --overlay-white-10: rgba(255, 255, 255, 0.1);
+  --overlay-black-60: rgba(0, 0, 0, 0.6);
+  --overlay-black-80: rgba(0, 0, 0, 0.8);
+  
+  /* Other Colors */
+  --scrollbar-thumb: #3b3b40;
+  --scrollbar-thumb-hover: #525258;
+  --drag-overlay: rgba(163, 76, 0, 0.15);
+  
+  /* Fonts */
+  --font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: 'IBM Plex Mono', 'Courier New', monospace;
+  
+  /* Design Tokens - Spacing (8px base unit) */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
+  --spacing-4xl: 64px;
+  
+  /* Design Tokens - Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+  
+  /* Design Tokens - Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Design Tokens - Icon Sizes */
+  --icon-xs: 12px;
+  --icon-sm: 16px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+  --icon-2xl: 32px;
+  
+  /* Design Tokens - Component Sizes */
+  --button-height-sm: 32px;
+  --button-height-md: 40px;
+  --header-height: 64px;
+  --avatar-size: 32px;
+  --logo-size: 32px;
+  
+  /* Design Tokens - Container Sizes */
+  --container-width-sm: 240px;
+  --container-width-md: 316px;
+  --container-width-lg: 488px;
+  --container-width-xl: 578px;
+  --upload-visual-width: 240px;
+  --icon-group-width: 240px;
+  --icon-group-height: 64px;
+  --icon-bg-size: 48px;
+  --thumbnail-width-sm: 110px;
+  --thumbnail-height-sm: 62px;
+  --thumbnail-width-md: 131px;
+  --thumbnail-height-md: 74px;
+  --empty-icon-size: 60px;
+  
+  /* Design Tokens - Typography Scale */
+  --font-size-xs: 10px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 32px;
+  
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+  
+  /* Design Tokens - Line Heights (pixel values for specific use cases) */
+  --line-height-xs: 11.5px;
+  --line-height-sm: 12px;
+  --line-height-base: 15px;
+  --line-height-md: 16px;
+  --line-height-lg: 20px;
+  --line-height-xl: 24px;
+  --line-height-2xl: 26px;
+  
+  /* Design Tokens - Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.5);
+  
+  /* Design Tokens - Z-Index Scale */
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 1000;
+  --z-tooltip: 1100;
+  
+  /* Design Tokens - Breakpoints (for reference in JS) */
+  --breakpoint-sm: 520px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  
+  /* Design Tokens - Touch Targets (accessibility) */
+  --touch-target-min: 44px;
+  --touch-target-comfortable: 48px;
+}
+
+/* ============================================
+   RESET & BASE STYLES
+   ============================================ */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Remove default focus outlines */
+button:focus,
+button:focus-visible,
+a:focus,
+a:focus-visible {
+  outline: none !important;
+}
+
+/* Remove focus outline from all interactive elements */
+button,
+a,
+input,
+select,
+textarea {
+  outline: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Custom Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============================================
+   UTILITY CLASSES - Flexbox/Grid
+   ============================================ */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-row { flex-direction: row; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.items-end { align-items: flex-end; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.justify-start { justify-content: flex-start; }
+.justify-end { justify-content: flex-end; }
+.flex-1 { flex: 1; }
+.flex-shrink-0 { flex-shrink: 0; }
+.gap-4 { gap: 4px; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; }
+
+.grid { display: grid; }
+.min-w-0 { min-width: 0; }
+.min-h-0 { min-height: 0; }
+
+/* ============================================
+   LAYOUT STRUCTURE
+   ============================================ */
+.app-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  padding: clamp(8px, 1vw, 12px);
+  gap: var(--spacing-sm);
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tab-pane {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tab-pane.active {
+  display: flex; 
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}

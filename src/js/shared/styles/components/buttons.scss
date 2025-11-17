@@ -1,0 +1,462 @@
+/* ============================================
+   CONSOLIDATED BUTTON PATTERNS
+   ============================================ */
+
+/* Base icon sizing for ALL 32px buttons - industry standard 16px icons */
+button i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+}
+
+button i svg {
+  width: var(--icon-sm) !important;
+  height: var(--icon-sm) !important;
+  flex-shrink: 0;
+  stroke-width: 2;
+  display: block;
+  max-width: var(--icon-sm) !important;
+  max-height: var(--icon-sm) !important;
+}
+
+/* Base Button - Shared by most buttons */
+.btn-base {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+/* Standard Button - Base pattern shared by most buttons */
+.action-btn,
+.url-submit-btn,
+.api-key-btn,
+.audio-dubbing-btn,
+.tts-btn,
+.tts-voice-btn,
+.tts-clone-upload-btn,
+.history-btn,
+.audio-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  height: var(--button-height-sm);
+  min-height: var(--button-height-sm);
+  max-height: var(--button-height-sm);
+  background: var(--bg-button);
+  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.action-btn:hover,
+.url-submit-btn:hover,
+.api-key-btn:hover,
+.audio-dubbing-btn:hover,
+.tts-btn:hover,
+.tts-voice-btn:hover,
+.tts-clone-upload-btn:hover,
+.history-btn:hover:not(:disabled),
+.audio-play-btn:hover {
+  background: var(--bg-button-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.action-btn:active,
+.url-submit-btn:active,
+.api-key-btn:active,
+.audio-dubbing-btn:active,
+.tts-btn:active,
+.tts-voice-btn:active,
+.tts-clone-upload-btn:active,
+.history-btn:active:not(:disabled),
+.audio-play-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* Base rule handles sizing - only override stroke-width if needed */
+
+.audio-play-btn {
+  border: none;
+  outline: none;
+  width: var(--button-height-sm);
+  min-width: var(--button-height-sm);
+  padding: var(--spacing-sm);
+}
+
+.audio-play-btn:focus,
+.audio-play-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Full-width button variant - Industry standard responsive pattern */
+.action-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Industry standard: Ensure buttons wrap properly without clipping */
+/* Buttons should be equal width when 2 fit, wrap when they don't */
+.action-row .action-btn {
+  flex: 1 1 0;
+  min-width: 80px;
+  max-width: calc((100% - var(--spacing-sm)) / 2);
+}
+
+/* On narrow screens, allow smaller minimum but ensure wrapping */
+@media (max-width: 600px) {
+  .action-row .action-btn {
+    min-width: 70px;
+  }
+}
+
+.action-btn span {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Icon-only button */
+.action-btn-icon,
+.url-submit-btn,
+.api-key-btn,
+.tts-btn,
+.tts-preview-btn,
+.history-btn-icon {
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
+  padding: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.action-btn-icon {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-secondary);
+}
+
+.action-btn-icon:hover {
+  background: var(--bg-button-hover);
+  border-color: var(--border-tertiary);
+}
+
+.action-btn-icon i {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+}
+
+/* Large buttons (bottom bar) */
+.model-btn,
+.lipsync-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  height: var(--button-height-md);
+  min-height: var(--button-height-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  border: none;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  outline: none !important;
+}
+
+.model-btn:focus,
+.model-btn:focus-visible,
+.lipsync-btn:focus,
+.lipsync-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.model-btn {
+  flex: 1;
+  min-width: 128px;
+  background: var(--bg-button);
+  color: var(--text-secondary);
+  position: relative;
+  overflow: visible;
+  z-index: 1;
+}
+
+.model-btn:hover {
+  background: var(--bg-button-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.model-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* 40px buttons use larger icons */
+.model-btn i,
+.model-btn i svg {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  flex-shrink: 0;
+}
+
+.lipsync-btn {
+  flex: 1;
+  min-width: 72px;
+  background: var(--color-blue);
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.lipsync-btn img {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.lipsync-btn:hover:not(:disabled) {
+  background: var(--color-blue-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.lipsync-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+.lipsync-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+
+/* Primary button variant */
+.history-btn-primary {
+  background: var(--bg-button);
+  color: var(--text-secondary);
+}
+
+.history-btn-primary:hover:not(:disabled) {
+  background: var(--bg-button-hover);
+}
+
+/* Disabled state */
+.history-btn-disabled,
+.history-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--text-secondary);
+  background: var(--bg-button);
+}
+
+/* Icon buttons - variant */
+.history-btn-icon {
+  background: var(--bg-button);
+  color: var(--text-primary);
+}
+
+.history-btn-icon:hover:not(:disabled) {
+  background: var(--bg-button-hover);
+}
+
+.history-btn-icon.history-btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.history-btn-icon i {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+}
+
+/* Button with success state */
+.api-key-btn.copied {
+  background: var(--color-primary);
+}
+
+/* Audio dubbing submit button */
+.audio-dubbing-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
+  padding: var(--spacing-sm);
+  background: var(--bg-button);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.audio-dubbing-submit-btn:hover:not(:disabled) {
+  background: var(--bg-button-hover);
+}
+
+.audio-dubbing-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.audio-dubbing-submit-btn i {
+  width: var(--icon-md);
+  height: var(--icon-md);
+  flex-shrink: 0;
+  animation: none;
+}
+
+/* TTS Preview Button */
+.tts-preview-btn {
+  background: var(--bg-button);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+  backdrop-filter: blur(2px);
+}
+
+.tts-preview-btn:hover {
+  background: var(--bg-button-hover);
+  border-color: var(--border-medium);
+}
+
+/* Clone action buttons */
+.tts-clone-cancel-btn,
+.tts-clone-save-btn {
+  flex: 1;
+  height: var(--button-height-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.tts-clone-cancel-btn {
+  background: var(--overlay-black-60);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+}
+
+.tts-clone-cancel-btn:hover {
+  background: var(--bg-button);
+}
+
+.tts-clone-save-btn {
+  background: var(--color-blue);
+  border: none;
+  color: var(--text-primary);
+}
+
+.tts-clone-save-btn:hover {
+  background: var(--color-blue-hover);
+}
+
+/* Delete buttons */
+.audio-delete-btn,
+.video-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
+  padding: var(--spacing-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition-base);
+  flex-shrink: 0;
+}
+
+.audio-delete-btn {
+  color: var(--color-error-alt);
+}
+
+.audio-delete-btn:hover {
+  background: var(--color-error-light);
+}
+
+.video-delete-btn:hover {
+  background: var(--overlay-white-10);
+}
+
+.audio-delete-btn i,
+.video-delete-btn i {
+  width: var(--icon-md);
+  height: var(--icon-md);
+  flex-shrink: 0;
+  color: inherit;
+}
+
+/* Video control buttons */
+.video-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height-sm);
+  height: var(--button-height-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition-base);
+}
+
+.video-control-btn:hover {
+  background: var(--overlay-white-10);
+}
+
+.video-control-btn svg {
+  width: var(--icon-md);
+  height: var(--icon-md);
+  flex-shrink: 0;
+}
+

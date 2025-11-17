@@ -1,7 +1,79 @@
-node_modules/
-.DS_Store
-.env
-.vscode/
+# Logs
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+server/node_modules
+dist/**/node_modules
+
+# Build outputs
+dist
+dist-ssr
+build/
+*.local
+
+# ZXP packages and archives
+*.zxp
+*.zxp.zip
+dist/zxp/
+dist/zip/
+
+# CEP build artifacts
+CSXS/
+*.jsxbin
+host/*.jsxbin
+host/
+
+# Code signing certificates (NEVER commit these!)
+*.p12
+*.pfx
+*.cer
+*.key
+*.cert
+*.crt
+certificates/
+certs/
+
+# Environment variables
+.env
+.env.local
+.env.production.local
+.env.*.local
+src/server/.env
+
+# Debug
+debug.enabled
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
 .DS_Store
-dist/
+Thumbs.db
+Desktop.ini
+
+# Bolt-CEP specific
+.bolt-cep/
+vite.config.ts.timestamp-*
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+.env.zxp
+
+# Compiled server files are in dist/, not src/ - no need to ignore src/

@@ -1,0 +1,8 @@
+{
+  "name": "sync-extensions-server",
+  "version": "0.9.44",
+  "private": true,
+  "type": "module",
+  "main": "server.ts"
+}
+

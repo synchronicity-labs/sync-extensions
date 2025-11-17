@@ -1,0 +1,142 @@
+/* ============================================
+   RESPONSIVE DESIGN SYSTEM
+   ============================================ */
+
+/* Compressed panel view (up to 520px) - For narrow CEP panels */
+@media (max-width: 520px) {
+  /* Sources tab adjustments */
+  .upload-content {
+    flex-direction: column;
+    gap: var(--spacing-lg);
+  }
+  
+  .upload-visual {
+    width: 100%;
+    max-width: 240px;
+  }
+  
+  .upload-actions {
+    width: 100%;
+    max-width: 100%;
+  }
+  
+  .action-row {
+    gap: var(--spacing-sm);
+    overflow: visible;
+  }
+  
+  .action-btn {
+    flex: 1 1 0;
+    min-width: 70px;
+    max-width: calc((100% - var(--spacing-sm)) / 2);
+  }
+  
+  /* History card adjustments for compressed panels */
+  .history-card-inner {
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+  }
+  
+  .history-thumbnail-wrapper {
+    width: var(--thumbnail-width-sm);
+    height: var(--thumbnail-height-sm);
+  }
+  
+  .history-card-actions {
+    flex-wrap: nowrap;
+    overflow: visible;
+    gap: var(--spacing-sm);
+    justify-content: space-between;
+    padding: 0 var(--spacing-sm);
+  }
+  
+  .history-actions-left,
+  .history-actions-right {
+    flex-shrink: 0;
+    min-width: 0;
+    gap: var(--spacing-sm);
+  }
+  
+  /* Hide button text, make all buttons icon-only for uniform sizing */
+  .history-btn span {
+    display: none;
+  }
+  
+  /* Make text buttons same size as icon buttons */
+  .history-btn {
+    width: var(--button-height-sm);
+    min-width: var(--button-height-sm);
+    padding: var(--spacing-sm);
+    justify-content: center;
+  }
+  
+  /* Icon sizing handled by base rule in buttons.scss */
+  
+  .history-btn,
+  .history-btn-icon {
+    flex-shrink: 0;
+  }
+}
+
+/* Small Tablet (600px - 768px) */
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0 clamp(12px, 3vw, 20px);
+    height: clamp(56px, 8vh, 64px);
+  }
+  
+  .tab-switch {
+    min-width: clamp(80px, 12vw, 96px);
+    padding: clamp(6px, 1vw, 8px);
+    font-size: clamp(12px, 1.5vw, 14px);
+  }
+  
+  .sources-container {
+    padding: clamp(10px, 2vw, 16px);
+    gap: clamp(16px, 3vw, 24px);
+  }
+  
+  .upload-box {
+    padding: clamp(10px, 2vw, 16px);
+  }
+  
+  .bottom-bar {
+    padding: clamp(12px, 2vw, 16px) clamp(16px, 3vw, 24px);
+  }
+}
+
+/* High DPI / Retina displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .logo img,
+  .avatar {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Landscape mobile orientation */
+@media (max-width: 900px) and (orientation: landscape) {
+  .app-header {
+    height: clamp(48px, 8vh, 56px);
+  }
+  
+  .video-upload {
+    min-height: clamp(180px, 35vh, 220px);
+  }
+  
+  .sources-container {
+    gap: clamp(12px, 2vh, 16px);
+  }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

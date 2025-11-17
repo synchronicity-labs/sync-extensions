@@ -1,0 +1,252 @@
+/* Recording UI Styles */
+.recording-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-black);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.recording-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg-black);
+}
+
+.recording-stop-btn {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--bg-button-hover);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recording-stop-btn:hover {
+  background: var(--border-tertiary)333;
+}
+
+.recording-stop-icon {
+  width: 12px;
+  height: 12px;
+  background: var(--color-error);
+  border-radius: 2px;
+}
+
+.recording-timer {
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 36px;
+  text-align: center;
+}
+
+.recording-back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recording-back-btn:hover {
+  opacity: 0.7;
+}
+
+.recording-back-btn i {
+  width: 20px;
+  height: 20px;
+}
+
+/* Device Switcher Styles */
+.recording-device-switcher {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  display: none; /* Hidden for now */
+}
+
+.device-select {
+  background: var(--overlay-black-80);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--overlay-white-10);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 8px;
+  min-width: 120px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.device-select:hover {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.device-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.device-select option {
+  background: var(--bg-button-hover);
+  color: var(--text-primary);
+  padding: 4px 8px;
+}
+
+/* Audio Recording Styles */
+.audio-recording-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-button-hover);
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 24px;
+}
+
+.audio-waveform-wrapper {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  background: var(--bg-button-hover);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.audio-record-waveform {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.audio-timeline-dots {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--text-primary) 0px,
+    var(--text-primary) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+  transform: translateY(-50%);
+}
+
+.audio-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 20%;
+  width: 1px;
+  background: var(--text-primary);
+  pointer-events: none;
+  opacity: 0.8;
+  display: none; /* Hide completely */
+}
+
+.audio-recording-stop-btn {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--bg-button-hover);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.audio-recording-stop-btn:hover {
+  background: var(--border-tertiary)333;
+}
+
+.audio-stop-icon {
+  width: 12px;
+  height: 12px;
+  background: var(--color-error);
+  border-radius: 2px;
+}
+
+.recording-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recording-close-btn:hover {
+  opacity: 0.7;
+}
+
+.recording-close-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+/* Recording state indicator */
+.upload-box.recording {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}

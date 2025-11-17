@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  upload_release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+          
+      - name: Check if release files exist
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          ZXP_PATH="dist/zxp/com.sync.extension.zxp"
+          ZIP_PATH="dist/sync-resolve-plugin-v${VERSION}.zip"
+          
+          if [ ! -f "$ZXP_PATH" ]; then
+            echo "Error: ZXP file not found at $ZXP_PATH"
+            echo "Please run ./bin/release.sh locally to build and sign packages first"
+            exit 1
+          fi
+          echo "✅ ZXP file found"
+          
+          if [ ! -f "$ZIP_PATH" ]; then
+            echo "Error: Resolve ZIP file not found at $ZIP_PATH"
+            echo "Please run ./bin/release.sh locally to build packages first"
+            exit 1
+          fi
+          echo "✅ Resolve ZIP file found"
+
+      - name: Get tag message
+        id: tag_message
+        shell: bash
+        run: |
+          TAG_MESSAGE=$(git tag -l --format='%(contents)' ${{ github.ref_name }})
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ${{ steps.tag_message.outputs.message }}
+            
+            **Downloads:**
+            - `com.sync.extension.zxp` - Unified extension for After Effects and Premiere Pro (works on Windows and macOS)
+            - `sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip` - DaVinci Resolve plugin
+            
+            **Security & Trust:**
+            - ZXP package is digitally signed and verified (signed locally before upload)
+            - Verify signature using ZXP Installer or ZXPSignCmd
+          files: |
+            dist/zxp/com.sync.extension.zxp
+            dist/sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
