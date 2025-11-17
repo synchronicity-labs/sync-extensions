@@ -414,6 +414,11 @@ async function buildResolvePlugin() {
         if (needsInstall) {
           // Write updated package.json
           fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
+          // Ensure package-lock.json exists for npm ci
+          const packageLockPath = path.join(serverDest, 'package-lock.json');
+          if (!fs.existsSync(packageLockPath) && fs.existsSync(rootPackageLockPath)) {
+            fs.copyFileSync(rootPackageLockPath, packageLockPath);
+          }
           
           // Install server production dependencies with retry logic
           console.log('Installing server dependencies for Resolve...');
@@ -422,7 +427,12 @@ async function buildResolvePlugin() {
           
           while (!installSuccess && retries >= 0) {
             try {
-              execSync('npm install --omit=dev --no-audit --no-fund', {
+              // Use npm ci for faster installs (requires package-lock.json)
+              const hasLockFile = fs.existsSync(path.join(serverDest, 'package-lock.json'));
+              const installCmd = hasLockFile 
+                ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
+                : 'npm install --omit=dev --no-audit --no-fund --prefer-offline --silent';
+              execSync(installCmd, {
                 cwd: serverDest,
                 stdio: 'inherit',
                 env: { ...process.env, npm_config_progress: 'false' },
@@ -465,7 +475,13 @@ async function buildResolvePlugin() {
       
       while (!installSuccess && retries >= 0) {
         try {
-          execSync('npm install --omit=dev --no-audit --no-fund', {
+          // Use npm ci for faster installs
+          const resolveLockFile = path.join(resolveDest, 'package-lock.json');
+          const hasLockFile = fs.existsSync(resolveLockFile);
+          const installCmd = hasLockFile 
+            ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
+            : 'npm install --omit=dev --no-audit --no-fund --prefer-offline --silent';
+          execSync(installCmd, {
             cwd: resolveDest,
             stdio: 'inherit',
             env: { ...process.env, npm_config_progress: 'false' },
@@ -1096,6 +1112,11 @@ export default defineConfig({
               if (needsInstall) {
                 // Write updated package.json
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
+                // Ensure package-lock.json exists for npm ci
+                const packageLockPath = path.join(serverDest, 'package-lock.json');
+                if (!fs.existsSync(packageLockPath) && fs.existsSync(rootPackageLockPath)) {
+                  fs.copyFileSync(rootPackageLockPath, packageLockPath);
+                }
                 
                 // Install production dependencies with retry logic
                 console.log('Installing server dependencies BEFORE ZXP packaging...');
@@ -1104,7 +1125,14 @@ export default defineConfig({
                 
                 while (!installSuccess && retries >= 0) {
                   try {
-                    execSync('npm install --production --no-audit --no-fund', {
+                    // Use npm ci for faster, more reliable installs (requires package-lock.json)
+                    // Fall back to npm install if package-lock.json doesn't exist
+                    const hasLockFile = fs.existsSync(path.join(serverDest, 'package-lock.json'));
+                    const installCmd = hasLockFile 
+                      ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
+                      : 'npm install --production --no-audit --no-fund --prefer-offline --silent';
+                    
+                    execSync(installCmd, {
                       cwd: serverDest,
                       stdio: 'inherit',
                       env: { ...process.env, npm_config_progress: 'false' },
@@ -1145,7 +1173,12 @@ export default defineConfig({
                   console.warn('WARNING: node_modules not found even though install was skipped');
                   console.warn('This might indicate the folder was deleted. Reinstalling...');
                   // Force reinstall
-                  execSync('npm install --production --no-audit --no-fund', {
+                  // Use npm ci for faster installs
+                  const hasLockFile = fs.existsSync(path.join(serverDest, 'package-lock.json'));
+                  const installCmd = hasLockFile 
+                    ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
+                    : 'npm install --production --no-audit --no-fund --prefer-offline --silent';
+                  execSync(installCmd, {
                     cwd: serverDest,
                     stdio: 'inherit',
                     env: { ...process.env, npm_config_progress: 'false' },
