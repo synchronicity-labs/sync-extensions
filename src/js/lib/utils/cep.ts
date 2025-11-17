@@ -127,11 +127,12 @@ export const dropDisable = () => {
     try {
       if ((window as any).CSInterface) {
         const cs = new (window as any).CSInterface();
-        // Detect host application
-        const appId = cs.getApplicationID();
+        // Use centralized host detection
+        const { getHostConfig } = await import("../../shared/utils/clientHostDetection");
         const { HOST_IDS } = await import("../../../shared/host");
-        const isAE = appId && (appId.includes(HOST_IDS.AEFT) || appId.includes('AfterEffects'));
-        const isPPRO = appId && (appId.includes(HOST_IDS.PPRO) || appId.includes('Premiere'));
+        const hostConfig = getHostConfig();
+        const isAE = hostConfig?.hostId === HOST_IDS.AEFT;
+        const isPPRO = hostConfig?.hostId === HOST_IDS.PPRO;
         
         // Get extension path for loading host scripts
         const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);

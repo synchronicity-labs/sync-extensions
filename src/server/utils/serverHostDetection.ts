@@ -5,7 +5,7 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { HOST_APP_IDS, normalizeToAppId, type HostAppId } from '../../shared/host';
+import { normalizeToHostId, type HostId } from '../../shared/host';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,15 +16,15 @@ const EXT_FOLDER = path.basename(EXT_ROOT);
 /**
  * Detect APP_ID from extension manifest or environment
  * This is the single source of truth for server-side host detection
- * Returns lowercase format: "ae" | "premiere" | "resolve"
+ * Returns uppercase format: "AEFT" | "PPRO" | "RESOLVE"
  * Throws an error if host cannot be determined
  */
-export function detectAppId(): HostAppId {
+export function detectAppId(): HostId {
   // First, check if HOST_APP environment variable is set (passed by client when starting server)
   const hostApp = process.env.HOST_APP;
   if (hostApp) {
     try {
-      return normalizeToAppId(hostApp);
+      return normalizeToHostId(hostApp);
     } catch (error) {
       const err = error as Error;
       throw new Error(

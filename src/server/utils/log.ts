@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DIRS, APP_ID } from '../serverConfig';
-import { HOST_APP_IDS } from '../../shared/host';
+import { HOST_IDS } from '../../shared/host';
 
 export const DEBUG_FLAG_FILE = path.join(DIRS.logs, '.debug');
 let DEBUG = false;
@@ -10,7 +10,7 @@ try {
 } catch (_){ 
   DEBUG = false;
 }
-export const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === HOST_APP_IDS.PREMIERE) ? 'sync_ppro_debug.log' : (APP_ID === HOST_APP_IDS.AE) ? 'sync_ae_debug.log' : 'sync_server_debug.log');
+export const DEBUG_LOG = path.join(DIRS.logs, (APP_ID === HOST_IDS.PPRO) ? 'sync_ppro_debug.log' : (APP_ID === HOST_IDS.AEFT) ? 'sync_ae_debug.log' : 'sync_server_debug.log');
 
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ROTATED_FILES = 3;

@@ -391,31 +391,13 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
       // CEP can't get file paths from drag-and-drop when dragging from Premiere bins/AE folders
       // So we "fake it" by checking what's selected RIGHT NOW when drop happens
       try {
-        // Use window.HOST_CONFIG if available (set by host detection), otherwise try to detect
-        let isPPRO = false;
-        let isAE = false;
+        // Use centralized host detection
+        const { getHostConfig } = await import("../utils/clientHostDetection");
+        const { HOST_IDS } = await import("../../../shared/host");
+        const hostConfig = getHostConfig();
         
-        if ((window as any).HOST_CONFIG) {
-          const hostConfig = (window as any).HOST_CONFIG;
-          const { HOST_IDS } = await import("../../../shared/host");
-          isPPRO = hostConfig.hostId === HOST_IDS.PPRO;
-          isAE = hostConfig.hostId === HOST_IDS.AEFT;
-        } else if ((window as any).CSInterface) {
-          // Fallback: try to detect using CSInterface
-          try {
-            const cs = new (window as any).CSInterface();
-            const env = cs.getHostEnvironment?.();
-            if (env) {
-              const appId = (env.appId || "").toUpperCase();
-              const appName = (env.appName || "").toUpperCase();
-              const { HOST_IDS } = await import("../../../shared/host");
-              isPPRO = appId.includes(HOST_IDS.PPRO) || appName.includes("PREMIERE");
-              isAE = appId.includes(HOST_IDS.AEFT) || appName.includes("AFTER EFFECTS");
-            }
-          } catch (detectErr) {
-            debugLog("[DnD] Error detecting host", detectErr);
-          }
-        }
+        const isPPRO = hostConfig?.hostId === HOST_IDS.PPRO;
+        const isAE = hostConfig?.hostId === HOST_IDS.AEFT;
 
         if (isPPRO || isAE) {
           debugLog("[DnD] In Premiere/AE - checking bin/project selection IMMEDIATELY on drop", { isPPRO, isAE });

@@ -3,7 +3,7 @@
 // Electron main process that works with Resolve's runtime
 
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -266,6 +266,68 @@ if (process.versions.electron) {
     return path.join(pluginDir, 'python', 'resolve_api.py');
   }
 
+  // Find bundled Python executable
+  function findBundledPython(): { python: string; env: NodeJS.ProcessEnv } | null {
+    const platform = process.platform;
+    let pythonBin: string | null = null;
+    
+    // Binaries are copied to static/bin during build (matching Node.js structure)
+    const binBase = path.join(pluginDir, 'static', 'bin');
+    
+    if (platform === 'darwin') {
+      // macOS: detect architecture (arm64 or x64)
+      const arm64Path = path.join(binBase, 'darwin-arm64', 'python3');
+      const x64Path = path.join(binBase, 'darwin-x64', 'python3');
+      
+      if (fs.existsSync(arm64Path)) {
+        pythonBin = arm64Path;
+      } else if (fs.existsSync(x64Path)) {
+        pythonBin = x64Path;
+      }
+    } else if (platform === 'win32') {
+      // Windows
+      pythonBin = path.join(binBase, 'win32-x64', 'python.exe');
+      if (!fs.existsSync(pythonBin)) {
+        // Try python3.exe as alternative
+        pythonBin = path.join(binBase, 'win32-x64', 'python3.exe');
+      }
+    } else {
+      // Linux
+      pythonBin = path.join(binBase, 'linux-x64', 'python3');
+    }
+    
+    if (pythonBin && fs.existsSync(pythonBin)) {
+      debugLog('Found bundled Python', { path: pythonBin });
+      
+      // Set up environment with Resolve Python modules if available
+      const env = { ...process.env };
+      
+      // Try to add Resolve's Python modules to PYTHONPATH
+      if (platform === 'darwin') {
+        const resolveModulePath = '/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules';
+        if (fs.existsSync(resolveModulePath)) {
+          env['PYTHONPATH'] = resolveModulePath + (env['PYTHONPATH'] ? path.delimiter + env['PYTHONPATH'] : '');
+        }
+      } else if (platform === 'win32') {
+        const programData = process.env['ProgramData'] || 'C:\\ProgramData';
+        const resolveModulePath = path.join(programData, 'Blackmagic Design', 'DaVinci Resolve', 'Support', 'Developer', 'Scripting', 'Modules');
+        if (fs.existsSync(resolveModulePath)) {
+          env['PYTHONPATH'] = resolveModulePath + (env['PYTHONPATH'] ? path.delimiter + env['PYTHONPATH'] : '');
+        }
+      } else {
+        // Linux
+        const resolveModulePath = '/opt/resolve/Developer/Scripting/Modules';
+        if (fs.existsSync(resolveModulePath)) {
+          env['PYTHONPATH'] = resolveModulePath + (env['PYTHONPATH'] ? path.delimiter + env['PYTHONPATH'] : '');
+        }
+      }
+      
+      return { python: pythonBin, env };
+    }
+    
+    return null;
+  }
+
   // Call Python API function
   function callPythonAPI(functionName: string, payload: Record<string, unknown> | string = {}): Promise<any> {
     return new Promise((resolve, reject) => {
@@ -275,20 +337,32 @@ if (process.versions.electron) {
         return;
       }
 
-      // Determine Python executable
-      let pythonCmd = 'python3';
-      if (process.platform === 'win32') {
-        pythonCmd = 'python';
+      // Find bundled Python executable
+      const pythonInfo = findBundledPython();
+      if (!pythonInfo) {
+        const errorMsg = 'Bundled Python executable not found. Please ensure Python binaries are included in the static/bin/ directory.';
+        debugLog('Python not found', { 
+          expectedPaths: {
+            darwin: [
+              path.join(pluginDir, 'static', 'bin', 'darwin-arm64', 'python3'),
+              path.join(pluginDir, 'static', 'bin', 'darwin-x64', 'python3')
+            ],
+            win32: path.join(pluginDir, 'static', 'bin', 'win32-x64', 'python.exe'),
+            linux: path.join(pluginDir, 'static', 'bin', 'linux-x64', 'python3')
+          }[process.platform]
+        });
+        reject(new Error(errorMsg));
+        return;
       }
 
       const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
       const args = [pythonScript, functionName, payloadStr];
 
-      debugLog('Calling Python API', { functionName, payload: payloadStr });
+      debugLog('Calling Python API', { functionName, python: pythonInfo.python, payload: payloadStr });
 
-      const pythonProcess = spawn(pythonCmd, args, {
+      const pythonProcess = spawn(pythonInfo.python, args, {
         cwd: path.dirname(pythonScript),
-        env: { ...process.env }
+        env: pythonInfo.env
       });
 
       let stdout = '';
@@ -400,8 +474,8 @@ if (process.versions.electron) {
       });
 
       pythonProcess.on('error', (error: Error) => {
-        debugLog('Python API spawn error', { error: error.message });
-        reject(error);
+        debugLog('Python API spawn error', { error: error.message, python: pythonInfo.python });
+        reject(new Error(`Failed to execute bundled Python: ${error.message}. Python path: ${pythonInfo.python}`));
       });
     });
   }
@@ -889,6 +963,233 @@ if (process.versions.electron) {
           const err = error as Error;
           debugLog('diagInOut error', { error: err.message });
           res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/insertAtPlayhead' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              // Extract jobId - handle both {jobId: "..."} and direct string
+              const jobId = payload.jobId || (typeof payload === 'string' ? payload : JSON.stringify(payload));
+              const result = await callPythonAPI('insertAtPlayhead', { jobId });
+              res.writeHead(200);
+              res.end(JSON.stringify(result));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/importIntoBin' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              // Extract jobId - handle both {jobId: "..."} and direct string
+              const jobId = payload.jobId || (typeof payload === 'string' ? payload : JSON.stringify(payload));
+              const result = await callPythonAPI('importIntoBin', { jobId });
+              res.writeHead(200);
+              res.end(JSON.stringify(result));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/stopBackend' && req.method === 'POST') {
+        try {
+          const isWindows = process.platform === 'win32';
+          if (isWindows) {
+            // Windows: kill processes on port 3000
+            // Use PowerShell for more reliable process killing
+            exec('powershell -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"', (error: Error | null) => {
+              if (error) {
+                debugLog('stopBackend error', { error: error.message });
+              }
+            });
+          } else {
+            // macOS/Linux: kill processes on port 3000
+            exec('lsof -tiTCP:3000 | xargs kill -9 2>/dev/null || true', (error: Error | null) => {
+              if (error) {
+                debugLog('stopBackend error', { error: error.message });
+              }
+            });
+          }
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true, message: 'Backend stopped' }));
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/diag' && req.method === 'GET') {
+        try {
+          const result = await callPythonAPI('diag', {});
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (error) {
+          const err = error as Error;
+          debugLog('diag error', { error: err.message });
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/ensureDir' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const result = await callPythonAPI('ensureDir', payload);
+              res.writeHead(200);
+              res.end(JSON.stringify(result));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/fileExists' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const result = await callPythonAPI('fileExists', payload);
+              res.writeHead(200);
+              res.end(JSON.stringify(result));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/readThumbnail' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const result = await callPythonAPI('readThumbnail', payload);
+              res.writeHead(200);
+              res.end(JSON.stringify(result));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/saveThumbnail' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const result = await callPythonAPI('saveThumbnail', payload);
+              res.writeHead(200);
+              res.end(JSON.stringify(result));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/nle/showFileDialog' && req.method === 'POST') {
+        try {
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', async () => {
+            try {
+              const options = JSON.parse(body || '{}');
+              // Use Electron dialog API (already registered in ipcMain)
+              const mainWindow = BrowserWindow.getAllWindows()[0];
+              if (!mainWindow) {
+                res.writeHead(500);
+                res.end(JSON.stringify({ ok: false, error: 'No browser window available' }));
+                return;
+              }
+              
+              const result = await dialog.showOpenDialog(mainWindow, options);
+              res.writeHead(200);
+              res.end(JSON.stringify({
+                ok: true,
+                canceled: result.canceled || false,
+                filePaths: result.filePaths || []
+              }));
+            } catch (error) {
+              const err = error as Error;
+              res.writeHead(500);
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+            }
+          });
+        } catch (error) {
+          const err = error as Error;
+          res.writeHead(500);
           res.end(JSON.stringify({ ok: false, error: err.message }));
         }
         return;

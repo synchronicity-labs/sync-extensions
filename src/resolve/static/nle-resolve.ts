@@ -7,13 +7,22 @@ declare global {
       getHostId: () => string;
       loadHostScript: () => Promise<{ ok: boolean }>;
       startBackend: () => Promise<any>;
+      stopBackend: () => Promise<any>;
       getProjectDir: () => Promise<any>;
       exportInOutVideo: (opts?: any) => Promise<any>;
       exportInOutAudio: (opts?: any) => Promise<any>;
       importFileToBin: (fsPath: string, binName?: string) => Promise<any>;
+      importIntoBin: (jobId: string) => Promise<any>;
       insertFileAtPlayhead: (fsPath: string) => Promise<any>;
+      insertAtPlayhead: (jobId: string) => Promise<any>;
       revealFile: (fsPath: string) => Promise<any>;
       diagInOut: () => Promise<any>;
+      diag: () => Promise<any>;
+      showFileDialog: (options: any) => Promise<any>;
+      ensureDir: (dirPath: string) => Promise<any>;
+      fileExists: (filePath: string) => Promise<any>;
+      readThumbnail: (filePath: string) => Promise<any>;
+      saveThumbnail: (filePath: string, dataUrl: string) => Promise<any>;
     };
     electronAPI?: {
       showOpenDialog: (options: any) => Promise<any>;
@@ -221,13 +230,22 @@ declare global {
     getHostId: function(): string { return 'RESOLVE'; },
     loadHostScript: async function(): Promise<{ ok: boolean }> { return { ok: true }; },
     startBackend: function(): Promise<any> { return jsonPost('/nle/startBackend', {}); },
+    stopBackend: function(): Promise<any> { return jsonPost('/nle/stopBackend', {}); },
     getProjectDir: function(): Promise<any> { return jsonGet('/nle/getProjectDir'); },
     exportInOutVideo: function(opts?: any): Promise<any> { return jsonPost('/nle/exportInOutVideo', opts || {}); },
     exportInOutAudio: function(opts?: any): Promise<any> { return jsonPost('/nle/exportInOutAudio', opts || {}); },
     importFileToBin: function(fsPath: string, binName?: string): Promise<any> { return jsonPost('/nle/importFileToBin', { path: fsPath, binName: binName || '' }); },
+    importIntoBin: function(jobId: string): Promise<any> { return jsonPost('/nle/importIntoBin', { jobId }); },
     insertFileAtPlayhead: function(fsPath: string): Promise<any> { return jsonPost('/nle/insertFileAtPlayhead', { path: fsPath }); },
+    insertAtPlayhead: function(jobId: string): Promise<any> { return jsonPost('/nle/insertAtPlayhead', { jobId }); },
     revealFile: function(fsPath: string): Promise<any> { return jsonPost('/nle/revealFile', { path: fsPath }); },
-    diagInOut: function(): Promise<any> { return jsonGet('/nle/diagInOut'); }
+    diagInOut: function(): Promise<any> { return jsonGet('/nle/diagInOut'); },
+    diag: function(): Promise<any> { return jsonGet('/nle/diag'); },
+    showFileDialog: function(options: any): Promise<any> { return jsonPost('/nle/showFileDialog', options); },
+    ensureDir: function(dirPath: string): Promise<any> { return jsonPost('/nle/ensureDir', { path: dirPath }); },
+    fileExists: function(filePath: string): Promise<any> { return jsonPost('/nle/fileExists', { path: filePath }); },
+    readThumbnail: function(filePath: string): Promise<any> { return jsonPost('/nle/readThumbnail', { path: filePath }); },
+    saveThumbnail: function(filePath: string, dataUrl: string): Promise<any> { return jsonPost('/nle/saveThumbnail', { path: filePath, dataUrl }); }
   };
 
   // File picker functions for upload buttons
