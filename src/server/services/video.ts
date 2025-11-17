@@ -179,17 +179,16 @@ async function extractAudioWithFFmpeg(videoPath, outputPath, format) {
     if (!hasAudio) {
       // Video has no audio - generate silent audio using lavfi
       tlog('[video] Generating silent audio (video has no audio stream)');
-      const duration = await new Promise<number>((resolve) => {
-        try {
-          const durationStr = execSync(
-            `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${normalizedVideoPath}"`,
-            { encoding: 'utf8', maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }
-          ).trim();
-          resolve(parseFloat(durationStr) || 0.1);
-        } catch {
-          resolve(0.1); // Default to 0.1 seconds if can't get duration
-        }
-      });
+      let duration = 0.1; // Default duration
+      try {
+        const durationStr = execSync(
+          `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${normalizedVideoPath}"`,
+          { encoding: 'utf8', maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }
+        ).trim();
+        duration = parseFloat(durationStr) || 0.1;
+      } catch {
+        duration = 0.1; // Default to 0.1 seconds if can't get duration
+      }
       
       command = ffmpeg()
         .input(`lavfi:sine=frequency=1000:duration=${duration}`)
