@@ -76,4 +76,7 @@ vite.config.ts.timestamp-*
 .temp/
 .env.zxp
 
+# Vite cache
+.vite/
+
 # Compiled server files are in dist/, not src/ - no need to ignore src/
