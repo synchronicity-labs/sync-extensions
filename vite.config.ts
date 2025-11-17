@@ -375,12 +375,13 @@ async function buildResolvePlugin() {
     
     if (fs.existsSync(serverDest) && fs.existsSync(serverPackageJson)) {
       try {
-        // Read root package.json to get production dependencies
-        const rootPackageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+        // Read server package.json to get production dependencies (now in workspace)
+        const serverSrcPackageJson = path.join(__dirname, 'src', 'server', 'package.json');
+        const serverSrcPackage = JSON.parse(fs.readFileSync(serverSrcPackageJson, 'utf-8'));
         const serverPackage = JSON.parse(fs.readFileSync(serverPackageJson, 'utf-8'));
         
-        // Copy production dependencies from root to server package.json
-        const newDependencies = rootPackageJson.dependencies || {};
+        // Copy production dependencies from src/server/package.json to dist server package.json
+        const newDependencies = serverSrcPackage.dependencies || {};
         // Use deterministic comparison: sort keys and compare JSON
         const sortKeys = (obj: Record<string, string>) => 
           Object.keys(obj).sort().reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
@@ -1077,12 +1078,13 @@ export default defineConfig({
           
           if (fs.existsSync(serverDest) && fs.existsSync(serverPackageJson)) {
             try {
-              // Read root package.json to get production dependencies
-              const rootPackageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+              // Read server package.json to get production dependencies (now in workspace)
+              const serverSrcPackageJson = path.join(__dirname, 'src', 'server', 'package.json');
+              const serverSrcPackage = JSON.parse(fs.readFileSync(serverSrcPackageJson, 'utf-8'));
               const serverPackage = JSON.parse(fs.readFileSync(serverPackageJson, 'utf-8'));
               
-              // Copy production dependencies from root to server package.json
-              const newDependencies = rootPackageJson.dependencies || {};
+              // Copy production dependencies from src/server/package.json to dist server package.json
+              const newDependencies = serverSrcPackage.dependencies || {};
               const sortKeys = (obj: Record<string, string>) => 
                 Object.keys(obj).sort().reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
               const dependenciesChanged = 

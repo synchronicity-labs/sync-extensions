@@ -1,0 +1,16 @@
+{
+  "name": "@sync-extensions/shared",
+  "version": "0.9.50",
+  "private": true,
+  "type": "module",
+  "main": "./host.ts",
+  "types": "./host.ts",
+  "exports": {
+    ".": "./host.ts",
+    "./host": "./host.ts",
+    "./shared": "./shared.ts",
+    "./version": "./version.ts",
+    "./universals": "./universals.d.ts"
+  }
+}
+
