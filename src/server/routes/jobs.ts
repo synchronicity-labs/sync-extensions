@@ -12,6 +12,8 @@ import { convertAudio } from '../services/audio';
 import { SYNC_API_BASE, DOCS_DEFAULT_DIR, TEMP_DEFAULT_DIR, FILE_SIZE_LIMIT_20MB, FILE_SIZE_LIMIT_1GB } from './constants';
 import { APP_ID } from '../serverConfig';
 import { validateJobRequest, validateRequiredFields } from '../utils/validation';
+import { sendError, sendSuccess } from '../utils/response';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = express.Router();
 
@@ -28,76 +30,74 @@ async function convertIfAiff(p) {
   }
 }
 
-router.get('/jobs', async (req, res) => {
-  try {
-    const { syncApiKey } = req.query;
-    
-    // If syncApiKey is provided, ONLY fetch from Sync API (no local jobs)
-    if (syncApiKey && typeof syncApiKey === 'string' && syncApiKey.trim()) {
-      try {
-        const url = new URL(`${SYNC_API_BASE}/generations`);
-        const apiResponse = await fetch(url.toString(), {
-          headers: { 'x-api-key': String(syncApiKey) },
-          signal: AbortSignal.timeout(10000)
-        });
-        
-        if (apiResponse.ok) {
-          const apiData = await apiResponse.json().catch(() => null);
-          if (apiData && Array.isArray(apiData)) {
-            // Only return API jobs - no local caching
-            const apiJobs = apiData.filter(job => job && job.id);
-            
-            // Debug: log structure of first completed job
-            const firstCompleted = apiJobs.find(j => j.status === 'completed');
-            if (firstCompleted) {
-              tlog(`[/jobs] Sample completed job: id=${firstCompleted.id}, hasOutputUrl=${!!firstCompleted.outputUrl}, hasOutputPath=${!!firstCompleted.outputPath}, keys=${Object.keys(firstCompleted).join(',')}`);
-            }
-            
-            // Sort by createdAt (newest first)
-            apiJobs.sort((a, b) => {
-              const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-              const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-              return bTime - aTime;
-            });
-            
-            tlog(`[/jobs] Fetched ${apiJobs.length} jobs from Sync API only (no local jobs)`);
-            return res.json(apiJobs);
-          }
-        } else {
-          tlog(`[/jobs] Sync API request failed: ${apiResponse.status}`);
-        }
-      } catch (e) {
-        tlog(`[/jobs] Error fetching from Sync API: ${e?.message || String(e)}`);
-      }
+router.get('/jobs', asyncHandler(async (req, res) => {
+  const { syncApiKey } = req.query;
+  
+  // If syncApiKey is provided, ONLY fetch from Sync API (no local jobs)
+  if (syncApiKey && typeof syncApiKey === 'string' && syncApiKey.trim()) {
+    try {
+      const url = new URL(`${SYNC_API_BASE}/generations`);
+      const apiResponse = await fetch(url.toString(), {
+        headers: { 'x-api-key': String(syncApiKey) },
+        signal: AbortSignal.timeout(10000)
+      });
       
-      // If API fetch failed, return empty array (no local jobs)
-      return res.json([]);
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json().catch(() => null);
+        if (apiData && Array.isArray(apiData)) {
+          // Only return API jobs - no local caching
+          const apiJobs = apiData.filter(job => job && job.id);
+          
+          // Debug: log structure of first completed job
+          const firstCompleted = apiJobs.find(j => j.status === 'completed');
+          if (firstCompleted) {
+            tlog(`[/jobs] Sample completed job: id=${firstCompleted.id}, hasOutputUrl=${!!firstCompleted.outputUrl}, hasOutputPath=${!!firstCompleted.outputPath}, keys=${Object.keys(firstCompleted).join(',')}`);
+          }
+          
+          // Sort by createdAt (newest first)
+          apiJobs.sort((a, b) => {
+            const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return bTime - aTime;
+          });
+          
+          tlog(`[/jobs] Fetched ${apiJobs.length} jobs from Sync API only (no local jobs)`);
+          sendSuccess(res, apiJobs);
+          return;
+        }
+      } else {
+        tlog(`[/jobs] Sync API request failed: ${apiResponse.status}`);
+      }
+    } catch (e) {
+      tlog(`[/jobs] Error fetching from Sync API: ${e?.message || String(e)}`);
     }
     
-    // No API key - return empty array (no local jobs)
-    res.json([]);
-  } catch (e) {
-    tlog(`[/jobs] Error: ${e?.message || String(e)}`);
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(e?.message || e) });
-    }
+    // If API fetch failed, return empty array (no local jobs)
+    sendSuccess(res, []);
+    return;
   }
-});
+  
+  // No API key - return empty array (no local jobs)
+  sendSuccess(res, []);
+}, 'jobs'));
 
 router.get('/jobs/:id', (req, res) => {
   const job = req.jobs.find(j => String(j.id) === String(req.params.id));
-  if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json(job);
+  if (!job) {
+    sendError(res, 404, 'Job not found', 'jobs/:id');
+    return;
+  }
+  sendSuccess(res, job);
 });
 
-router.post('/jobs', async (req, res) => {
-  try {
-    tlog('[jobs:create] Request received:', JSON.stringify(sanitizeForLogging(req.body), null, 2));
-    
-    const validation = validateJobRequest(req.body);
-    if (!validation.isValid) {
-      return res.status(400).json({ error: validation.errors.join(', ') });
-    }
+router.post('/jobs', asyncHandler(async (req, res) => {
+  tlog('[jobs:create] Request received:', JSON.stringify(sanitizeForLogging(req.body), null, 2));
+  
+  const validation = validateJobRequest(req.body);
+  if (!validation.isValid) {
+    sendError(res, 400, validation.errors.join(', '), 'jobs/create');
+    return;
+  }
     
     let { videoPath, audioPath, videoUrl, audioUrl, isTempVideo, isTempAudio, model, temperature, activeSpeakerOnly, detectObstructions, options = {}, syncApiKey, outputDir } = req.body || {};
     ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
@@ -125,7 +125,8 @@ router.post('/jobs', async (req, res) => {
     
     if (!syncApiKey) {
       tlog('[jobs:create] Missing syncApiKey, rejecting request');
-      return res.status(400).json({ error: 'syncApiKey required' });
+      sendError(res, 400, 'syncApiKey required', 'jobs/create');
+      return;
     }
     
     // Normalize URLs - treat empty strings as missing
@@ -133,10 +134,16 @@ router.post('/jobs', async (req, res) => {
     audioUrl = (audioUrl && typeof audioUrl === 'string' && audioUrl.trim() !== '') ? audioUrl.trim() : null;
     
     if (!videoUrl || !audioUrl) {
-      if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
+      if (!videoPath || !audioPath) {
+        sendError(res, 400, 'Video and audio required', 'jobs/create');
+        return;
+      }
       const videoExists = await safeExists(videoPath);
       const audioExists = await safeExists(audioPath);
-      if (!videoExists || !audioExists) return res.status(400).json({ error: 'Video or audio file not found' });
+      if (!videoExists || !audioExists) {
+        sendError(res, 400, 'Video or audio file not found', 'jobs/create');
+        return;
+      }
 
       tlog('[jobs:create] Uploading sources to R2 for lipsync job');
       videoUrl = await r2Upload(await resolveSafeLocalPath(videoPath));
@@ -146,7 +153,8 @@ router.post('/jobs', async (req, res) => {
     }
 
     if ((!videoUrl || !audioUrl) && ((vStat && vStat.size > FILE_SIZE_LIMIT_1GB) || (aStat && aStat.size > FILE_SIZE_LIMIT_1GB))) {
-      return res.status(400).json({ error: 'Files over 1GB are not allowed. Please use smaller files.' });
+      sendError(res, 400, 'Files over 1GB are not allowed. Please use smaller files.', 'jobs/create');
+      return;
     }
 
     // Create Sync API generation first to get the ID
@@ -167,7 +175,8 @@ router.post('/jobs', async (req, res) => {
         throw new Error('Failed to get Sync API generation ID');
       }
     } catch (e) {
-      return res.status(500).json({ error: `Failed to create generation: ${String(e?.message || e)}` });
+      sendError(res, 500, `Failed to create generation: ${String(e?.message || e)}`, 'jobs/create');
+      return;
     }
 
     const job = {
@@ -195,7 +204,7 @@ router.post('/jobs', async (req, res) => {
     }
     req.saveJobs();
 
-    res.json(job);
+    sendSuccess(res, job);
     
     setImmediate(async () => {
       try {
@@ -226,15 +235,18 @@ router.post('/jobs', async (req, res) => {
         });
       }
     });
-  } catch (e) {
-    if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
-  }
-});
+}, 'jobs/create'));
 
-router.get('/jobs/:id/download', async (req, res) => {
+router.get('/jobs/:id/download', asyncHandler(async (req, res) => {
   const job = req.jobs.find(j => String(j.id) === String(req.params.id));
-  if (!job) return res.status(404).json({ error: 'Job not found' });
-  if (!job.outputPath || !(await safeExists(job.outputPath))) return res.status(404).json({ error: 'Output not ready' });
+  if (!job) {
+    sendError(res, 404, 'Job not found', 'jobs/:id/download');
+    return;
+  }
+  if (!job.outputPath || !(await safeExists(job.outputPath))) {
+    sendError(res, 404, 'Output not ready', 'jobs/:id/download');
+    return;
+  }
   try {
     const allowed = [DOCS_DEFAULT_DIR, TEMP_DEFAULT_DIR];
     if (job.outputDir && typeof job.outputDir === 'string') allowed.push(job.outputDir);
@@ -246,23 +258,29 @@ router.get('/jobs/:id/download', async (req, res) => {
         return false;
       }
     });
-    if (!ok) return res.status(403).json({ error: 'forbidden path' });
+    if (!ok) {
+      sendError(res, 403, 'forbidden path', 'jobs/:id/download');
+      return;
+    }
   } catch (_) {
-    return res.status(500).json({ error: 'download error' });
+    sendError(res, 500, 'download error', 'jobs/:id/download');
+    return;
   }
   res.download(job.outputPath);
-});
+}, 'jobs/:id/download'));
 
-router.post('/jobs/:id/save', async (req, res) => {
+router.post('/jobs/:id/save', asyncHandler(async (req, res) => {
   tlog(`[/jobs/:id/save] POST request received for job ${req.params.id}, location=${req.body?.location || 'project'}, hasKeyOverride=${!!req.body?.syncApiKey}`);
-  try {
-    const { location = 'project', targetDir = '', syncApiKey: keyOverride } = req.body || {};
-    let job = req.jobs.find(j => String(j.id) === String(req.params.id));
-    tlog(`[/jobs/:id/save] Job found in local jobs: ${!!job}, job status: ${job?.status}, has outputPath: ${!!job?.outputPath}, has syncApiKey: ${!!job?.syncApiKey}`);
-    if (!job) {
-      if (!keyOverride) return res.status(404).json({ error: 'Job not found and syncApiKey missing' });
-      job = { id: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
+  const { location = 'project', targetDir = '', syncApiKey: keyOverride } = req.body || {};
+  let job = req.jobs.find(j => String(j.id) === String(req.params.id));
+  tlog(`[/jobs/:id/save] Job found in local jobs: ${!!job}, job status: ${job?.status}, has outputPath: ${!!job?.outputPath}, has syncApiKey: ${!!job?.syncApiKey}`);
+  if (!job) {
+    if (!keyOverride) {
+      sendError(res, 404, 'Job not found and syncApiKey missing', 'jobs/:id/save');
+      return;
     }
+    job = { id: String(req.params.id), status: 'completed', outputDir: '', syncApiKey: keyOverride };
+  }
 
     // Ensure syncApiKey is set (use override if provided, otherwise use job's key)
     if (!job.syncApiKey && keyOverride) {
@@ -309,8 +327,9 @@ router.post('/jobs/:id/save', async (req, res) => {
         
         if (normalizedOutputDir === normalizedOutDir) {
           tlog(`[/jobs/:id/save] File already in target directory, returning existing path`);
-      return res.json({ ok: true, outputPath: job.outputPath });
-    }
+          sendSuccess(res, { outputPath: job.outputPath });
+          return;
+        }
 
         // File exists but in different directory - copy it
         tlog(`[/jobs/:id/save] File exists in different directory, copying to: ${outDir}`);
@@ -319,9 +338,10 @@ router.post('/jobs/:id/save', async (req, res) => {
         await fs.promises.copyFile(job.outputPath, newPath);
           tlog(`[/jobs/:id/save] Successfully copied file to: ${newPath}`);
           // Don't delete the original file - keep it as backup
-      job.outputPath = newPath;
-      req.saveJobs();
-      return res.json({ ok: true, outputPath: job.outputPath });
+          job.outputPath = newPath;
+          req.saveJobs();
+          sendSuccess(res, { outputPath: job.outputPath });
+          return;
         } catch (copyErr) {
           tlog(`[/jobs/:id/save] Failed to copy file: ${copyErr?.message || String(copyErr)}`);
           // Continue to try fetching from API
@@ -347,7 +367,8 @@ router.post('/jobs/:id/save', async (req, res) => {
             job.outputPath = dest;
             if (!req.jobs.find(j => String(j.id) === String(job.id))) { req.jobs.unshift(job); req.saveJobs(); }
             tlog(`[/jobs/:id/save] Successfully saved job ${job.id} to ${dest}`);
-            return res.json({ ok: true, outputPath: job.outputPath });
+            sendSuccess(res, { outputPath: job.outputPath });
+            return;
           } else {
             tlog(`[/jobs/:id/save] Failed to download from outputUrl: ${response.status} ${response.statusText}`);
           }
@@ -363,66 +384,64 @@ router.post('/jobs/:id/save', async (req, res) => {
     }
     
     tlog(`[/jobs/:id/save] Returning error: Output not available yet`);
-    res.status(400).json({ error: 'Output not available yet' });
-  } catch (e) {
-    tlog(`[/jobs/:id/save] Error: ${e?.message || String(e)}`);
-    if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
-  }
-});
+    sendError(res, 400, 'Output not available yet', 'jobs/:id/save');
+}, 'jobs/:id/save'));
 
 router.get('/costs', (_req, res) => {
-  res.json({ ok: true, note: 'POST this endpoint to estimate costs', ts: Date.now() });
+  sendSuccess(res, { note: 'POST this endpoint to estimate costs', ts: Date.now() });
 });
 
 // Frontend-compatible cost estimation endpoint
-router.post('/cost/estimate', async (req, res) => {
-  try {
-    const { videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey } = req.body || {};
-    
-    tlog('[cost/estimate] Request received', JSON.stringify({
-      hasVideoUrl: !!videoUrl,
-      hasAudioUrl: !!audioUrl,
-      videoUrlType: typeof videoUrl,
-      audioUrlType: typeof audioUrl,
-      videoUrlPreview: videoUrl ? (typeof videoUrl === 'string' ? videoUrl.substring(0, 100) : String(videoUrl).substring(0, 100)) : 'null',
-      audioUrlPreview: audioUrl ? (typeof audioUrl === 'string' ? audioUrl.substring(0, 100) : String(audioUrl).substring(0, 100)) : 'null',
-      model,
-      hasSyncApiKey: !!syncApiKey,
-      syncApiKeyPreview: syncApiKey ? syncApiKey.substring(0, 20) + '...' : 'null'
+router.post('/cost/estimate', asyncHandler(async (req, res) => {
+  const { videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey } = req.body || {};
+  
+  tlog('[cost/estimate] Request received', JSON.stringify({
+    hasVideoUrl: !!videoUrl,
+    hasAudioUrl: !!audioUrl,
+    videoUrlType: typeof videoUrl,
+    audioUrlType: typeof audioUrl,
+    videoUrlPreview: videoUrl ? (typeof videoUrl === 'string' ? videoUrl.substring(0, 100) : String(videoUrl).substring(0, 100)) : 'null',
+    audioUrlPreview: audioUrl ? (typeof audioUrl === 'string' ? audioUrl.substring(0, 100) : String(audioUrl).substring(0, 100)) : 'null',
+    model,
+    hasSyncApiKey: !!syncApiKey,
+    syncApiKeyPreview: syncApiKey ? syncApiKey.substring(0, 20) + '...' : 'null'
+  }));
+  
+  if (!videoUrl || !audioUrl) {
+    tlog('[cost/estimate] Missing URLs', JSON.stringify({ videoUrl: !!videoUrl, audioUrl: !!audioUrl }));
+    sendError(res, 400, 'Video and audio URLs required', 'cost/estimate');
+    return;
+  }
+  
+  // Validate URLs are actual URLs, not file paths
+  const isValidUrl = (url: unknown): boolean => {
+    if (typeof url !== 'string') return false;
+    return url.startsWith('http://') || url.startsWith('https://');
+  };
+  
+  if (!isValidUrl(videoUrl) || !isValidUrl(audioUrl)) {
+    tlog('[cost/estimate] Invalid URLs (file paths instead of URLs)', JSON.stringify({
+      videoUrl: String(videoUrl).substring(0, 100),
+      audioUrl: String(audioUrl).substring(0, 100)
     }));
-    
-    if (!videoUrl || !audioUrl) {
-      tlog('[cost/estimate] Missing URLs', JSON.stringify({ videoUrl: !!videoUrl, audioUrl: !!audioUrl }));
-      return res.status(400).json({ error: 'Video and audio URLs required' });
-    }
-    
-    // Validate URLs are actual URLs, not file paths
-    const isValidUrl = (url: any) => {
-      if (typeof url !== 'string') return false;
-      return url.startsWith('http://') || url.startsWith('https://');
-    };
-    
-    if (!isValidUrl(videoUrl) || !isValidUrl(audioUrl)) {
-      tlog('[cost/estimate] Invalid URLs (file paths instead of URLs)', JSON.stringify({
-        videoUrl: String(videoUrl).substring(0, 100),
-        audioUrl: String(audioUrl).substring(0, 100)
-      }));
-      return res.status(400).json({ error: 'Video and audio must be HTTP/HTTPS URLs, not file paths' });
-    }
-    
-    // Get syncApiKey from body or try to get from settings header
-    let apiKey = syncApiKey;
-    if (!apiKey && req.headers['x-settings']) {
-      try {
-        const settings = JSON.parse(req.headers['x-settings'] as string);
-        apiKey = settings.syncApiKey;
-      } catch (_) {}
-    }
-    
-    if (!apiKey) {
-      tlog('[cost/estimate] Missing syncApiKey');
-      return res.status(400).json({ error: 'syncApiKey required' });
-    }
+    sendError(res, 400, 'Video and audio must be HTTP/HTTPS URLs, not file paths', 'cost/estimate');
+    return;
+  }
+  
+  // Get syncApiKey from body or try to get from settings header
+  let apiKey = syncApiKey;
+  if (!apiKey && req.headers['x-settings']) {
+    try {
+      const settings = JSON.parse(req.headers['x-settings'] as string);
+      apiKey = settings.syncApiKey;
+    } catch (_) {}
+  }
+  
+  if (!apiKey) {
+    tlog('[cost/estimate] Missing syncApiKey');
+    sendError(res, 400, 'syncApiKey required', 'cost/estimate');
+    return;
+  }
     
     const body = {
       model: String(model || 'lipsync-2-pro'),
@@ -455,7 +474,8 @@ router.post('/cost/estimate', async (req, res) => {
     
     if (!resp.ok) {
       tlog('[cost/estimate] Sync API error', JSON.stringify({ status: resp.status, text }));
-      return res.status(resp.status).json({ error: text || 'cost failed' });
+      sendError(res, resp.status, text || 'cost failed', 'cost/estimate');
+      return;
     }
     
     // Parse the response - Sync API returns: {"estimatedFrameCount":90,"estimatedGenerationCost":0.3}
@@ -483,55 +503,57 @@ router.post('/cost/estimate', async (req, res) => {
     
     tlog('[cost/estimate] Final cost', JSON.stringify({ cost, costType: typeof cost }));
     
-    res.json({ ok: true, cost });
-  } catch (e) {
-    tlog('[cost/estimate] Exception', { error: String(e?.message || e), stack: e?.stack });
-    res.status(500).json({ error: String(e?.message || e) });
+    sendSuccess(res, { cost });
+}, 'cost/estimate'));
+
+router.post('/costs', asyncHandler(async (req, res) => {
+  // Validate required fields
+  const requiredError = validateRequiredFields(req.body, ['syncApiKey']);
+  if (requiredError) {
+    sendError(res, 400, requiredError, 'costs');
+    return;
   }
-});
-
-router.post('/costs', async (req, res) => {
-  try {
-    // Validate required fields
-    const requiredError = validateRequiredFields(req.body, ['syncApiKey']);
-    if (requiredError) {
-      return res.status(400).json({ error: requiredError });
+  
+  let { videoPath, audioPath, videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey, options = {} } = req.body || {};
+  ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
+  
+  if (!videoUrl || !audioUrl) {
+    if (!videoPath || !audioPath) {
+      sendError(res, 400, 'Video and audio required', 'costs');
+      return;
     }
-    
-    let { videoPath, audioPath, videoUrl, audioUrl, model = 'lipsync-2-pro', syncApiKey, options = {} } = req.body || {};
-    ({ videoPath, audioPath } = await normalizePaths({ videoPath, audioPath }));
-    
-    if (!videoUrl || !audioUrl) {
-      if (!videoPath || !audioPath) return res.status(400).json({ error: 'Video and audio required' });
-      const videoExists = await safeExists(videoPath);
-      const audioExists = await safeExists(audioPath);
-      if (!videoExists || !audioExists) return res.status(400).json({ error: 'Video or audio file not found' });
-
-      videoUrl = await r2Upload(await resolveSafeLocalPath(videoPath));
-      audioUrl = await r2Upload(await resolveSafeLocalPath(audioPath));
+    const videoExists = await safeExists(videoPath);
+    const audioExists = await safeExists(audioPath);
+    if (!videoExists || !audioExists) {
+      sendError(res, 400, 'Video or audio file not found', 'costs');
+      return;
     }
 
-    const opts = (options && typeof options === 'object') ? options : {};
-    if (!opts.sync_mode) opts.sync_mode = 'loop';
-    const body = {
-      model: String(model || 'lipsync-2-pro'),
-      input: [{ type: 'video', url: videoUrl }, { type: 'audio', url: audioUrl }],
-      options: opts
-    };
-    const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, { method: 'POST', headers: { 'x-api-key': syncApiKey, 'content-type': 'application/json', 'accept': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
-    const text = await safeText(resp);
-    if (!resp.ok) { return res.status(resp.status).json({ error: text || 'cost failed' }); }
-    let raw = null;
-    let estimate = [];
-    try { raw = JSON.parse(text || '[]'); } catch (_) { raw = null; }
-    if (Array.isArray(raw)) estimate = raw;
-    else if (raw && typeof raw === 'object') estimate = [raw];
-    else estimate = [];
-    res.json({ ok: true, estimate });
-  } catch (e) {
-    res.status(500).json({ error: String(e?.message || e) });
+    videoUrl = await r2Upload(await resolveSafeLocalPath(videoPath));
+    audioUrl = await r2Upload(await resolveSafeLocalPath(audioPath));
   }
-});
+
+  const opts = (options && typeof options === 'object') ? options : {};
+  if (!opts.sync_mode) opts.sync_mode = 'loop';
+  const body = {
+    model: String(model || 'lipsync-2-pro'),
+    input: [{ type: 'video', url: videoUrl }, { type: 'audio', url: audioUrl }],
+    options: opts
+  };
+  const resp = await fetch(`${SYNC_API_BASE}/analyze/cost`, { method: 'POST', headers: { 'x-api-key': syncApiKey, 'content-type': 'application/json', 'accept': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+  const text = await safeText(resp);
+  if (!resp.ok) {
+    sendError(res, resp.status, text || 'cost failed', 'costs');
+    return;
+  }
+  let raw = null;
+  let estimate = [];
+  try { raw = JSON.parse(text || '[]'); } catch (_) { raw = null; }
+  if (Array.isArray(raw)) estimate = raw;
+  else if (raw && typeof raw === 'object') estimate = [raw];
+  else estimate = [];
+  sendSuccess(res, { estimate });
+}, 'costs'));
 
 export default router;
 

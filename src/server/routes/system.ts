@@ -11,6 +11,8 @@ import os from 'os';
 import zlib from 'zlib';
 import https from 'https';
 import { URL } from 'url';
+import { sendError, sendSuccess } from '../utils/response';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = express.Router();
 
@@ -95,85 +97,64 @@ function requireCEPHeader(req, res, next) {
   const cepHeader = req.headers['x-cep-panel'];
   if (cepHeader === 'sync') return next();
   try { tlog('requireCEPHeader: rejected request from', origin, 'missing X-CEP-Panel header'); } catch (_) {}
-  return res.status(403).json({ error: 'forbidden' });
+  sendError(res, 403, 'forbidden', 'requireCEPHeader');
 }
 
 // Public endpoints
-router.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
-router.get('/', (_req, res) => res.json({ ok: true, service: 'sync-extension-server' }));
+router.get('/health', (req, res) => sendSuccess(res, { status: 'ok', ts: Date.now() }));
+router.get('/', (_req, res) => sendSuccess(res, { service: 'sync-extension-server' }));
 
-router.get('/telemetry/test', async (req, res) => {
-  try {
-    // Debug: Check PostHog configuration
-    const posthogKey = process.env.POSTHOG_KEY || '<your_project_api_key>';
-    const posthogHost = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
-    const hasValidKey = posthogKey && posthogKey !== '<your_project_api_key>';
-    
-    
-    // Test PostHog connectivity
-    track('telemetry_test', {
-      testType: 'connectivity',
-      timestamp: new Date().toISOString()
-    });
-    
-    res.json({ 
-      ok: true, 
-      message: 'PostHog test event sent',
-      distinctId: distinctId,
-      timestamp: new Date().toISOString(),
-      debug: {
-        posthogKeyPresent: !!process.env.POSTHOG_KEY,
-        posthogKeyValid: hasValidKey,
-        posthogHost: posthogHost
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      ok: false, 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+router.get('/telemetry/test', asyncHandler(async (req, res) => {
+  // Debug: Check PostHog configuration
+  const posthogKey = process.env.POSTHOG_KEY || '<your_project_api_key>';
+  const posthogHost = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+  const hasValidKey = posthogKey && posthogKey !== '<your_project_api_key>';
+  
+  // Test PostHog connectivity
+  track('telemetry_test', {
+    testType: 'connectivity',
+    timestamp: new Date().toISOString()
+  });
+  
+  sendSuccess(res, {
+    message: 'PostHog test event sent',
+    distinctId: distinctId,
+    debug: {
+      posthogKeyPresent: !!process.env.POSTHOG_KEY,
+      posthogKeyValid: hasValidKey,
+      posthogHost: posthogHost
+    }
+  });
+}, 'telemetry/test'));
 
-router.post('/telemetry/posthog-status', async (req, res) => {
-  try {
-    // Log intercepted requests for debugging
-    if (req.body && req.body.intercepted) {
-      try {
-        tlog('PostHog request intercepted:', req.body.method, req.body.url, 'hasBody:', req.body.hasBody);
-      } catch (_) {}
-    }
-    // Log interceptor setup
-    if (req.body && req.body.interceptorSetup) {
-      try {
-        tlog('PostHog interceptors SET UP at:', req.body.timestamp, 'userAgent:', req.body.userAgent);
-      } catch (_) {}
-    }
-    // Log PostHog status updates
-    if (req.body && (req.body.posthogLoaded || req.body.errorType)) {
-      try {
-        tlog('PostHog status update:', JSON.stringify({
-          distinctId: req.body.distinctId,
-          posthogLoaded: req.body.posthogLoaded,
-          sessionRecordingEnabled: req.body.sessionRecordingEnabled,
-          sessionRecordingStarted: req.body.sessionRecordingStarted,
-          error: req.body.error,
-          errorType: req.body.errorType
-        }));
-      } catch (_) {}
-    }
-    res.json({ 
-      ok: true, 
-      message: 'PostHog status received'
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      ok: false, 
-      error: error.message
-    });
+router.post('/telemetry/posthog-status', asyncHandler(async (req, res) => {
+  // Log intercepted requests for debugging
+  if (req.body && req.body.intercepted) {
+    try {
+      tlog('PostHog request intercepted:', req.body.method, req.body.url, 'hasBody:', req.body.hasBody);
+    } catch (_) {}
   }
-});
+  // Log interceptor setup
+  if (req.body && req.body.interceptorSetup) {
+    try {
+      tlog('PostHog interceptors SET UP at:', req.body.timestamp, 'userAgent:', req.body.userAgent);
+    } catch (_) {}
+  }
+  // Log PostHog status updates
+  if (req.body && (req.body.posthogLoaded || req.body.errorType)) {
+    try {
+      tlog('PostHog status update:', JSON.stringify({
+        distinctId: req.body.distinctId,
+        posthogLoaded: req.body.posthogLoaded,
+        sessionRecordingEnabled: req.body.sessionRecordingEnabled,
+        sessionRecordingStarted: req.body.sessionRecordingStarted,
+        error: req.body.error,
+        errorType: req.body.errorType
+      }));
+    } catch (_) {}
+  }
+  sendSuccess(res, { message: 'PostHog status received' });
+}, 'telemetry/posthog-status'));
 
 // Proxy endpoint for PostHog session replay uploads
 // This bypasses CEP network restrictions by routing through local server
@@ -184,7 +165,8 @@ router.post('/telemetry/session-replay', async (req, res) => {
     const posthogHost = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
     
     if (!posthogApiKey || posthogApiKey === '<your_project_api_key>') {
-      return res.status(500).json({ error: 'PostHog not configured' });
+      sendError(res, 500, 'PostHog not configured', 'telemetry/session-replay');
+      return;
     }
     
     // Get original URL from header
@@ -272,7 +254,8 @@ router.post('/telemetry/session-replay', async (req, res) => {
     }
     
     if (!Buffer.isBuffer(body)) {
-      return res.status(500).json({ error: 'Failed to preserve request body format' });
+      sendError(res, 500, 'Failed to preserve request body format', 'telemetry/session-replay');
+      return;
     }
     
     // Validate body is not empty
@@ -284,7 +267,8 @@ router.post('/telemetry/session-replay', async (req, res) => {
         bodyType: typeof req.body,
         headers: req.headers
       }, null, 2));
-      return res.status(400).json({ error: 'Request body is empty' });
+      sendError(res, 400, 'Request body is empty', 'telemetry/session-replay');
+      return;
     }
     
     // Ensure Content-Length is set correctly for the body
@@ -378,13 +362,15 @@ router.post('/telemetry/session-replay', async (req, res) => {
         isBuffer: Buffer.isBuffer(body),
         bodyLength: body ? body.length : 0
       }));
-      return res.status(500).json({ error: 'Invalid body format' });
+      sendError(res, 500, 'Invalid body format', 'telemetry/session-replay');
+      return;
     }
     
     // Verify body has data
     if (body.length === 0) {
       logCriticalError('CRITICAL: Body is empty before fetch!');
-      return res.status(400).json({ error: 'Request body is empty' });
+      sendError(res, 400, 'Request body is empty', 'telemetry/session-replay');
+      return;
     }
     
     // node-fetch v3: Buffer should work directly, but ensure it's sent correctly
@@ -503,22 +489,20 @@ router.post('/telemetry/session-replay', async (req, res) => {
       } catch (e) {}
     }
     
+    // For session-replay, we need to send raw response from PostHog
+    // This is a special case - PostHog returns binary/gzip data
     res.status(response.status).send(data);
   } catch (error) {
     // Log error for debugging - always log critical errors
-    logCriticalError('Session replay proxy exception:', error.message);
-    logCriticalError('Session replay proxy stack:', error.stack || 'No stack trace');
+    logCriticalError('Session replay proxy exception:', (error as Error).message);
+    logCriticalError('Session replay proxy stack:', (error as Error).stack || 'No stack trace');
     
     // Also try tlog for consistency
     try {
-      tlog('Session replay proxy error:', error.message, error.stack);
+      tlog('Session replay proxy error:', (error as Error).message, (error as Error).stack);
     } catch (_) {}
     
-    res.status(500).json({ 
-      ok: false, 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    sendError(res, 500, (error as Error).message, 'telemetry/session-replay');
   }
 });
 
@@ -527,69 +511,61 @@ router.get('/auth/token', requireCEPHeader, (req, res) => {
     const ip = (req.socket && req.socket.remoteAddress) || '';
     if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) {
       tlog('/auth/token: rejected non-localhost ip', ip);
-      return res.status(403).json({ error: 'forbidden' });
+      sendError(res, 403, 'forbidden', 'auth/token');
+      return;
     }
     if (!checkTokenRateLimit(ip)) {
       tlog('/auth/token: rate limit exceeded for', ip);
-      return res.status(429).json({ error: 'rate limit exceeded' });
+      sendError(res, 429, 'rate limit exceeded', 'auth/token');
+      return;
     }
-  } catch (e) { tlog('/auth/token: error', e.message); }
-  res.json({ token: req.authToken });
+  } catch (e) { tlog('/auth/token: error', (e as Error).message); }
+  sendSuccess(res, { token: req.authToken });
 });
 
 router.post('/admin/exit', (req, res) => {
   try {
     const ip = (req.socket && req.socket.remoteAddress) || '';
     if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) {
-      return res.status(403).json({ error: 'forbidden' });
+      sendError(res, 403, 'forbidden', 'admin/exit');
+      return;
     }
   } catch (_) {}
   try { tlog('admin:exit:requested'); } catch (_) {}
-  res.json({ ok: true });
+  sendSuccess(res);
   setTimeout(() => { try { tlog('admin:exit:now'); } catch (_) {} process.exit(0); }, 300);
 });
 
-router.get('/update/version', async (_req, res) => {
-  try {
-    const current = await getCurrentVersion();
-    res.json({ ok: true, version: current });
-  } catch (e) { if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) }); }
-});
+router.get('/update/version', asyncHandler(async (_req, res) => {
+  const current = await getCurrentVersion();
+  sendSuccess(res, { version: current });
+}, 'update/version'));
 
-router.get('/update/check', async (_req, res) => {
-  try {
-    const current = await getCurrentVersion();
-    const latest = await getLatestReleaseInfo();
-    if (!latest) {
-      return res.json({ ok: true, current, latest: null, tag: null, html_url: `https://github.com`, canUpdate: false, message: 'no releases/tags found' });
-    }
-    const cmp = compareSemver(latest.version, current);
-    res.json({ ok: true, current, latest: latest.version, tag: latest.tag, html_url: latest.html_url, canUpdate: cmp > 0 });
-  } catch (e) { if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) }); }
-});
-
-router.post('/update/apply', async (req, res) => {
-  try {
-    const result = await applyUpdate(isSpawnedByUI);
-    res.json(result);
-    // Don't exit immediately - let the panel reload first
-    // The server will restart when the panel reloads, which will load the new code
-    // Only exit if not spawned by UI (standalone mode)
-    if (!isSpawnedByUI) {
-      setTimeout(() => { 
-        try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } 
-        if (isDebugEnabled()) try { tlog('Exiting server after successful update - panel should reload to use new version'); } catch (_) {} 
-        process.exit(0); 
-      }, 2000); // Give time for response to be sent
-    }
-  } catch (e) {
-    if (!isSpawnedByUI && isDebugEnabled()) {
-      try { tlog('Update failed:', e.message); } catch (_) {}
-      try { tlog('Update error stack:', e.stack); } catch (_) {}
-    }
-    if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
+router.get('/update/check', asyncHandler(async (_req, res) => {
+  const current = await getCurrentVersion();
+  const latest = await getLatestReleaseInfo();
+  if (!latest) {
+    sendSuccess(res, { current, latest: null, tag: null, html_url: `https://github.com`, canUpdate: false, message: 'no releases/tags found' });
+    return;
   }
-});
+  const cmp = compareSemver(latest.version, current);
+  sendSuccess(res, { current, latest: latest.version, tag: latest.tag, html_url: latest.html_url, canUpdate: cmp > 0 });
+}, 'update/check'));
+
+router.post('/update/apply', asyncHandler(async (req, res) => {
+  const result = await applyUpdate(isSpawnedByUI);
+  sendSuccess(res, result);
+  // Don't exit immediately - let the panel reload first
+  // The server will restart when the panel reloads, which will load the new code
+  // Only exit if not spawned by UI (standalone mode)
+  if (!isSpawnedByUI) {
+    setTimeout(() => { 
+      try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } 
+      if (isDebugEnabled()) try { tlog('Exiting server after successful update - panel should reload to use new version'); } catch (_) {} 
+      process.exit(0); 
+    }, 2000); // Give time for response to be sent
+  }
+}, 'update/apply'));
 
 export default router;
 

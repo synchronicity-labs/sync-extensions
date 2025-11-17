@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { toReadableLocalPath } from '../utils/paths';
 import { tlog } from '../utils/log';
+import { sendError } from '../utils/response';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = express.Router();
 
@@ -61,12 +63,12 @@ function createETag(filePath: string, mtimeMs: number, size: number): string {
  * GET /wav/file
  * Serves WAV audio files with range request support
  */
-router.get('/wav/file', async (req, res) => {
-  try {
-    const pathResult = validateAndResolvePath(req.query.path);
-    if (!pathResult) {
-      return res.status(400).json({ error: 'invalid path or file not found' });
-    }
+router.get('/wav/file', asyncHandler(async (req, res) => {
+  const pathResult = validateAndResolvePath(req.query.path);
+  if (!pathResult) {
+    sendError(res, 400, 'invalid path or file not found', 'wav/file');
+    return;
+  }
     
     const { real, wasTemp } = pathResult;
     const stat = fs.statSync(real);
@@ -91,7 +93,8 @@ router.get('/wav/file', async (req, res) => {
       
       // Validate range
       if (isNaN(start) || isNaN(end) || start < 0 || end >= fileSize || start > end) {
-        return res.status(416).json({ error: 'Range not satisfiable' });
+        sendError(res, 416, 'Range not satisfiable', 'wav/file');
+        return;
       }
       
       const chunksize = (end - start) + 1;
@@ -120,25 +123,18 @@ router.get('/wav/file', async (req, res) => {
         try { tlog("silent catch:", (e as Error).message); } catch (_) { }
       }
     });
-  } catch (e) {
-    const error = e as Error;
-    tlog('[wav/file] Error:', error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(error?.message || error) });
-    }
-  }
-});
+}, 'wav/file'));
 
 /**
  * GET /mp3/file
  * Serves MP3 audio files with range request support
  */
-router.get('/mp3/file', async (req, res) => {
-  try {
-    const pathResult = validateAndResolvePath(req.query.path);
-    if (!pathResult) {
-      return res.status(400).json({ error: 'invalid path or file not found' });
-    }
+router.get('/mp3/file', asyncHandler(async (req, res) => {
+  const pathResult = validateAndResolvePath(req.query.path);
+  if (!pathResult) {
+    sendError(res, 400, 'invalid path or file not found', 'mp3/file');
+    return;
+  }
     
     const { real, wasTemp } = pathResult;
     const stat = fs.statSync(real);
@@ -163,7 +159,8 @@ router.get('/mp3/file', async (req, res) => {
       
       // Validate range
       if (isNaN(start) || isNaN(end) || start < 0 || end >= fileSize || start > end) {
-        return res.status(416).json({ error: 'Range not satisfiable' });
+        sendError(res, 416, 'Range not satisfiable', 'wav/file');
+        return;
       }
       
       const chunksize = (end - start) + 1;
@@ -192,25 +189,18 @@ router.get('/mp3/file', async (req, res) => {
         try { tlog("silent catch:", (e as Error).message); } catch (_) { }
       }
     });
-  } catch (e) {
-    const error = e as Error;
-    tlog('[mp3/file] Error:', error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(error?.message || error) });
-    }
-  }
-});
+}, 'mp3/file'));
 
 /**
  * GET /waveform/file
  * Serves waveform data files
  */
-router.get('/waveform/file', async (req, res) => {
-  try {
-    const pathResult = validateAndResolvePath(req.query.path);
-    if (!pathResult) {
-      return res.status(400).json({ error: 'invalid path or file not found' });
-    }
+router.get('/waveform/file', asyncHandler(async (req, res) => {
+  const pathResult = validateAndResolvePath(req.query.path);
+  if (!pathResult) {
+    sendError(res, 400, 'invalid path or file not found', 'waveform/file');
+    return;
+  }
     
     const { real, wasTemp } = pathResult;
     const cacheHeaders = createCacheHeaders();
@@ -232,25 +222,18 @@ router.get('/waveform/file', async (req, res) => {
         try { tlog("silent catch:", (e as Error).message); } catch (_) { }
       }
     });
-  } catch (e) {
-    const error = e as Error;
-    tlog('[waveform/file] Error:', error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(error?.message || error) });
-    }
-  }
-});
+}, 'waveform/file'));
 
 /**
  * GET /video/file
  * Serves video files with range request support
  */
-router.get('/video/file', async (req, res) => {
-  try {
-    const pathResult = validateAndResolvePath(req.query.path);
-    if (!pathResult) {
-      return res.status(400).json({ error: 'invalid path or file not found' });
-    }
+router.get('/video/file', asyncHandler(async (req, res) => {
+  const pathResult = validateAndResolvePath(req.query.path);
+  if (!pathResult) {
+    sendError(res, 400, 'invalid path or file not found', 'video/file');
+    return;
+  }
     
     const { real, wasTemp } = pathResult;
     const stat = fs.statSync(real);
@@ -281,7 +264,8 @@ router.get('/video/file', async (req, res) => {
       
       // Validate range
       if (isNaN(start) || isNaN(end) || start < 0 || end >= fileSize || start > end) {
-        return res.status(416).json({ error: 'Range not satisfiable' });
+        sendError(res, 416, 'Range not satisfiable', 'wav/file');
+        return;
       }
       
       const chunksize = (end - start) + 1;
@@ -308,14 +292,7 @@ router.get('/video/file', async (req, res) => {
         try { tlog("silent catch:", (e as Error).message); } catch (_) { }
       }
     });
-  } catch (e) {
-    const error = e as Error;
-    tlog('[video/file] Error:', error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(error?.message || error) });
-    }
-  }
-});
+}, 'video/file'));
 
 export default router;
 

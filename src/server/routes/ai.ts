@@ -8,37 +8,41 @@ import { DIRS, BASE_DIR } from '../serverConfig';
 import { convertAudio } from '../services/audio';
 import { validateRequiredString, validateUrl } from '../utils/validation';
 import { validateApiKey, sanitizeApiKey } from '../../js/shared/utils/validation';
+import { sendError, sendSuccess } from '../utils/response';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = express.Router();
 
-router.post('/dubbing', async (req, res) => {
-  try {
-    const { audioPath, audioUrl, targetLang, elevenApiKey } = req.body || {};
-    
-    // Validate and sanitize inputs
-    const langError = validateRequiredString(targetLang, 'targetLang');
-    if (langError) {
-      return res.status(400).json({ error: langError });
+router.post('/dubbing', asyncHandler(async (req, res) => {
+  const { audioPath, audioUrl, targetLang, elevenApiKey } = req.body || {};
+  
+  // Validate and sanitize inputs
+  const langError = validateRequiredString(targetLang, 'targetLang');
+  if (langError) {
+    sendError(res, 400, langError, 'dubbing');
+    return;
+  }
+  
+  const apiKeyError = validateApiKey(elevenApiKey);
+  if (!apiKeyError.valid) {
+    sendError(res, 400, apiKeyError.error || 'elevenApiKey required', 'dubbing');
+    return;
+  }
+  
+  const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+  const sanitizedLang = targetLang.trim();
+  
+  // Log sanitized request (no sensitive data)
+  tlog('POST /dubbing', 'targetLang=' + sanitizedLang, 'hasAudioPath=' + !!audioPath, 'hasAudioUrl=' + !!audioUrl);
+  
+  // Validate audioUrl if provided
+  if (audioUrl) {
+    const urlError = validateUrl(audioUrl);
+    if (urlError) {
+      sendError(res, 400, urlError, 'dubbing');
+      return;
     }
-    
-    const apiKeyError = validateApiKey(elevenApiKey);
-    if (!apiKeyError.valid) {
-      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
-    }
-    
-    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
-    const sanitizedLang = targetLang.trim();
-    
-    // Log sanitized request (no sensitive data)
-    tlog('POST /dubbing', 'targetLang=' + sanitizedLang, 'hasAudioPath=' + !!audioPath, 'hasAudioUrl=' + !!audioUrl);
-    
-    // Validate audioUrl if provided
-    if (audioUrl) {
-      const urlError = validateUrl(audioUrl);
-      if (urlError) {
-        return res.status(400).json({ error: urlError });
-      }
-    }
+  }
     
     let localAudioPath = audioPath;
     
@@ -46,7 +50,8 @@ router.post('/dubbing', async (req, res) => {
       try {
         const response = await fetch(audioUrl);
         if (!response.ok) {
-          return res.status(400).json({ error: 'Failed to download audio from URL' });
+          sendError(res, 400, 'Failed to download audio from URL', 'dubbing');
+          return;
         }
         
         const tempFileName = `temp_audio_${Date.now()}_${Math.random().toString(36).slice(2, 11)}.mp3`;
@@ -59,17 +64,20 @@ router.post('/dubbing', async (req, res) => {
       } catch (error) {
         const err = error as Error;
         tlog('Audio download error', err.message);
-        return res.status(400).json({ error: 'Failed to download audio: ' + err.message });
+        sendError(res, 400, 'Failed to download audio: ' + err.message, 'dubbing');
+        return;
       }
     }
     
     if (!localAudioPath || typeof localAudioPath !== 'string' || !path.isAbsolute(localAudioPath)) {
       tlog('dubbing invalid path');
-      return res.status(400).json({ error: 'invalid audioPath' });
+      sendError(res, 400, 'invalid audioPath', 'dubbing');
+      return;
     }
     
     if (!fs.existsSync(localAudioPath)) {
-      return res.status(404).json({ error: 'audio file not found' });
+      sendError(res, 404, 'audio file not found', 'dubbing');
+      return;
     }
 
     const audioExt = path.extname(localAudioPath).toLowerCase();
@@ -82,7 +90,8 @@ router.post('/dubbing', async (req, res) => {
       } catch (convertError) {
         const err = convertError as Error;
         tlog('WAV to MP3 conversion failed:', err.message);
-        return res.status(400).json({ error: 'Failed to convert WAV to MP3: ' + err.message });
+        sendError(res, 400, 'Failed to convert WAV to MP3: ' + err.message, 'dubbing');
+        return;
       }
     }
 
@@ -103,14 +112,16 @@ router.post('/dubbing', async (req, res) => {
       if (!dubbingResponse.ok) {
         const errorText = await dubbingResponse.text();
         tlog('ElevenLabs dubbing error:', dubbingResponse.status, errorText);
-        return res.status(dubbingResponse.status).json({ error: `ElevenLabs API error: ${errorText}` });
+        sendError(res, dubbingResponse.status, `ElevenLabs API error: ${errorText}`, 'dubbing');
+        return;
       }
       
       const dubbingData = await dubbingResponse.json();
       const dubbingId = dubbingData.dubbing_id;
       
       if (!dubbingId) {
-        return res.status(500).json({ error: 'No dubbing ID returned from ElevenLabs' });
+        sendError(res, 500, 'No dubbing ID returned from ElevenLabs', 'dubbing');
+        return;
       }
       
       tlog('ElevenLabs dubbing job created:', dubbingId);
@@ -168,7 +179,7 @@ router.post('/dubbing', async (req, res) => {
             } catch (e) {}
             
             if (!res.headersSent) {
-              res.json({ ok: true, audioPath: outputPath, dubbingId: dubbingId });
+              sendSuccess(res, { audioPath: outputPath, dubbingId: dubbingId });
             }
             return;
           } else if (status === 'failed') {
@@ -182,53 +193,47 @@ router.post('/dubbing', async (req, res) => {
           const err = error as Error;
           tlog('Dubbing poll error:', err.message);
           if (!res.headersSent) {
-            res.status(500).json({ error: String(err?.message || err) });
+            sendError(res, 500, err.message, 'dubbing');
           }
         }
       };
       
       setTimeout(pollForCompletion, pollInterval);
       
-    } catch (e) {
-      const err = e as Error;
-      tlog('dubbing error:', err.message);
-      return res.status(500).json({ error: String(err?.message || err) });
-    }
-  } catch (e) {
-    const err = e as Error;
-    if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
-  }
-});
+}, 'dubbing'));
 
-router.post('/tts/generate', async (req, res) => {
-  try {
-    const { text, voiceId, elevenApiKey, model = 'eleven_turbo_v2_5', voiceSettings } = req.body || {};
-    
-    // Validate inputs
-    const textError = validateRequiredString(text, 'text');
-    if (textError) {
-      return res.status(400).json({ error: textError });
-    }
-    
-    const voiceIdError = validateRequiredString(voiceId, 'voiceId');
-    if (voiceIdError) {
-      return res.status(400).json({ error: voiceIdError });
-    }
-    
-    const apiKeyError = validateApiKey(elevenApiKey);
-    if (!apiKeyError.valid) {
-      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
-    }
-    
-    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
-    const sanitizedText = text.trim();
-    const sanitizedVoiceId = voiceId.trim();
-    const sanitizedModel = (model || 'eleven_turbo_v2_5').trim();
-    
-    // Validate text length (reasonable limit)
-    if (sanitizedText.length > 5000) {
-      return res.status(400).json({ error: 'Text must be 5000 characters or less' });
-    }
+router.post('/tts/generate', asyncHandler(async (req, res) => {
+  const { text, voiceId, elevenApiKey, model = 'eleven_turbo_v2_5', voiceSettings } = req.body || {};
+  
+  // Validate inputs
+  const textError = validateRequiredString(text, 'text');
+  if (textError) {
+    sendError(res, 400, textError, 'tts/generate');
+    return;
+  }
+  
+  const voiceIdError = validateRequiredString(voiceId, 'voiceId');
+  if (voiceIdError) {
+    sendError(res, 400, voiceIdError, 'tts/generate');
+    return;
+  }
+  
+  const apiKeyError = validateApiKey(elevenApiKey);
+  if (!apiKeyError.valid) {
+    sendError(res, 400, apiKeyError.error || 'elevenApiKey required', 'tts/generate');
+    return;
+  }
+  
+  const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+  const sanitizedText = text.trim();
+  const sanitizedVoiceId = voiceId.trim();
+  const sanitizedModel = (model || 'eleven_turbo_v2_5').trim();
+  
+  // Validate text length (reasonable limit)
+  if (sanitizedText.length > 5000) {
+    sendError(res, 400, 'Text must be 5000 characters or less', 'tts/generate');
+    return;
+  }
     
     tlog('POST /tts/generate', 'voiceId=' + sanitizedVoiceId, 'model=' + sanitizedModel, 'textLength=' + sanitizedText.length);
     
@@ -268,7 +273,8 @@ router.post('/tts/generate', async (req, res) => {
       if (!response.ok) {
         const errorText = await response.text();
         tlog('ElevenLabs TTS error:', response.status, errorText);
-        return res.status(response.status).json({ error: `ElevenLabs API error: ${errorText}` });
+        sendError(res, response.status, `ElevenLabs API error: ${errorText}`, 'tts/generate');
+        return;
       }
       
       const ttsDir = path.join(BASE_DIR, 'tts');
@@ -284,26 +290,17 @@ router.post('/tts/generate', async (req, res) => {
         tlog('TTS completed', 'output=' + outputPath, 'bytes=' + sz);
       } catch (e) {}
       
-      res.json({ ok: true, audioPath: outputPath });
-    } catch (e) {
-      const err = e as Error;
-      tlog('TTS error:', err.message);
-      return res.status(500).json({ error: String(err?.message || err) });
-    }
-  } catch (e) {
-    const err = e as Error;
-    if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
-  }
-});
+      sendSuccess(res, { audioPath: outputPath });
+}, 'tts/generate'));
 
-router.get('/tts/voices', async (req, res) => {
-  try {
-    const { elevenApiKey, page_size = 100, category, voice_type } = req.query;
-    
-    const apiKeyError = validateApiKey(String(elevenApiKey || ''));
-    if (!apiKeyError.valid) {
-      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
-    }
+router.get('/tts/voices', asyncHandler(async (req, res) => {
+  const { elevenApiKey, page_size = 100, category, voice_type } = req.query;
+  
+  const apiKeyError = validateApiKey(String(elevenApiKey || ''));
+  if (!apiKeyError.valid) {
+    sendError(res, 400, apiKeyError.error || 'elevenApiKey required', 'tts/voices');
+    return;
+  }
     
     const sanitizedApiKey = sanitizeApiKey(String(elevenApiKey));
     
@@ -333,61 +330,57 @@ router.get('/tts/voices', async (req, res) => {
       if (!response.ok) {
         const errorText = await response.text();
         tlog('ElevenLabs voices error:', response.status, errorText);
-        return res.status(response.status).json({ error: `ElevenLabs API error: ${errorText}` });
+        sendError(res, response.status, `ElevenLabs API error: ${errorText}`, 'tts/voices');
+        return;
       }
       
       const data = await response.json();
       tlog('TTS voices fetched', 'count=' + data.voices?.length, 'has_more=' + data.has_more);
       
       // Return the full response including pagination info
-      res.json({
+      sendSuccess(res, {
         voices: data.voices || [],
         has_more: data.has_more || false,
         total_count: data.total_count || 0,
         next_page_token: data.next_page_token || null
       });
-    } catch (e) {
-      const err = e as Error;
-      tlog('TTS voices error:', err.message);
-      return res.status(500).json({ error: String(err?.message || err) });
-    }
-  } catch (e) {
-    const err = e as Error;
-    if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
-  }
-});
+}, 'tts/voices'));
 
-router.post('/tts/voices/create', async (req, res) => {
-  try {
-    const { name, files, elevenApiKey } = req.body || {};
-    
-    // Validate inputs
-    const nameError = validateRequiredString(name, 'name');
-    if (nameError) {
-      return res.status(400).json({ error: nameError });
-    }
-    
-    if (!files || !Array.isArray(files) || files.length === 0) {
-      return res.status(400).json({ error: 'At least one audio file required' });
-    }
-    
-    // Validate file count (reasonable limit)
-    if (files.length > 25) {
-      return res.status(400).json({ error: 'Maximum 25 files allowed' });
-    }
-    
-    const apiKeyError = validateApiKey(elevenApiKey);
-    if (!apiKeyError.valid) {
-      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
-    }
-    
-    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
-    const sanitizedName = name.trim();
-    
-    // Validate name length
-    if (sanitizedName.length > 100) {
-      return res.status(400).json({ error: 'Voice name must be 100 characters or less' });
-    }
+router.post('/tts/voices/create', asyncHandler(async (req, res) => {
+  const { name, files, elevenApiKey } = req.body || {};
+  
+  // Validate inputs
+  const nameError = validateRequiredString(name, 'name');
+  if (nameError) {
+    sendError(res, 400, nameError, 'tts/voices/create');
+    return;
+  }
+  
+  if (!files || !Array.isArray(files) || files.length === 0) {
+    sendError(res, 400, 'At least one audio file required', 'tts/voices/create');
+    return;
+  }
+  
+  // Validate file count (reasonable limit)
+  if (files.length > 25) {
+    sendError(res, 400, 'Maximum 25 files allowed', 'tts/voices/create');
+    return;
+  }
+  
+  const apiKeyError = validateApiKey(elevenApiKey);
+  if (!apiKeyError.valid) {
+    sendError(res, 400, apiKeyError.error || 'elevenApiKey required', 'tts/voices/create');
+    return;
+  }
+  
+  const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+  const sanitizedName = name.trim();
+  
+  // Validate name length
+  if (sanitizedName.length > 100) {
+    sendError(res, 400, 'Voice name must be 100 characters or less', 'tts/voices/create');
+    return;
+  }
     
     tlog('POST /tts/voices/create', 'name=' + sanitizedName, 'files=' + files.length);
     
@@ -399,13 +392,15 @@ router.post('/tts/voices/create', async (req, res) => {
       // Add all files to FormData
       for (const filePath of files) {
         if (!fs.existsSync(filePath)) {
-          return res.status(400).json({ error: `File not found: ${filePath}` });
+          sendError(res, 400, `File not found: ${filePath}`, 'tts/voices/create');
+          return;
         }
         
         // Check file size (max 10MB per file)
         const stats = fs.statSync(filePath);
         if (stats.size > 10 * 1024 * 1024) {
-          return res.status(400).json({ error: `File too large: ${path.basename(filePath)} (max 10MB)` });
+          sendError(res, 400, `File too large: ${path.basename(filePath)} (max 10MB)`, 'tts/voices/create');
+          return;
         }
         
         formData.append('files', fs.createReadStream(filePath));
@@ -424,49 +419,43 @@ router.post('/tts/voices/create', async (req, res) => {
       if (!response.ok) {
         const errorText = await response.text();
         tlog('ElevenLabs voice creation error:', response.status, errorText);
-        return res.status(response.status).json({ error: `ElevenLabs API error: ${errorText}` });
+        sendError(res, response.status, `ElevenLabs API error: ${errorText}`, 'tts/voices/create');
+        return;
       }
       
       const data = await response.json();
       tlog('Voice clone created successfully:', data.voice_id);
       
-      res.json({
+      sendSuccess(res, {
         voice_id: data.voice_id,
         requires_verification: data.requires_verification || false
       });
-    } catch (e) {
-      const err = e as Error;
-      tlog('Voice creation error:', err.message);
-      return res.status(500).json({ error: String(err?.message || err) });
-    }
-  } catch (e) {
-    const err = e as Error;
-    if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
-  }
-});
+}, 'tts/voices/create'));
 
-router.post('/tts/voices/delete', async (req, res) => {
-  try {
-    const { voiceId, elevenApiKey } = req.body || {};
-    
-    // Validate inputs
-    const voiceIdError = validateRequiredString(voiceId, 'voiceId');
-    if (voiceIdError) {
-      return res.status(400).json({ error: voiceIdError });
-    }
-    
-    const apiKeyError = validateApiKey(elevenApiKey);
-    if (!apiKeyError.valid) {
-      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey is required' });
-    }
-    
-    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
-    const sanitizedVoiceId = voiceId.trim();
-    
-    // Validate voiceId format (basic check)
-    if (sanitizedVoiceId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(sanitizedVoiceId)) {
-      return res.status(400).json({ error: 'Invalid voiceId format' });
-    }
+router.post('/tts/voices/delete', asyncHandler(async (req, res) => {
+  const { voiceId, elevenApiKey } = req.body || {};
+  
+  // Validate inputs
+  const voiceIdError = validateRequiredString(voiceId, 'voiceId');
+  if (voiceIdError) {
+    sendError(res, 400, voiceIdError, 'tts/voices/delete');
+    return;
+  }
+  
+  const apiKeyError = validateApiKey(elevenApiKey);
+  if (!apiKeyError.valid) {
+    sendError(res, 400, apiKeyError.error || 'elevenApiKey is required', 'tts/voices/delete');
+    return;
+  }
+  
+  const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+  const sanitizedVoiceId = voiceId.trim();
+  
+  // Validate voiceId format (basic check)
+  if (sanitizedVoiceId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(sanitizedVoiceId)) {
+    sendError(res, 400, 'Invalid voiceId format', 'tts/voices/delete');
+    return;
+  }
     
     tlog('POST /tts/voices/delete', 'voiceId=' + sanitizedVoiceId);
     
@@ -488,22 +477,16 @@ router.post('/tts/voices/delete', async (req, res) => {
       }
       
       tlog('ElevenLabs delete voice error:', response.status, errorText);
-      return res.status(response.status).json({
-        error: 'ElevenLabs API error: ' + JSON.stringify(errorData)
-      });
+      sendError(res, response.status, 'ElevenLabs API error: ' + JSON.stringify(errorData), 'tts/voices/delete');
+      return;
     }
     
     // Parse response - ElevenLabs returns { "status": "ok" } on success
     const data = await response.json().catch(() => ({}));
     tlog('Voice deleted successfully:', voiceId);
     
-    res.json({ ok: true, message: 'Voice deleted successfully', status: data.status || 'ok' });
-  } catch (e) {
-    const err = e as Error;
-    tlog('Delete voice error:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
-  }
-});
+    sendSuccess(res, { message: 'Voice deleted successfully', status: data.status || 'ok' });
+}, 'tts/voices/delete'));
 
 export default router;
 

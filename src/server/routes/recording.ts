@@ -6,6 +6,8 @@ import { tlog } from '../utils/log';
 import { DOCS_DEFAULT_DIR, TEMP_DEFAULT_DIR, FILE_SIZE_LIMIT_1GB, getErrorMessage } from './constants';
 import { convertWebmToMp4 } from '../services/video';
 import { convertWebmToWav } from '../services/audio';
+import { sendError, sendSuccess } from '../utils/response';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = express.Router();
 
@@ -18,23 +20,25 @@ const upload = multer({
  * POST /recording/save
  * Saves recording files and converts them if needed
  */
-router.post('/recording/save', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file provided' });
-    }
+router.post('/recording/save', upload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) {
+    sendError(res, 400, 'No file provided', 'recording/save');
+    return;
+  }
 
-    const { targetDir, type } = req.body || {};
-    
-    // Validate type if provided
-    if (type && type !== 'video' && type !== 'audio') {
-      return res.status(400).json({ error: 'Type must be "video" or "audio"' });
-    }
-    
-    // Validate file size (already handled by multer, but double-check)
-    if (req.file.size > FILE_SIZE_LIMIT_1GB) {
-      return res.status(400).json({ error: 'File too large (max 1GB)' });
-    }
+  const { targetDir, type } = req.body || {};
+  
+  // Validate type if provided
+  if (type && type !== 'video' && type !== 'audio') {
+    sendError(res, 400, 'Type must be "video" or "audio"', 'recording/save');
+    return;
+  }
+  
+  // Validate file size (already handled by multer, but double-check)
+  if (req.file.size > FILE_SIZE_LIMIT_1GB) {
+    sendError(res, 400, 'File too large (max 1GB)', 'recording/save');
+    return;
+  }
     
     const fileName = req.file.originalname || `recording_${Date.now()}.webm`;
     
@@ -49,7 +53,8 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
     } catch (err) {
       const error = err as Error;
       tlog('Failed to create directory:', error.message);
-      return res.status(500).json({ error: 'Failed to create directory' });
+      sendError(res, 500, 'Failed to create directory', 'recording/save');
+      return;
     }
 
     const filePath = path.join(saveDir, sanitizedFileName);
@@ -59,7 +64,8 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
     } catch (writeError) {
       const err = writeError as Error;
       tlog('Failed to write recording file:', err.message);
-      return res.status(500).json({ error: 'Failed to save recording file' });
+      sendError(res, 500, 'Failed to save recording file', 'recording/save');
+      return;
     }
 
     let fileSize: number;
@@ -67,7 +73,8 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
       fileSize = fs.statSync(filePath).size;
     } catch (statError) {
       tlog('Failed to stat saved file:', (statError as Error).message);
-      return res.status(500).json({ error: 'Failed to verify saved file' });
+      sendError(res, 500, 'Failed to verify saved file', 'recording/save');
+      return;
     }
     
     tlog('Recording saved:', filePath, 'size:', fileSize, 'type:', type);
@@ -107,7 +114,8 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
 
     // Verify final file exists
     if (!fs.existsSync(finalPath)) {
-      return res.status(500).json({ error: 'Final file not found after processing' });
+      sendError(res, 500, 'Final file not found after processing', 'recording/save');
+      return;
     }
     
     let finalSize: number;
@@ -115,17 +123,12 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
       finalSize = fs.statSync(finalPath).size;
     } catch (statError) {
       tlog('Failed to stat final file:', (statError as Error).message);
-      return res.status(500).json({ error: 'Failed to verify final file' });
+      sendError(res, 500, 'Failed to verify final file', 'recording/save');
+      return;
     }
     
-    res.json({ ok: true, path: finalPath, size: finalSize });
-  } catch (e) {
-    const error = e as Error;
-    if (!res.headersSent) {
-      res.status(500).json({ error: getErrorMessage(error) });
-    }
-  }
-});
+    sendSuccess(res, { path: finalPath, size: finalSize });
+}, 'recording/save'));
 
 export default router;
 

@@ -74,6 +74,8 @@ import recordingRoutes from './routes/recording';
 import debugRoutes from './routes/debug';
 import { DOCS_DEFAULT_DIR, TEMP_DEFAULT_DIR, FILE_SIZE_LIMIT_20MB, SYNC_API_BASE } from './routes/constants';
 import { validateEnvironment, logEnvValidation } from './utils/envValidation';
+import { sendError, sendSuccess } from './utils/response';
+import { asyncHandler } from './utils/asyncHandler';
 
 const isSpawnedByCEP = process.stdout.isTTY === false && process.stderr.isTTY === false;
 
@@ -337,49 +339,26 @@ app.use('/', jobsRoutes);
 app.use('/', recordingRoutes);
 app.use('/', debugRoutes);
 
-// PostHog connectivity test endpoint
-app.get('/telemetry/test', async (req, res) => {
-  try {
-    // Test PostHog connectivity
-    track('telemetry_test', {
-      testType: 'connectivity',
-      timestamp: new Date().toISOString()
-    });
-    
-    res.json({ 
-      ok: true, 
-      message: 'PostHog test event sent',
-      distinctId: distinctId,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      ok: false, 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+app.post('/upload', asyncHandler(async (req, res) => {
+  const { path: filePath, syncApiKey } = req.body || {};
+  
+  tlog('[upload] Request received', {
+    hasFilePath: !!filePath,
+    filePath: filePath ? filePath.substring(0, 100) : 'null',
+    hasSyncApiKey: !!syncApiKey
+  });
+  
+  if (!filePath) {
+    tlog('[upload] Missing file path');
+    sendError(res, 400, 'File path required', 'upload');
+    return;
   }
-});
-
-app.post('/upload', async (req, res) => {
-  try {
-    const { path: filePath, syncApiKey } = req.body || {};
-    
-    tlog('[upload] Request received', {
-      hasFilePath: !!filePath,
-      filePath: filePath ? filePath.substring(0, 100) : 'null',
-      hasSyncApiKey: !!syncApiKey
-    });
-    
-    if (!filePath) {
-      tlog('[upload] Missing file path');
-      return res.status(400).json({ error: 'File path required' });
-    }
-    
-    if (!fs.existsSync(filePath)) {
-      tlog('[upload] File not found', { filePath });
-      return res.status(404).json({ error: 'File not found' });
-    }
+  
+  if (!fs.existsSync(filePath)) {
+    tlog('[upload] File not found', { filePath });
+    sendError(res, 404, 'File not found', 'upload');
+    return;
+  }
     
     // Track upload start
     const fileStat = await safeStat(filePath);
@@ -420,7 +399,7 @@ app.post('/upload', async (req, res) => {
       
       clearTimeout(uploadTimeout);
       if (!res.headersSent) {
-        res.json({ ok: true, url: fileUrl });
+        sendSuccess(res, { url: fileUrl });
       }
     } catch (uploadError) {
       tlog('[upload] R2 upload failed', {
@@ -438,88 +417,74 @@ app.post('/upload', async (req, res) => {
       
       clearTimeout(uploadTimeout);
       if (!res.headersSent) {
-        res.status(500).json({ error: String(uploadError?.message || uploadError) });
+        sendError(res, 500, String(uploadError?.message || uploadError), 'upload');
       }
     }
-  } catch (e) {
-    tlog('[upload] Exception', { error: String(e?.message || e) });
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(e?.message || e) });
-    }
-  }
-});
+}, 'upload'));
 
-app.post('/download', async (req, res) => {
-  try {
-    const { url, type } = req.body || {};
-    
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({ error: 'URL required' });
-    }
-    
-    if (!type || (type !== 'video' && type !== 'audio')) {
-      return res.status(400).json({ error: 'Type must be "video" or "audio"' });
-    }
-    
-    tlog('POST /download', 'url=' + url, 'type=' + type);
-    
-    try {
-      // Download the file from URL
-      const response = await fetch(url);
-      if (!response.ok) {
-        return res.status(400).json({ error: 'Failed to download file from URL' });
-      }
-      
-      // Determine file extension based on type and content type
-      let ext = type === 'video' ? '.mp4' : '.wav';
-      const contentType = response.headers.get('content-type');
-      if (contentType) {
-        if (contentType.includes('video/mp4')) ext = '.mp4';
-        else if (contentType.includes('video/webm')) ext = '.webm';
-        else if (contentType.includes('video/quicktime')) ext = '.mov';
-        else if (contentType.includes('audio/wav') || contentType.includes('audio/wave')) ext = '.wav';
-        else if (contentType.includes('audio/mpeg') || contentType.includes('audio/mp3')) ext = '.mp3';
-        else if (contentType.includes('audio/mp4')) ext = '.m4a';
-      }
-      
-      // Save to temporary directory
-      const tempDir = os.tmpdir();
-      const tempFileName = `downloaded_${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}${ext}`;
-      const localPath = path.join(tempDir, tempFileName);
-      
-      const buffer = await response.arrayBuffer();
-      fs.writeFileSync(localPath, Buffer.from(buffer));
-      
-      tlog('Downloaded file to', localPath);
-      
-      res.json({ ok: true, path: localPath });
-    } catch (error) {
-      tlog('Download error', error.message);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to download: ' + error.message });
-      }
-    }
-  } catch (e) {
-    if (!res.headersSent) {
-      res.status(500).json({ error: String(e?.message || e) });
-    }
+app.post('/download', asyncHandler(async (req, res) => {
+  const { url, type } = req.body || {};
+  
+  if (!url || typeof url !== 'string') {
+    sendError(res, 400, 'URL required', 'download');
+    return;
   }
-});
+  
+  if (!type || (type !== 'video' && type !== 'audio')) {
+    sendError(res, 400, 'Type must be "video" or "audio"', 'download');
+    return;
+  }
+  
+  tlog('POST /download', 'url=' + url, 'type=' + type);
+  
+  try {
+    // Download the file from URL
+    const response = await fetch(url);
+    if (!response.ok) {
+      sendError(res, 400, 'Failed to download file from URL', 'download');
+      return;
+    }
+    
+    // Determine file extension based on type and content type
+    let ext = type === 'video' ? '.mp4' : '.wav';
+    const contentType = response.headers.get('content-type');
+    if (contentType) {
+      if (contentType.includes('video/mp4')) ext = '.mp4';
+      else if (contentType.includes('video/webm')) ext = '.webm';
+      else if (contentType.includes('video/quicktime')) ext = '.mov';
+      else if (contentType.includes('audio/wav') || contentType.includes('audio/wave')) ext = '.wav';
+      else if (contentType.includes('audio/mpeg') || contentType.includes('audio/mp3')) ext = '.mp3';
+      else if (contentType.includes('audio/mp4')) ext = '.m4a';
+    }
+    
+    // Save to temporary directory
+    const tempDir = os.tmpdir();
+    const tempFileName = `downloaded_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}${ext}`;
+    const localPath = path.join(tempDir, tempFileName);
+    
+    const buffer = await response.arrayBuffer();
+    fs.writeFileSync(localPath, Buffer.from(buffer));
+    
+    tlog('Downloaded file to', localPath);
+    
+    sendSuccess(res, { path: localPath });
+  } catch (error) {
+    const err = error as Error;
+    tlog('Download error', err.message);
+    sendError(res, 500, 'Failed to download: ' + err.message, 'download');
+  }
+}, 'download'));
 
 let PANEL_SETTINGS = null;
 
 app.get('/settings', (req, res) => {
-  res.json({ ok: true, settings: PANEL_SETTINGS });
+  sendSuccess(res, { settings: PANEL_SETTINGS });
 });
 
-app.post('/settings', (req, res) => {
-  try {
-    PANEL_SETTINGS = (req.body && req.body.settings) ? req.body.settings : null;
-    res.json({ ok: true });
-  } catch (e) {
-    if (!res.headersSent) res.status(400).json({ error: String(e?.message || e) });
-  }
-});
+app.post('/settings', asyncHandler(async (req, res) => {
+  PANEL_SETTINGS = (req.body && req.body.settings) ? req.body.settings : null;
+  sendSuccess(res);
+}, 'settings'));
 
 /**
  * Helper to convert AIFF files to WAV if needed
@@ -556,7 +521,7 @@ function slog() {
   if (LOGS.length > 500) LOGS.shift();
 }
 app.get('/logs', (_req, res) => {
-  res.json({ ok: true, logs: LOGS.slice(-200) });
+  sendSuccess(res, { logs: LOGS.slice(-200) });
 });
 
 /**
