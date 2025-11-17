@@ -594,9 +594,13 @@ export function AEFT_exportInOutVideo(payloadJson) {
       while(waited<180000){ 
         try{ 
           if(mp4 && mp4.exists && mp4.length>0) break; 
-          if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.DONE) break;
-          if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.FAILED) {
-            return _respond({ ok:false, error:'Render failed' });
+          // Check render queue item status (DONE = 6, ERR_STOPPED = 5, USER_STOPPED = 4)
+          if(rq && rq.numItems > 0 && rq.item(1)) {
+            var status = rq.item(1).status;
+            if(status === 6) break; // DONE
+            if(status === 5 || status === 4) { // ERR_STOPPED or USER_STOPPED
+              return _respond({ ok:false, error:'Render failed' });
+            }
           }
         }catch(_){ } 
         $.sleep(200); 
@@ -626,25 +630,29 @@ export function AEFT_exportInOutVideo(payloadJson) {
     while(waited2<180000){ 
       try{ 
         if(srcMov && srcMov.exists && srcMov.length>0) break; 
-        if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.DONE) break;
-        if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.FAILED) {
-          return _respond({ ok:false, error:'Render failed' });
+        // Check render queue item status (DONE = 6, ERR_STOPPED = 5, USER_STOPPED = 4)
+        if(rq && rq.numItems > 0 && rq.item(1)) {
+          var status = rq.item(1).status;
+          if(status === 6) break; // DONE
+          if(status === 5 || status === 4) { // ERR_STOPPED or USER_STOPPED
+            return _respond({ ok:false, error:'Render failed' });
+          }
         }
       }catch(_){ } 
       $.sleep(200); 
       waited2+=200; 
     }
-    if (!srcMov || !srcMov.exists) return _respond({ ok:false, error:'Render timeout (src)' });
-    
-    // Check file size - reject if over 1GB
-    var fileSize = 0;
-    try { fileSize = srcMov.length; } catch(e){ }
-    if (fileSize > 1024 * 1024 * 1024) {
-      try { srcMov.remove(); } catch(_){ }
-      return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
-    }
-    
-    return _respond({ ok:true, path: srcMov.fsName, note:'prores render completed' });
+      if (!srcMov || !srcMov.exists) return _respond({ ok:false, error:'Render timeout (src)' });
+      
+      // Check file size - reject if over 1GB
+      var fileSize = 0;
+      try { fileSize = srcMov.length; } catch(e){ }
+      if (fileSize > 1024 * 1024 * 1024) {
+        try { srcMov.remove(); } catch(_){ }
+        return _respond({ ok:false, error:'File size exceeds 1GB limit. Please use shorter in/out points or lower quality settings.' });
+      }
+      
+      return _respond({ ok:true, path: srcMov.fsName, note:'prores render completed' });
   } catch (e) {
     try {
       var logFile = _syncDebugLogFile();
@@ -727,15 +735,19 @@ export function AEFT_exportInOutAudio(payloadJson) {
     while(waited<180000){ 
       try{ 
         if(aif && aif.exists && aif.length>0) break; 
-        if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.DONE) break;
-        if(rq && rq.numItems > 0 && rq.item(1) && rq.item(1).status === RQItemStatus.FAILED) {
+        // Check render queue item status (DONE = 6, ERR_STOPPED = 5, USER_STOPPED = 4)
+        if(rq && rq.numItems > 0 && rq.item(1)) {
+          var status = rq.item(1).status;
+          if(status === 6) break; // DONE
+          if(status === 5 || status === 4) { // ERR_STOPPED or USER_STOPPED
           try {
             var dbg_failed = _syncDebugLogFile();
             dbg_failed.open('a');
-            dbg_failed.writeln('[' + new Date().toString() + '] render failed');
+              dbg_failed.writeln('[' + new Date().toString() + '] render failed with status: ' + String(status));
             dbg_failed.close();
           } catch(_){ }
           return _respond({ ok:false, error:'Render failed' });
+          }
         }
       }catch(_){ } 
       $.sleep(500); 
@@ -794,12 +806,16 @@ export function AEFT_exportInOutAudio(payloadJson) {
         } catch(_){ }
         
         // Use curl to call the server and get JSON response
+        // system.callSystem returns exit code, not output, so we need to redirect to a temp file
+        var tempJsonFile = new File(_safeOutDir() + '/temp_curl_response_' + (new Date().getTime()) + '.json');
         var cmd = '';
         if (isWindows) {
           // Use curl instead of PowerShell to avoid Defender issues
-          cmd = 'cmd.exe /c curl -s "' + url + '"';
+          // Redirect output to temp file
+          cmd = 'cmd.exe /c curl -s "' + url + '" > "' + tempJsonFile.fsName.replace(/\\/g, '\\\\') + '"';
         } else {
-          cmd = 'curl -s "' + url + '"';
+          // Redirect output to temp file
+          cmd = 'curl -s "' + url + '" > "' + tempJsonFile.fsName + '"';
         }
         
         try {
@@ -810,29 +826,97 @@ export function AEFT_exportInOutAudio(payloadJson) {
           dbg4.close();
         } catch(_){ }
         
-        var result = system.callSystem(cmd);
+        var exitCode = system.callSystem(cmd);
+        
+        // Wait a moment for file to be written (curl might not have flushed yet)
+        $.sleep(100);
+        
+        // Read the JSON response from the temp file
+        var result = '';
+        try {
+          // Wait for file to exist and be readable (with timeout)
+          var waitCount = 0;
+          while (waitCount < 20 && !tempJsonFile.exists) {
+            $.sleep(50);
+            waitCount++;
+          }
+          
+          if (tempJsonFile.exists) {
+            tempJsonFile.open('r');
+            result = tempJsonFile.read();
+            tempJsonFile.close();
+            // Clean up temp file
+            try { tempJsonFile.remove(); } catch(_){ }
+          } else {
+            try {
+              var debugLogPath = _syncDebugLogPath();
+              var dbgWait = new File(debugLogPath);
+              dbgWait.open('a');
+              dbgWait.writeln('[' + new Date().toString() + '] curl response file never appeared: ' + String(tempJsonFile.fsName));
+              dbgWait.close();
+            } catch(_){ }
+          }
+        } catch(e) {
+          try {
+            var debugLogPath = _syncDebugLogPath();
+            var dbgRead = new File(debugLogPath);
+            dbgRead.open('a');
+            dbgRead.writeln('[' + new Date().toString() + '] Error reading curl response file: ' + String(e));
+            dbgRead.close();
+          } catch(_){ }
+        }
         
         try {
           var debugLogPath = _syncDebugLogPath();
           var dbg5 = new File(debugLogPath);
           dbg5.open('a');
-          dbg5.writeln('[' + new Date().toString() + '] curl mp3 result: ' + String(result));
+          dbg5.writeln('[' + new Date().toString() + '] curl mp3 exit code: ' + String(exitCode) + ', result length: ' + String(result ? result.length : 0));
+          if (result && result.length > 0) {
+            dbg5.writeln('[' + new Date().toString() + '] curl mp3 result: ' + String(result.substring(0, Math.min(200, result.length))));
+          } else {
+            dbg5.writeln('[' + new Date().toString() + '] curl mp3 result: EMPTY');
+          }
           dbg5.close();
         } catch(_){ }
         
         // Parse JSON response to get the MP3 file path
         var mp3Path = '';
-        try {
-          var jsonResponse = JSON.parse(result);
-          if (jsonResponse && jsonResponse.ok && jsonResponse.path) {
-            mp3Path = jsonResponse.path;
+        if (result && result.length > 0) {
+          // Trim whitespace and newlines that might cause issues
+          result = result.replace(/^\s+|\s+$/g, '');
+          try {
+            var jsonResponse = JSON.parse(result);
+            if (jsonResponse && jsonResponse.ok && jsonResponse.path) {
+              mp3Path = jsonResponse.path;
+            } else if (jsonResponse && jsonResponse.error) {
+              // Server returned an error - log it
+              try {
+                var debugLogPath = _syncDebugLogPath();
+                var dbgErr = new File(debugLogPath);
+                dbgErr.open('a');
+                dbgErr.writeln('[' + new Date().toString() + '] Server error response: ' + String(jsonResponse.error));
+                dbgErr.close();
+              } catch(_){ }
+            }
+          } catch(e) {
+            try {
+              var debugLogPath = _syncDebugLogPath();
+              var dbg6 = new File(debugLogPath);
+              dbg6.open('a');
+              dbg6.writeln('[' + new Date().toString() + '] JSON parse error: ' + String(e));
+              dbg6.writeln('[' + new Date().toString() + '] JSON content length: ' + String(result.length));
+              dbg6.writeln('[' + new Date().toString() + '] JSON content: ' + String(result.substring(0, Math.min(500, result.length))));
+              dbg6.close();
+            } catch(_){ }
+            // Re-throw the error so caller knows parsing failed
+            throw e;
           }
-        } catch(e) {
+        } else {
           try {
             var debugLogPath = _syncDebugLogPath();
             var dbg6 = new File(debugLogPath);
             dbg6.open('a');
-            dbg6.writeln('[' + new Date().toString() + '] JSON parse error: ' + String(e));
+            dbg6.writeln('[' + new Date().toString() + '] curl returned empty result, exit code: ' + String(exitCode));
             dbg6.close();
           } catch(_){ }
         }
@@ -929,12 +1013,16 @@ export function AEFT_exportInOutAudio(payloadJson) {
         } catch(_){ }
         
         // Use curl to call the server and get JSON response
+        // system.callSystem returns exit code, not output, so we need to redirect to a temp file
+        var tempJsonFile = new File(_safeOutDir() + '/temp_curl_response_' + (new Date().getTime()) + '.json');
         var cmd = '';
         if (isWindows) {
           // Use curl instead of PowerShell to avoid Defender issues
-          cmd = 'cmd.exe /c curl -s "' + url + '"';
+          // Redirect output to temp file
+          cmd = 'cmd.exe /c curl -s "' + url + '" > "' + tempJsonFile.fsName.replace(/\\/g, '\\\\') + '"';
         } else {
-          cmd = 'curl -s "' + url + '"';
+          // Redirect output to temp file
+          cmd = 'curl -s "' + url + '" > "' + tempJsonFile.fsName + '"';
         }
         
         try {
@@ -945,29 +1033,61 @@ export function AEFT_exportInOutAudio(payloadJson) {
           dbg4.close();
         } catch(_){ }
         
-        var result = system.callSystem(cmd);
+        var exitCode = system.callSystem(cmd);
+        
+        // Read the JSON response from the temp file
+        var result = '';
+        try {
+          if (tempJsonFile.exists) {
+            tempJsonFile.open('r');
+            result = tempJsonFile.read();
+            tempJsonFile.close();
+            // Clean up temp file
+            try { tempJsonFile.remove(); } catch(_){ }
+          }
+        } catch(e) {
+          try {
+            var debugLogPath = _syncDebugLogPath();
+            var dbgRead = new File(debugLogPath);
+            dbgRead.open('a');
+            dbgRead.writeln('[' + new Date().toString() + '] Error reading curl response file: ' + String(e));
+            dbgRead.close();
+          } catch(_){ }
+        }
         
         try {
           var debugLogPath = _syncDebugLogPath();
           var dbg5 = new File(debugLogPath);
           dbg5.open('a');
-          dbg5.writeln('[' + new Date().toString() + '] curl wav result: ' + String(result));
+          dbg5.writeln('[' + new Date().toString() + '] curl wav exit code: ' + String(exitCode) + ', result length: ' + String(result ? result.length : 0));
+          dbg5.writeln('[' + new Date().toString() + '] curl wav result: ' + String(result ? result.substring(0, 200) : 'empty'));
           dbg5.close();
         } catch(_){ }
         
         // Parse JSON response to get the WAV file path
         var wavPath = '';
-        try {
-          var jsonResponse = JSON.parse(result);
-          if (jsonResponse && jsonResponse.ok && jsonResponse.path) {
-            wavPath = jsonResponse.path;
+        if (result && result.length > 0) {
+          try {
+            var jsonResponse = JSON.parse(result);
+            if (jsonResponse && jsonResponse.ok && jsonResponse.path) {
+              wavPath = jsonResponse.path;
+            }
+          } catch(e) {
+            try {
+              var debugLogPath = _syncDebugLogPath();
+              var dbg6 = new File(debugLogPath);
+              dbg6.open('a');
+              dbg6.writeln('[' + new Date().toString() + '] JSON parse error: ' + String(e));
+              dbg6.writeln('[' + new Date().toString() + '] JSON content: ' + String(result ? result.substring(0, 500) : 'empty'));
+              dbg6.close();
+            } catch(_){ }
           }
-        } catch(e) {
+        } else {
           try {
             var debugLogPath = _syncDebugLogPath();
             var dbg6 = new File(debugLogPath);
             dbg6.open('a');
-            dbg6.writeln('[' + new Date().toString() + '] JSON parse error: ' + String(e));
+            dbg6.writeln('[' + new Date().toString() + '] curl returned empty result, exit code: ' + String(exitCode));
             dbg6.close();
           } catch(_){ }
         }
@@ -1057,13 +1177,17 @@ export function AEFT_exportInOutAudio(payloadJson) {
         } catch(_){ }
         
         // Use curl to call the server and get JSON response
+        // system.callSystem returns exit code, not output, so we need to redirect to a temp file
+        var tempJsonFile = new File(_safeOutDir() + '/temp_curl_response_' + (new Date().getTime()) + '.json');
         var cmd = '';
         var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
         if (isWindows) {
           // Use curl instead of PowerShell to avoid Defender issues
-          cmd = 'cmd.exe /c curl -s "' + url + '"';
+          // Redirect output to temp file
+          cmd = 'cmd.exe /c curl -s "' + url + '" > "' + tempJsonFile.fsName.replace(/\\/g, '\\\\') + '"';
         } else {
-          cmd = 'curl -s "' + url + '"';
+          // Redirect output to temp file
+          cmd = 'curl -s "' + url + '" > "' + tempJsonFile.fsName + '"';
         }
         
         try {
@@ -1073,27 +1197,58 @@ export function AEFT_exportInOutAudio(payloadJson) {
           dbg4.close();
         } catch(_){ }
         
-        var result = system.callSystem(cmd);
+        var exitCode = system.callSystem(cmd);
+        
+        // Read the JSON response from the temp file
+        var result = '';
+        try {
+          if (tempJsonFile.exists) {
+            tempJsonFile.open('r');
+            result = tempJsonFile.read();
+            tempJsonFile.close();
+            // Clean up temp file
+            try { tempJsonFile.remove(); } catch(_){ }
+          }
+        } catch(e) {
+          try {
+            var debugLogPath = _syncDebugLogPath();
+            var dbgRead = new File(debugLogPath);
+            dbgRead.open('a');
+            dbgRead.writeln('[' + new Date().toString() + '] Error reading curl response file: ' + String(e));
+            dbgRead.close();
+          } catch(_){ }
+        }
         
         try {
           var dbg5 = _syncDebugLogFile();
           dbg5.open('a');
-          dbg5.writeln('[' + new Date().toString() + '] curl mp3 result: ' + String(result));
+          dbg5.writeln('[' + new Date().toString() + '] curl mp3 exit code: ' + String(exitCode) + ', result length: ' + String(result ? result.length : 0));
+          dbg5.writeln('[' + new Date().toString() + '] curl mp3 result: ' + String(result ? result.substring(0, 200) : 'empty'));
           dbg5.close();
         } catch(_){ }
         
         // Parse JSON response to get the MP3 file path
         var mp3Path = '';
-        try {
-          var jsonResponse = JSON.parse(result);
-          if (jsonResponse && jsonResponse.ok && jsonResponse.path) {
-            mp3Path = jsonResponse.path;
+        if (result && result.length > 0) {
+          try {
+            var jsonResponse = JSON.parse(result);
+            if (jsonResponse && jsonResponse.ok && jsonResponse.path) {
+              mp3Path = jsonResponse.path;
+            }
+          } catch(e) {
+            try {
+              var dbg6 = _syncDebugLogFile();
+              dbg6.open('a');
+              dbg6.writeln('[' + new Date().toString() + '] JSON parse error: ' + String(e));
+              dbg6.writeln('[' + new Date().toString() + '] JSON content: ' + String(result ? result.substring(0, 500) : 'empty'));
+              dbg6.close();
+            } catch(_){ }
           }
-        } catch(e) {
+        } else {
           try {
             var dbg6 = _syncDebugLogFile();
             dbg6.open('a');
-            dbg6.writeln('[' + new Date().toString() + '] JSON parse error: ' + String(e));
+            dbg6.writeln('[' + new Date().toString() + '] curl returned empty result, exit code: ' + String(exitCode));
             dbg6.close();
           } catch(_){ }
         }

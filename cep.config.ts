@@ -88,7 +88,7 @@ const config: CEP_Config = {
     jsxBin: "replace",
   },
   installModules: [],
-  copyAssets: ["js/assets/icons", "js/lib", "server/package.json", "server/server.ts", "server/serverConfig.ts", "server/telemetry.ts", "server/routes", "server/services", "server/utils"],
+  copyAssets: ["js/assets/icons", "js/lib", "server/package.json", "server/server.ts", "server/serverConfig.ts", "server/telemetry.ts", "server/routes", "server/services", "server/utils", "shared"],
   copyFolders: ["js/panels/ppro/epr", "bin"],
   // Note: server/node_modules is NOT in copyFolders because:
   // 1. It doesn't exist in src/server (we install it during build)

@@ -615,11 +615,37 @@ const SourcesTab: React.FC = () => {
         
         if (!videoPath && !videoUrl) return;
 
-        const response = await fetch(getApiUrl("/extract-audio"), {
+        // Create AbortController for timeout handling (audio extraction can take time)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
+
+        let response: Response;
+        try {
+          response = await fetch(getApiUrl("/extract-audio"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ videoPath, videoUrl, format: "wav" }),
+            signal: controller.signal,
         });
+          clearTimeout(timeoutId);
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          debugError('[SourcesTab] Extract audio: Fetch error', {
+            error: fetchError.message,
+            name: fetchError.name,
+            videoPath,
+            videoUrl,
+            apiUrl: getApiUrl("/extract-audio"),
+          });
+          
+          if (fetchError.name === 'AbortError') {
+            throw new Error("Audio extraction timed out after 5 minutes. The video may be too long or the server may be busy.");
+          }
+          if (fetchError.message && fetchError.message.includes("Failed to fetch")) {
+            throw new Error("Cannot connect to server. Please ensure the server is running.");
+          }
+          throw fetchError;
+        }
 
         const data = await parseJsonResponse<{ ok?: boolean; audioPath?: string; error?: string }>(response);
         if (response.ok && data?.ok && data?.audioPath) {

@@ -647,6 +647,68 @@ export default defineConfig({
           }
         }
         
+        // Copy shared folder to dist/shared/ (required for server imports)
+        // Server code imports from ../../shared/host, which from dist/cep/server resolves to dist/shared/
+        const sharedSrc = path.join(__dirname, 'src', 'shared');
+        const sharedDest = path.join(__dirname, devDist, 'shared'); // dist/shared (not dist/cep/shared)
+        if (fs.existsSync(sharedSrc)) {
+          try {
+            if (fs.existsSync(sharedDest)) {
+              fs.rmSync(sharedDest, { recursive: true, force: true });
+            }
+            fs.mkdirSync(sharedDest, { recursive: true });
+            fs.cpSync(sharedSrc, sharedDest, { recursive: true });
+            console.log('✓ Copied shared folder to dist/shared');
+          } catch (err: any) {
+            console.warn('Warning: Failed to copy shared folder:', err.message);
+          }
+        }
+        
+        // Also copy to dist/cep/shared/ for completeness (in case imports change)
+        const sharedDestCep = path.join(outDir, 'shared');
+        if (fs.existsSync(sharedSrc)) {
+          try {
+            if (fs.existsSync(sharedDestCep)) {
+              fs.rmSync(sharedDestCep, { recursive: true, force: true });
+            }
+            fs.mkdirSync(sharedDestCep, { recursive: true });
+            fs.cpSync(sharedSrc, sharedDestCep, { recursive: true });
+          } catch (err: any) {
+            // Non-fatal
+          }
+        }
+        
+        // Sync posthog-node files (also runs in buildEnd as fallback after vite-cep-plugin copies files)
+        // This ensures files are synced even if buildStart runs before server folder exists
+        const serverDestEnd = path.join(outDir, 'server');
+        const distPosthogPathEnd = path.join(serverDestEnd, 'node_modules', 'posthog-node', 'dist');
+        const srcPosthogPathEnd = path.join(__dirname, 'node_modules', 'posthog-node', 'dist');
+        if (fs.existsSync(srcPosthogPathEnd) && fs.existsSync(serverDestEnd)) {
+          if (!fs.existsSync(distPosthogPathEnd)) {
+            fs.mkdirSync(distPosthogPathEnd, { recursive: true });
+          }
+          try {
+            const srcFiles = fs.readdirSync(srcPosthogPathEnd, { recursive: true });
+            let copiedCount = 0;
+            for (const file of srcFiles) {
+              const srcFile = path.join(srcPosthogPathEnd, file);
+              const distFile = path.join(distPosthogPathEnd, file);
+              if (fs.statSync(srcFile).isFile()) {
+                if (!fs.existsSync(distFile) || fs.statSync(srcFile).size !== fs.statSync(distFile).size) {
+                  fs.mkdirSync(path.dirname(distFile), { recursive: true });
+                  fs.copyFileSync(srcFile, distFile);
+                  copiedCount++;
+                }
+              }
+            }
+            if (copiedCount > 0) {
+              console.log(`✓ Synced ${copiedCount} posthog-node file(s) in buildEnd`);
+            }
+          } catch (err: any) {
+            console.warn('Warning: Could not sync posthog-node files in buildEnd:', err.message);
+          }
+        }
+        
         // After CEP build completes, create shared UI reference for Resolve
         // This is optional and non-blocking - CEP build is unaffected
         if (process.env.RESOLVE_BUILD !== 'true') {
@@ -908,6 +970,40 @@ export default defineConfig({
           } else {
             console.warn('WARNING: server folder or package.json not found in buildStart');
             console.warn('vite-cep-plugin should copy these files, but they are missing');
+          }
+        }
+        
+        // Sync posthog-node files (runs for ALL builds including dev/watch mode)
+        // This ensures missing files like types.mjs are copied even if npm install skips them
+        const serverDest = path.join(outDir, 'server');
+        const distPosthogPath = path.join(serverDest, 'node_modules', 'posthog-node', 'dist');
+        const srcPosthogPath = path.join(__dirname, 'node_modules', 'posthog-node', 'dist');
+        if (fs.existsSync(srcPosthogPath) && fs.existsSync(serverDest)) {
+          // Ensure dist directory exists
+          if (!fs.existsSync(distPosthogPath)) {
+            fs.mkdirSync(distPosthogPath, { recursive: true });
+          }
+          try {
+            // Copy all files from source to dist (including empty files like types.mjs)
+            const srcFiles = fs.readdirSync(srcPosthogPath, { recursive: true });
+            let copiedCount = 0;
+            for (const file of srcFiles) {
+              const srcFile = path.join(srcPosthogPath, file);
+              const distFile = path.join(distPosthogPath, file);
+              if (fs.statSync(srcFile).isFile()) {
+                // Only copy if file doesn't exist or source is newer/different size
+                if (!fs.existsSync(distFile) || fs.statSync(srcFile).size !== fs.statSync(distFile).size) {
+                  fs.mkdirSync(path.dirname(distFile), { recursive: true });
+                  fs.copyFileSync(srcFile, distFile);
+                  copiedCount++;
+                }
+              }
+            }
+            if (copiedCount > 0) {
+              console.log(`✓ Synced ${copiedCount} posthog-node file(s) to dist`);
+            }
+          } catch (err: any) {
+            console.warn('Warning: Could not sync posthog-node files:', err.message);
           }
         }
         

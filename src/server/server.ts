@@ -298,6 +298,7 @@ app.use((req, res, next) => {
     '/recording/save',
     '/recording/file',
     '/extract-audio',
+    '/audio/convert', // Used by ExtendScript (AE/Premiere) - can't easily send auth headers
     '/download',
     '/mp3/file',
     '/wav/file',
@@ -585,43 +586,36 @@ async function startServer() {
   }
   startupLock = true;
   
+  // First, check if server is already running (handles case where both AE and Premiere start simultaneously)
+  try {
+    const existingCheck = await fetch(`http://127.0.0.1:3000/health`, { 
+      method: 'GET',
+      timeout: 1000
+    }).catch(() => null);
+    if (existingCheck && existingCheck.ok) {
+      try { tlogSync('Server already running on port 3000 - both AE and Premiere can share this instance'); } catch (_) {}
+      startupLock = false;
+      return 3000; // Server already running - success!
+    }
+  } catch (_) {
+    // Health check failed - server not running, proceed to start
+  }
+  
   try {
     const PORT = 3000;
-    // Always replace existing server to ensure fresh code is running
+    // Check again if server is running (double-check after early check, handles race conditions)
+    // If server is running, both AE and Premiere can share it - don't shut it down
     try {
       const r = await fetch(`http://${HOST}:${PORT}/health`, { 
         method: 'GET',
         timeout: 2000 // Shorter timeout for health check
       });
       if (r && r.ok) {
-        try { tlogSync(`Existing Sync Extension server detected on http://${HOST}:${PORT}`); } catch (_) {}
-        try { tlogSync(`Requesting shutdown of existing server to replace with fresh code...`); } catch (_) {}
-        
-        // Try to gracefully shutdown via admin endpoint
-        try {
-          await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
-            method:'POST',
-            timeout: 2000
-          });
-        } catch (e) {
-          // If admin/exit fails, try to find and kill the process
-          try { tlogSync('Admin exit failed, will attempt process kill if port still in use'); } catch (_) {}
-        }
-        
-        // Wait for shutdown - check port availability with retries
-        let portFree = false;
-        for (let i = 0; i < 10; i++) {
-          await new Promise(r2=>setTimeout(r2, 200));
-          const available = await isPortAvailable(PORT);
-          if (available) {
-            portFree = true;
-            break;
-          }
-        }
-        
-        if (!portFree) {
-          try { tlogSync(`Port ${PORT} still in use after shutdown request, proceeding anyway (will handle EADDRINUSE)`); } catch (_) {}
-        }
+        // Server is already running - this is fine when both AE and Premiere are running
+        // Exit gracefully so both apps can use the same server instance
+        try { tlogSync(`Server already running on ${HOST}:${PORT} - both AE and Premiere can share this instance`); } catch (_) {}
+        startupLock = false;
+        return PORT; // Exit successfully - server already running
       }
     } catch (_) { 
       // Health check failed - server not running, proceed to start
@@ -666,24 +660,44 @@ async function startServer() {
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     srv.on('error', async (err) => {
       if (err && err.code === 'EADDRINUSE') {
-        // Port is in use - this shouldn't happen if shutdown worked, but handle it
-        try { tlogSync(`Port ${PORT} in use - attempting to force shutdown...`); } catch (_) {}
+        // Port is in use - this can happen when both AE and Premiere try to start simultaneously
+        // Check if the existing server is actually running and healthy
+        try { tlogSync(`Port ${PORT} in use - checking if existing server is healthy...`); } catch (_) {}
         try {
-          // Try one more time to shut down the existing server
-          await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
-            method:'POST',
-            timeout: 2000
-          }).catch (()=>{});
+          // Wait a moment for the other server to fully start
+          await new Promise(r2=>setTimeout(r2, 1000));
           
-          // Wait a bit longer for port to be released
+          // Verify the existing server is actually running and responding
+          const healthCheck = await fetch(`http://${HOST}:${PORT}/health`, { 
+            method: 'GET',
+            timeout: 2000
+          }).catch(() => null);
+          
+          if (healthCheck && healthCheck.ok) {
+            // Server is already running and healthy - this is fine!
+            // Both AE and Premiere can share the same server instance
+            try { tlogSync(`Port ${PORT} in use but server is healthy - exiting gracefully (server already running)`); } catch (_) {}
+            process.exit(0); // Exit successfully - server is already running
+          } else {
+            // Port is in use but server isn't responding - try to shut it down
+            try { tlogSync(`Port ${PORT} in use but server not responding - attempting shutdown...`); } catch (_) {}
+            await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
+              method:'POST',
+              timeout: 2000
+            }).catch(()=>{});
+            
+            // Wait for port to be released
           await new Promise(r2=>setTimeout(r2, 2000));
           
           // Exit - the extension will retry starting the server
           try { tlogSync(`Exiting to allow extension to retry server startup...`); } catch (_) {}
           process.exit(0);
+          }
         } catch (_) {
-          try { tlogSync(`Port ${PORT} in use and cannot shut down existing server`); } catch (_) {}
-          process.exit(1);
+          try { tlogSync(`Port ${PORT} in use - assuming server is running, exiting gracefully`); } catch (_) {}
+          // If we can't verify, assume server is running and exit successfully
+          // This allows both AE and Premiere to share the same server
+          process.exit(0);
         }
       } else {
         try { tlogSync('Server error', err && err.message ? err.message : String(err)); } catch (_) {}

@@ -148,7 +148,13 @@ export async function convertAiffToWav(srcPath, destPath) {
     if (!(meta.compressionType === 'NONE' || meta.compressionType === 'sowt')) {
       throw new Error('Unsupported AIFF compression: ' + meta.compressionType);
     }
-    const out = destPath || srcPath.replace(/\.[^.]+$/, '.wav');
+    // Generate simple filename to avoid path length issues
+    const out = destPath || (() => {
+      const dir = path.dirname(srcPath);
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 10000);
+      return path.join(dir, `convert_${timestamp}_${random}.wav`);
+    })();
     const ofd = fs.openSync(out, 'w');
     try {
       writeWavHeader(ofd, meta);
@@ -177,13 +183,19 @@ export async function convertAiffToWav(srcPath, destPath) {
       }
       try { const sz = fs.statSync(out).size; tlog('[audio] convertAiffToWav done bytesWritten=', totalWritten, 'fileSize=', sz); } catch (_) {}
     } finally { fs.closeSync(ofd); }
-    return destPath || srcPath.replace(/\.[^.]+$/, '.wav');
+    return out;
   } finally { fs.closeSync(fd); }
 }
 
 export async function convertAiffToMp3(srcPath, destPath) {
   tlog('[audio] convertAiffToMp3 start', srcPath, '->', destPath||'(auto)');
-  const finalPath = destPath || srcPath.replace(/\.[^.]+$/, '.mp3');
+  // Generate simple filename to avoid path length issues
+  const finalPath = destPath || (() => {
+    const dir = path.dirname(srcPath);
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 10000);
+    return path.join(dir, `convert_${timestamp}_${random}.mp3`);
+  })();
   
   return new Promise((resolve, reject) => {
     ffmpeg(srcPath)

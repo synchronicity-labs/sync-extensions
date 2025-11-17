@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Copy, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import { useTabs } from "../hooks/useTabs";
 
@@ -17,21 +17,6 @@ const SettingsTab: React.FC = () => {
     }, 100);
     return () => clearTimeout(timer);
   }, [activeSettingsTab]);
-
-  const handleCopyApiKey = (keyType: "sync" | "elevenlabs") => {
-    const key = keyType === "sync" ? settings.syncApiKey : settings.elevenlabsApiKey;
-    if (key) {
-      navigator.clipboard.writeText(key).catch(() => {
-        // Fallback for older browsers
-        const textarea = document.createElement("textarea");
-        textarea.value = key;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      });
-    }
-  };
 
   const handleInfoClick = (url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -95,9 +80,6 @@ const SettingsTab: React.FC = () => {
                   />
                   <div className="api-key-buttons">
                     <i data-lucide="check" className="api-key-checkmark" style={{ display: settings.syncApiKey ? "block" : "none" }}></i>
-                    <button className="api-key-btn copy-btn" title="Copy" onClick={() => handleCopyApiKey("sync")}>
-                      <Copy size={14} />
-                    </button>
                     <button className="api-key-btn info-btn" title="Info" onClick={() => handleInfoClick("https://docs.sync.so/quickstart#create-your-api-key")}>
                       <Info size={14} />
                     </button>
@@ -114,9 +96,6 @@ const SettingsTab: React.FC = () => {
                   />
                   <div className="api-key-buttons">
                     <i data-lucide="check" className="api-key-checkmark" style={{ display: settings.elevenlabsApiKey ? "block" : "none" }}></i>
-                    <button className="api-key-btn copy-btn" title="Copy" onClick={() => handleCopyApiKey("elevenlabs")}>
-                      <Copy size={14} />
-                    </button>
                     <button className="api-key-btn info-btn" title="Info" onClick={() => handleInfoClick("https://elevenlabs.io/app/settings/api-keys")}>
                       <Info size={14} />
                     </button>

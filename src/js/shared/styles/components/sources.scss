@@ -278,6 +278,50 @@
   .action-row {
     gap: var(--spacing-sm);
   }
+  
+  /* Fix audio container height in compressed breakpoint */
+  .sources-container.has-both {
+    overflow-y: auto;
+  }
+  
+  /* Audio upload interface (when no media selected) */
+  .audio-upload:not(.has-media) {
+    min-height: 325px !important;
+    height: auto !important;
+  }
+  
+  #audioDropzone {
+    min-height: 325px !important;
+    height: auto !important;
+  }
+  
+  .audio-upload .upload-content {
+    min-height: 325px !important;
+    height: auto !important;
+  }
+  
+  /* Audio container when media is selected */
+  .sources-container.has-both .audio-upload.has-media {
+    flex: none;
+    height: auto;
+    min-height: 56px;
+  }
+  
+  .sources-container.has-both .audio-upload.has-media::before {
+    height: 16px;
+    flex-shrink: 0;
+  }
+  
+  .sources-container.has-both .audio-upload.has-media #audioPreview {
+    height: auto;
+    min-height: 40px;
+    flex-shrink: 0;
+  }
+  
+  .sources-container.has-both .audio-upload.has-media .custom-audio-player {
+    height: 40px;
+    min-height: 40px;
+  }
 }
 
 
