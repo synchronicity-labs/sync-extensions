@@ -14,6 +14,10 @@ const upload = multer({
   limits: { fileSize: FILE_SIZE_LIMIT_1GB }
 });
 
+/**
+ * POST /recording/save
+ * Saves recording files and converts them if needed
+ */
 router.post('/recording/save', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -21,7 +25,21 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
     }
 
     const { targetDir, type } = req.body || {};
+    
+    // Validate type if provided
+    if (type && type !== 'video' && type !== 'audio') {
+      return res.status(400).json({ error: 'Type must be "video" or "audio"' });
+    }
+    
+    // Validate file size (already handled by multer, but double-check)
+    if (req.file.size > FILE_SIZE_LIMIT_1GB) {
+      return res.status(400).json({ error: 'File too large (max 1GB)' });
+    }
+    
     const fileName = req.file.originalname || `recording_${Date.now()}.webm`;
+    
+    // Sanitize filename
+    const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 255);
 
     // Recordings always go to uploads directory (temp files)
     const saveDir = (targetDir === 'documents') ? DOCS_DEFAULT_DIR : TEMP_DEFAULT_DIR;
@@ -34,10 +52,24 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
       return res.status(500).json({ error: 'Failed to create directory' });
     }
 
-    const filePath = path.join(saveDir, fileName);
-    fs.writeFileSync(filePath, req.file.buffer);
+    const filePath = path.join(saveDir, sanitizedFileName);
+    
+    try {
+      fs.writeFileSync(filePath, req.file.buffer);
+    } catch (writeError) {
+      const err = writeError as Error;
+      tlog('Failed to write recording file:', err.message);
+      return res.status(500).json({ error: 'Failed to save recording file' });
+    }
 
-    const fileSize = fs.statSync(filePath).size;
+    let fileSize: number;
+    try {
+      fileSize = fs.statSync(filePath).size;
+    } catch (statError) {
+      tlog('Failed to stat saved file:', (statError as Error).message);
+      return res.status(500).json({ error: 'Failed to verify saved file' });
+    }
+    
     tlog('Recording saved:', filePath, 'size:', fileSize, 'type:', type);
 
     // Convert webm to mp4 (video) or wav (audio)
@@ -48,7 +80,9 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
         finalPath = await convertWebmToMp4(filePath);
         // Delete original webm file
         try {
-          fs.unlinkSync(filePath);
+          if (fs.existsSync(filePath) && finalPath !== filePath) {
+            fs.unlinkSync(filePath);
+          }
         } catch (e) {
           tlog('Failed to delete original webm file:', (e as Error).message);
         }
@@ -58,7 +92,9 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
         finalPath = await convertWebmToWav(filePath);
         // Delete original webm file
         try {
-          fs.unlinkSync(filePath);
+          if (fs.existsSync(filePath) && finalPath !== filePath) {
+            fs.unlinkSync(filePath);
+          }
         } catch (e) {
           tlog('Failed to delete original webm file:', (e as Error).message);
         }
@@ -69,7 +105,19 @@ router.post('/recording/save', upload.single('file'), async (req, res) => {
       // Continue with original file if conversion fails
     }
 
-    const finalSize = fs.statSync(finalPath).size;
+    // Verify final file exists
+    if (!fs.existsSync(finalPath)) {
+      return res.status(500).json({ error: 'Final file not found after processing' });
+    }
+    
+    let finalSize: number;
+    try {
+      finalSize = fs.statSync(finalPath).size;
+    } catch (statError) {
+      tlog('Failed to stat final file:', (statError as Error).message);
+      return res.status(500).json({ error: 'Failed to verify final file' });
+    }
+    
     res.json({ ok: true, path: finalPath, size: finalSize });
   } catch (e) {
     const error = e as Error;

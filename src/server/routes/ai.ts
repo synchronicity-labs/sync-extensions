@@ -49,7 +49,7 @@ router.post('/dubbing', async (req, res) => {
           return res.status(400).json({ error: 'Failed to download audio from URL' });
         }
         
-        const tempFileName = `temp_audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
+        const tempFileName = `temp_audio_${Date.now()}_${Math.random().toString(36).slice(2, 11)}.mp3`;
         localAudioPath = path.join(DIRS.uploads, tempFileName);
         
         const buffer = await response.arrayBuffer();
@@ -156,7 +156,7 @@ router.post('/dubbing', async (req, res) => {
               throw new Error(`Failed to get dubbed audio: ${audioResponse.status}`);
             }
             
-            const outputFileName = `dubbed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
+            const outputFileName = `dubbed_${Date.now()}_${Math.random().toString(36).slice(2, 11)}.mp3`;
             const outputPath = path.join(DIRS.uploads, outputFileName);
             
             const audioBuffer = await audioResponse.arrayBuffer();
@@ -273,7 +273,7 @@ router.post('/tts/generate', async (req, res) => {
       
       const ttsDir = path.join(BASE_DIR, 'tts');
       try { fs.mkdirSync(ttsDir, { recursive: true }); } catch (_) {}
-      const outputFileName = `tts_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`;
+      const outputFileName = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 11)}.mp3`;
       const outputPath = path.join(ttsDir, outputFileName);
       
       const audioBuffer = await response.arrayBuffer();

@@ -9,16 +9,51 @@ import { r2Upload } from './r2';
 import { track } from '../telemetry';
 import { SYNC_API_BASE, TEMP_DEFAULT_DIR, FILE_SIZE_LIMIT_20MB } from '../routes/constants';
 
-let saveJobsCallback = null;
-export function setSaveJobsCallback(callback) {
+/**
+ * Job interface for generation service
+ */
+interface GenerationJob {
+  id?: string;
+  syncJobId?: string;
+  videoPath?: string;
+  audioPath?: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  model?: string;
+  options?: Record<string, unknown>;
+  syncApiKey: string;
+  isTempVideo?: boolean;
+  isTempAudio?: boolean;
+  status?: string;
+  createdAt?: string;
+  outputPath?: string;
+  outputDir?: string;
+  error?: string;
+}
+
+type SaveJobsCallback = () => void;
+
+let saveJobsCallback: SaveJobsCallback | null = null;
+
+/**
+ * Sets the callback function to save jobs
+ */
+export function setSaveJobsCallback(callback: SaveJobsCallback): void {
   saveJobsCallback = callback;
 }
 
-function saveJobs() {
-  if (saveJobsCallback) saveJobsCallback();
+function saveJobs(): void {
+  if (saveJobsCallback) {
+    saveJobsCallback();
+  }
 }
 
-export async function createGeneration(job) {
+/**
+ * Creates a generation job via Sync API
+ * @param job - Job configuration
+ * @returns Sync API job ID
+ */
+export async function createGeneration(job: GenerationJob): Promise<string> {
   // Only stat files if URLs are not provided
   const vStat = job.videoUrl ? null : await safeStat(job.videoPath);
   const aStat = job.audioUrl ? null : await safeStat(job.audioPath);
@@ -42,7 +77,15 @@ export async function createGeneration(job) {
   }
 }
 
-async function createGenerationInternal(job, vStat, aStat, overLimit) {
+/**
+ * Internal function to create generation with file stats
+ */
+async function createGenerationInternal(
+  job: GenerationJob,
+  vStat: { size: number } | null,
+  aStat: { size: number } | null,
+  overLimit: boolean
+): Promise<string> {
   try {
     if (job.videoUrl && job.audioUrl) {
       const body = {
@@ -111,7 +154,12 @@ async function createGenerationInternal(job, vStat, aStat, overLimit) {
   return data.id;
 }
 
-export async function fetchGeneration(job) {
+/**
+ * Fetches generation metadata from Sync API
+ * @param job - Job with ID and API key
+ * @returns Generation metadata or null if not found
+ */
+export async function fetchGeneration(job: GenerationJob): Promise<Record<string, unknown> | null> {
   const jobId = job.id || job.syncJobId; // Support both formats during transition
   let resp = await fetch(`${SYNC_API_BASE}/generate/${jobId}`, { headers: { 'x-api-key': job.syncApiKey }, signal: AbortSignal.timeout(10000) });
   if (!resp.ok && resp.status === 404) {
@@ -121,7 +169,12 @@ export async function fetchGeneration(job) {
   return await resp.json();
 }
 
-export async function downloadIfReady(job) {
+/**
+ * Downloads generation output if ready
+ * @param job - Job with ID, API key, and output directory
+ * @returns True if download succeeded, false otherwise
+ */
+export async function downloadIfReady(job: GenerationJob): Promise<boolean> {
   const meta = await fetchGeneration(job);
   if (!meta || !meta.outputUrl) return false;
   const response = await fetch(meta.outputUrl);
@@ -138,11 +191,15 @@ export async function downloadIfReady(job) {
   return true;
 }
 
-export function pollSyncJob(job) {
+/**
+ * Polls Sync API for job completion and downloads when ready
+ * @param job - Job to poll
+ */
+export function pollSyncJob(job: GenerationJob): void {
   const pollInterval = 5000;
   const maxAttempts = 120;
   let attempts = 0;
-  let pollTimeout = null;
+  let pollTimeout: NodeJS.Timeout | null = null;
   
   const tick = async () => {
     attempts++;

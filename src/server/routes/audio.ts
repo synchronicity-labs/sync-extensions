@@ -10,18 +10,28 @@ import { DIRS } from '../serverConfig';
 
 const router = express.Router();
 
-// Support both GET (for ExtendScript curl calls) and POST
+/**
+ * GET /audio/convert
+ * Converts audio files (for ExtendScript curl calls)
+ */
 router.get('/audio/convert', async (req, res) => {
   try {
     const srcPath = req.query.srcPath as string;
     const format = (req.query.format as string) || 'wav';
-    tlog('GET /audio/convert', 'format=', format, 'srcPath=', srcPath);
+    
     if (!srcPath || typeof srcPath !== 'string' || !path.isAbsolute(srcPath)) {
-      tlog('convert invalid path');
       return res.status(400).json({ error: 'invalid srcPath' });
     }
-    if (!fs.existsSync(srcPath)) return res.status(404).json({ error: 'source not found' });
+    if (!fs.existsSync(srcPath)) {
+      return res.status(404).json({ error: 'source not found' });
+    }
+    
     const fmt = String(format || 'wav').toLowerCase();
+    if (fmt !== 'wav' && fmt !== 'mp3') {
+      return res.status(400).json({ error: 'Unsupported format. Use wav or mp3.' });
+    }
+    
+    tlog('GET /audio/convert', 'format=', fmt, 'srcPath=', srcPath);
     if (fmt === 'mp3') {
       try {
         const out = await convertAudio(srcPath, fmt);
@@ -45,16 +55,27 @@ router.get('/audio/convert', async (req, res) => {
   }
 });
 
+/**
+ * POST /audio/convert
+ * Converts audio files
+ */
 router.post('/audio/convert', async (req, res) => {
   try {
     const { srcPath, format } = req.body || {};
-    tlog('POST /audio/convert', 'format=', format, 'srcPath=', srcPath);
+    
     if (!srcPath || typeof srcPath !== 'string' || !path.isAbsolute(srcPath)) {
-      tlog('convert invalid path');
       return res.status(400).json({ error: 'invalid srcPath' });
     }
-    if (!fs.existsSync(srcPath)) return res.status(404).json({ error: 'source not found' });
+    if (!fs.existsSync(srcPath)) {
+      return res.status(404).json({ error: 'source not found' });
+    }
+    
     const fmt = String(format || 'wav').toLowerCase();
+    if (fmt !== 'wav' && fmt !== 'mp3') {
+      return res.status(400).json({ error: 'Unsupported format. Use wav or mp3.' });
+    }
+    
+    tlog('POST /audio/convert', 'format=', fmt, 'srcPath=', srcPath);
     if (fmt === 'mp3') {
       try {
         const out = await convertAudio(srcPath, fmt);
@@ -78,14 +99,25 @@ router.post('/audio/convert', async (req, res) => {
   }
 });
 
+/**
+ * POST /extract-audio
+ * Extracts audio from video files
+ */
 router.post('/extract-audio', async (req, res) => {
   try {
     const { videoPath, videoUrl, format } = req.body || {};
-    tlog('POST /extract-audio', 'format=' + format, 'videoPath=' + videoPath, 'videoUrl=' + videoUrl, 'body=' + JSON.stringify(sanitizeForLogging(req.body)));
-
+    
     if (!videoPath && !videoUrl) {
       return res.status(400).json({ error: 'Video path or URL required' });
     }
+    
+    // Validate format early
+    const fmt = String(format || 'wav').toLowerCase();
+    if (fmt !== 'wav' && fmt !== 'mp3') {
+      return res.status(400).json({ error: 'Unsupported format. Use wav or mp3.' });
+    }
+    
+    tlog('POST /extract-audio', 'format=' + fmt, 'hasVideoPath=' + !!videoPath, 'hasVideoUrl=' + !!videoUrl);
 
     let localVideoPath: string | undefined = videoPath;
 
@@ -97,7 +129,7 @@ router.post('/extract-audio', async (req, res) => {
         }
 
         const tempDir = os.tmpdir();
-        const tempFileName = `temp_video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp4`;
+        const tempFileName = `temp_video_${Date.now()}_${Math.random().toString(36).slice(2, 11)}.mp4`;
         localVideoPath = path.join(tempDir, tempFileName);
 
         const buffer = await response.arrayBuffer();
@@ -118,11 +150,6 @@ router.post('/extract-audio', async (req, res) => {
 
     if (!fs.existsSync(localVideoPath)) {
       return res.status(404).json({ error: 'video file not found' });
-    }
-
-    const fmt = String(format || 'wav').toLowerCase();
-    if (fmt !== 'wav' && fmt !== 'mp3') {
-      return res.status(400).json({ error: 'Unsupported format. Use wav or mp3.' });
     }
 
     try {
