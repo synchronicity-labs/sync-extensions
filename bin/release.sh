@@ -509,13 +509,72 @@ Write-Host ""
 Read-Host "Press Enter to exit"
 WININSTALLER
 
+  # Create self-elevating PowerShell installer script
+  # This version automatically requests admin privileges
+  cat > "$TEMP_WIN_DIR/install-resolve-plugin.ps1" << 'WININSTALLER'
+# sync. DaVinci Resolve Plugin Installer
+# Self-elevating installer script
+
+$ErrorActionPreference = "Stop"
+
+# Check if running as Administrator, if not, elevate
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
+    $arguments = "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    Start-Process powershell -Verb RunAs -ArgumentList $arguments -Wait
+    exit
+}
+
+Write-Host "sync. DaVinci Resolve Plugin Installer" -ForegroundColor Cyan
+Write-Host "=======================================" -ForegroundColor Cyan
+Write-Host ""
+
+$TargetDir = "${env:ProgramData}\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins"
+$PluginName = "sync.resolve"
+$SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SourcePlugin = Join-Path $SourceDir $PluginName
+$TargetPlugin = Join-Path $TargetDir $PluginName
+
+Write-Host "Installing plugin to: $TargetDir" -ForegroundColor Green
+Write-Host ""
+
+# Create target directory if it doesn't exist
+if (-not (Test-Path $TargetDir)) {
+    Write-Host "Creating target directory..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+}
+
+# Remove existing plugin if present
+if (Test-Path $TargetPlugin) {
+    Write-Host "Removing existing plugin..." -ForegroundColor Yellow
+    Remove-Item -Recurse -Force $TargetPlugin
+}
+
+# Copy plugin
+Write-Host "Copying plugin files..." -ForegroundColor Yellow
+Copy-Item -Recurse -Force $SourcePlugin $TargetPlugin
+
+Write-Host ""
+Write-Host "✅ Installation complete!" -ForegroundColor Green
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "  1. Restart DaVinci Resolve"
+Write-Host "  2. Find the plugin in: Workspace > Workflow Integration > sync."
+Write-Host ""
+Write-Host "For troubleshooting, visit: https://sync.so" -ForegroundColor Gray
+Write-Host ""
+Read-Host "Press Enter to exit"
+WININSTALLER
+
   # Create batch file wrapper
   cat > "$TEMP_WIN_DIR/Install.bat" << 'BATCHFILE'
 @echo off
 echo sync. DaVinci Resolve Plugin Installer
 echo =======================================
 echo.
-echo This will install the plugin. You may be prompted for Administrator privileges.
+echo This installer will request Administrator privileges automatically.
 echo.
 pause
 powershell -ExecutionPolicy Bypass -File "%~dp0install-resolve-plugin.ps1"
@@ -528,17 +587,13 @@ sync. DaVinci Resolve Plugin - Installation Instructions
 ========================================================
 
 INSTALLATION:
-1. Right-click on "Install.bat" and select "Run as Administrator"
-2. If prompted, click "Yes" to allow the script to run
+1. Double-click "Install.bat" or "install-resolve-plugin.ps1"
+2. Click "Yes" when prompted for Administrator privileges (UAC prompt)
 3. Follow the on-screen instructions
 4. Restart DaVinci Resolve
 
-ALTERNATIVE INSTALLATION:
-1. Right-click on "install-resolve-plugin.ps1" and select "Run with PowerShell"
-2. If prompted, click "Yes" to allow the script to run
-3. You may need to run as Administrator (right-click > Run as Administrator)
-4. Follow the on-screen instructions
-5. Restart DaVinci Resolve
+Note: The installer will automatically request Administrator privileges.
+You don't need to manually right-click and select "Run as Administrator".
 
 MANUAL INSTALLATION:
 1. Copy the "sync.resolve" folder to:
