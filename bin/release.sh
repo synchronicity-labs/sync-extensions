@@ -418,27 +418,188 @@ else
   echo "   (DMG can be created manually on macOS using: ./bin/create-mac-installer.sh $VERSION)"
 fi
 
-# Create Windows installer
+# Create Windows installer (works on any platform)
 echo ""
 echo "🪟 Creating Windows installer..."
-if [ -f "$REPO_DIR/bin/create-windows-installer.ps1" ]; then
-  # Try to run PowerShell script (works on Windows, WSL, or if pwsh is available)
-  if command -v pwsh >/dev/null 2>&1; then
-    pwsh -File "$REPO_DIR/bin/create-windows-installer.ps1" "$VERSION" || {
-      echo "⚠️  Windows installer creation failed (non-fatal)"
-      echo "   Installer can be created manually on Windows using: .\\bin\\create-windows-installer.ps1 $VERSION"
-    }
-  elif command -v powershell >/dev/null 2>&1; then
-    powershell -File "$REPO_DIR/bin/create-windows-installer.ps1" "$VERSION" || {
-      echo "⚠️  Windows installer creation failed (non-fatal)"
-      echo "   Installer can be created manually on Windows using: .\\bin\\create-windows-installer.ps1 $VERSION"
+WIN_INSTALLER_NAME="sync-resolve-installer-v${VERSION}"
+WIN_INSTALLER_ZIP_PATH="$REPO_DIR/dist/${WIN_INSTALLER_NAME}.zip"
+TEMP_WIN_DIR="$REPO_DIR/dist/.windows-installer-build"
+
+# Clean up previous build
+rm -rf "$TEMP_WIN_DIR"
+mkdir -p "$TEMP_WIN_DIR"
+
+# Extract the Resolve plugin ZIP to get the plugin folder
+echo "Extracting plugin for Windows installer..."
+EXTRACT_DIR="$REPO_DIR/dist/.win-extract"
+rm -rf "$EXTRACT_DIR"
+mkdir -p "$EXTRACT_DIR"
+
+if ! unzip -q -o "$RESOLVE_ZIP_PATH" -d "$EXTRACT_DIR" 2>/dev/null; then
+  echo "⚠️  Failed to extract Resolve ZIP for Windows installer (non-fatal)"
+  rm -rf "$EXTRACT_DIR" "$TEMP_WIN_DIR"
+else
+  # Rename resolve folder to sync.resolve if needed
+  if [ -d "$EXTRACT_DIR/resolve" ]; then
+    cp -R "$EXTRACT_DIR/resolve" "$TEMP_WIN_DIR/sync.resolve"
+  elif [ -d "$EXTRACT_DIR/sync.resolve" ]; then
+    cp -R "$EXTRACT_DIR/sync.resolve" "$TEMP_WIN_DIR/sync.resolve"
+  else
+    echo "⚠️  Plugin folder not found in ZIP (non-fatal)"
+    rm -rf "$EXTRACT_DIR" "$TEMP_WIN_DIR"
+  fi
+fi
+
+if [ -d "$TEMP_WIN_DIR/sync.resolve" ]; then
+  # Create PowerShell installer script
+  cat > "$TEMP_WIN_DIR/install-resolve-plugin.ps1" << 'WININSTALLER'
+# sync. DaVinci Resolve Plugin Installer
+# Run this script as Administrator to install the plugin
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "sync. DaVinci Resolve Plugin Installer" -ForegroundColor Cyan
+Write-Host "=======================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Check for admin privileges
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "Error: This installer requires Administrator privileges." -ForegroundColor Red
+    Write-Host "Please right-click and select 'Run as Administrator'" -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+$TargetDir = "${env:ProgramData}\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins"
+$PluginName = "sync.resolve"
+$SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SourcePlugin = Join-Path $SourceDir $PluginName
+$TargetPlugin = Join-Path $TargetDir $PluginName
+
+Write-Host "Installing plugin to: $TargetDir" -ForegroundColor Green
+Write-Host ""
+
+# Create target directory if it doesn't exist
+if (-not (Test-Path $TargetDir)) {
+    Write-Host "Creating target directory..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+}
+
+# Remove existing plugin if present
+if (Test-Path $TargetPlugin) {
+    Write-Host "Removing existing plugin..." -ForegroundColor Yellow
+    Remove-Item -Recurse -Force $TargetPlugin
+}
+
+# Copy plugin
+Write-Host "Copying plugin files..." -ForegroundColor Yellow
+Copy-Item -Recurse -Force $SourcePlugin $TargetPlugin
+
+Write-Host ""
+Write-Host "✅ Installation complete!" -ForegroundColor Green
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "  1. Restart DaVinci Resolve"
+Write-Host "  2. Find the plugin in: Workspace > Workflow Integration > sync."
+Write-Host ""
+Write-Host "For troubleshooting, visit: https://sync.so" -ForegroundColor Gray
+Write-Host ""
+Read-Host "Press Enter to exit"
+WININSTALLER
+
+  # Create batch file wrapper
+  cat > "$TEMP_WIN_DIR/Install.bat" << 'BATCHFILE'
+@echo off
+echo sync. DaVinci Resolve Plugin Installer
+echo =======================================
+echo.
+echo This will install the plugin. You may be prompted for Administrator privileges.
+echo.
+pause
+powershell -ExecutionPolicy Bypass -File "%~dp0install-resolve-plugin.ps1"
+pause
+BATCHFILE
+
+  # Create README
+  cat > "$TEMP_WIN_DIR/README.txt" << EOF
+sync. DaVinci Resolve Plugin - Installation Instructions
+========================================================
+
+INSTALLATION:
+1. Right-click on "Install.bat" and select "Run as Administrator"
+2. If prompted, click "Yes" to allow the script to run
+3. Follow the on-screen instructions
+4. Restart DaVinci Resolve
+
+ALTERNATIVE INSTALLATION:
+1. Right-click on "install-resolve-plugin.ps1" and select "Run with PowerShell"
+2. If prompted, click "Yes" to allow the script to run
+3. You may need to run as Administrator (right-click > Run as Administrator)
+4. Follow the on-screen instructions
+5. Restart DaVinci Resolve
+
+MANUAL INSTALLATION:
+1. Copy the "sync.resolve" folder to:
+   C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\
+2. Restart DaVinci Resolve
+
+FINDING THE PLUGIN:
+After restarting DaVinci Resolve, find the plugin in:
+  Workspace > Workflow Integration > sync.
+
+TROUBLESHOOTING:
+- Ensure DaVinci Resolve is closed before installing
+- You may need Administrator privileges to install to ProgramData
+- Check that the plugin folder is in the correct location
+- Visit https://sync.so for support
+
+Version: $VERSION
+EOF
+
+  # Create ZIP file
+  echo "Packaging Windows installer..."
+  cd "$TEMP_WIN_DIR"
+  if command -v zip >/dev/null 2>&1; then
+    zip -r "$WIN_INSTALLER_ZIP_PATH" . -q || {
+      echo "⚠️  Failed to create Windows installer ZIP (non-fatal)"
+      rm -rf "$TEMP_WIN_DIR"
+      rm -rf "$EXTRACT_DIR"
     }
   else
-    echo "⚠️  PowerShell not found, skipping Windows installer creation"
-    echo "   Installer can be created manually on Windows using: .\\bin\\create-windows-installer.ps1 $VERSION"
+    # Fallback: try to use Python or other tools
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -m zipfile -c "$WIN_INSTALLER_ZIP_PATH" . || {
+        echo "⚠️  Failed to create Windows installer ZIP (non-fatal)"
+        rm -rf "$TEMP_WIN_DIR"
+        rm -rf "$EXTRACT_DIR"
+      }
+    else
+      echo "⚠️  zip command not found, skipping Windows installer creation"
+      echo "   Installer can be created manually using: .\\bin\\create-windows-installer.ps1 $VERSION"
+      rm -rf "$TEMP_WIN_DIR"
+      rm -rf "$EXTRACT_DIR"
+    fi
+  fi
+
+  # Clean up
+  rm -rf "$TEMP_WIN_DIR"
+  rm -rf "$EXTRACT_DIR"
+
+  if [ -f "$WIN_INSTALLER_ZIP_PATH" ]; then
+    if command -v stat >/dev/null 2>&1; then
+      WIN_SIZE=$(stat -f%z "$WIN_INSTALLER_ZIP_PATH" 2>/dev/null || stat -c%s "$WIN_INSTALLER_ZIP_PATH" 2>/dev/null)
+    else
+      WIN_SIZE=$(wc -c < "$WIN_INSTALLER_ZIP_PATH" 2>/dev/null || echo "0")
+    fi
+    WIN_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $WIN_SIZE / 1024 / 1024}" 2>/dev/null || echo "0.00")
+    echo "✅ Windows installer created: $WIN_INSTALLER_ZIP_PATH (${WIN_SIZE_MB} MB)"
   fi
 else
-  echo "⚠️  Windows installer script not found (skipping)"
+  echo "⚠️  Windows installer creation skipped (plugin folder not found)"
+  # Clean up any remaining temp files
+  rm -rf "$EXTRACT_DIR"
 fi
 
 # Commit changes
