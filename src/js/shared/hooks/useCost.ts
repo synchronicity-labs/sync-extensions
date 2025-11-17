@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
+import { getSettings } from "../utils/storage";
 
 export const useCost = () => {
   const { authHeaders, ensureAuthToken, fetchWithTimeout } = useCore();
@@ -34,7 +35,7 @@ export const useCost = () => {
       setIsLoading(true);
       try {
         await ensureAuthToken();
-        const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+        const settings = getSettings();
         
         debugLog('[useCost] Estimating cost', { 
           videoUrl: videoUrl.substring(0, 100) + '...', 

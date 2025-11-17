@@ -37,28 +37,93 @@ export const useMedia = () => {
   // Track AbortControllers for ongoing uploads
   const videoUploadControllerRef = useRef<AbortController | null>(null);
   const audioUploadControllerRef = useRef<AbortController | null>(null);
+  
+  // Guard to prevent re-entrant calls (with timeout to auto-reset)
+  const openFileDialogBusyRef = useRef<{ busy: boolean; kind?: string; timeout?: NodeJS.Timeout }>({ busy: false });
 
   const openFileDialog = useCallback(
     async (kind: "video" | "audio"): Promise<string | null> => {
-      // Use window.nle as fallback if hook's nle is not ready yet
-      const nleToUse = nle || (window as any).nle;
-      if (!nleToUse) {
-        debugLog('openFileDialog: nle not available', { kind });
+      // Ensure ref is always an object
+      if (!openFileDialogBusyRef.current || typeof openFileDialogBusyRef.current !== 'object') {
+        openFileDialogBusyRef.current = { busy: false };
+      }
+      
+      // Prevent re-entrant calls for the same kind
+      if (openFileDialogBusyRef.current.busy && openFileDialogBusyRef.current.kind === kind) {
+        debugLog('openFileDialog: Already busy with same kind, ignoring duplicate call', { 
+          kind, 
+          busy: openFileDialogBusyRef.current.busy,
+          currentKind: openFileDialogBusyRef.current.kind,
+          hasTimeout: !!openFileDialogBusyRef.current.timeout
+        });
         return null;
       }
       
+      // Clear any existing timeout
+      if (openFileDialogBusyRef.current.timeout) {
+        clearTimeout(openFileDialogBusyRef.current.timeout);
+      }
+      
+      openFileDialogBusyRef.current.busy = true;
+      openFileDialogBusyRef.current.kind = kind;
+      
+      // Auto-reset after 10 seconds in case the dialog gets stuck
+      const timeoutId = setTimeout(() => {
+        const current = openFileDialogBusyRef.current;
+        if (current && typeof current === 'object' && current.busy) {
+          debugLog('openFileDialog: Auto-resetting busy flag after timeout', { kind });
+          current.busy = false;
+          current.kind = undefined;
+          current.timeout = undefined;
+        }
+      }, 10000);
+      
+      openFileDialogBusyRef.current.timeout = timeoutId;
+      
       try {
-        const hostId = nleToUse.getHostId();
+        // Use window.nle as fallback if hook's nle is not ready yet
+        const nleToUse = nle || (window as any).nle;
+        
+        // Check host ID from multiple sources for Resolve detection
+        // Priority 1: Check for Electron/electronAPI (Resolve uses Electron)
+        let hostId: string | undefined;
+        const hasElectronAPI = typeof (window as any).electronAPI !== 'undefined';
+        const hasElectronProcess = typeof process !== 'undefined' && process.versions && process.versions.electron;
+        
+        if (hasElectronAPI || hasElectronProcess) {
+          // Electron detected - this is Resolve
+          hostId = HOST_IDS.RESOLVE;
+          // Don't log this every time - it's normal in Resolve
+        }
+        
+        // Priority 2: Check nle.getHostId()
+        if (!hostId && nleToUse && typeof nleToUse.getHostId === 'function') {
+          try {
+            hostId = nleToUse.getHostId();
+          } catch (e) {
+            debugError('openFileDialog: Error getting hostId from nle', e);
+          }
+        }
+        
+        // Priority 3: Check HOST_CONFIG
+        if (!hostId && (window as any).HOST_CONFIG?.hostId) {
+          hostId = (window as any).HOST_CONFIG.hostId;
+        }
+        
+        // Only log host detection if it's unclear or there's an issue
+        if (!hostId || (hostId === HOST_IDS.RESOLVE && !(window as any).selectVideo && !(window as any).selectAudio)) {
+          debugLog('openFileDialog: Host detection', { kind, hostId, hasElectronAPI, hasElectronProcess, hasNle: !!nleToUse, hasSelectVideo: typeof (window as any).selectVideo === 'function', hasSelectAudio: typeof (window as any).selectAudio === 'function' });
+        }
         
         // For Resolve, use window.selectVideo/selectAudio directly (set up by nle-resolve.ts)
-        if (hostId === HOST_IDS.RESOLVE) {
+        if (hostId === HOST_IDS.RESOLVE || hostId === 'RESOLVE') {
           if (kind === "video") {
             if (typeof (window as any).selectVideo === 'function') {
               try {
+                debugLog('openFileDialog: Calling window.selectVideo', { kind });
                 const path = await (window as any).selectVideo();
-                if (!path) {
-                  debugLog('openFileDialog: User cancelled or no file selected', { kind });
-                }
+                debugLog('openFileDialog: window.selectVideo returned', { kind, path: path ? 'path provided' : 'null' });
+                // User cancellation is normal, don't log it
                 return path;
               } catch (error) {
                 debugError('openFileDialog: Error calling selectVideo', error);
@@ -74,9 +139,7 @@ export const useMedia = () => {
             if (typeof (window as any).selectAudio === 'function') {
               try {
                 const path = await (window as any).selectAudio();
-                if (!path) {
-                  debugLog('openFileDialog: User cancelled or no file selected', { kind });
-                }
+                // User cancellation is normal, don't log it
                 return path;
               } catch (error) {
                 debugError('openFileDialog: Error calling selectAudio', error);
@@ -91,10 +154,21 @@ export const useMedia = () => {
           }
         }
         
+        // If we detected Resolve but don't have the functions, don't fall through to CEP
+        if (hostId === HOST_IDS.RESOLVE || hostId === 'RESOLVE') {
+          debugError('openFileDialog: Resolve detected but selectVideo/selectAudio not available', { kind, hostId });
+          return null;
+        }
+        
+        if (!nleToUse) {
+          debugLog('openFileDialog: nle not available', { kind, hostId });
+          return null;
+        }
+        
         // For CEP hosts (Premiere/AE), use evalExtendScript
         // Check for evalExtendScript (set up by windowGlobals)
         if (typeof (window as any).evalExtendScript !== 'function') {
-          debugLog('openFileDialog: evalExtendScript not available', { kind });
+          debugLog('openFileDialog: evalExtendScript not available', { kind, hostId });
           return null;
         }
         
@@ -117,6 +191,20 @@ export const useMedia = () => {
       } catch (error) {
         debugLog('openFileDialog: Exception', { kind, error });
         return null;
+      } finally {
+        // Clear timeout and reset busy flag
+        const current = openFileDialogBusyRef.current;
+        if (current && typeof current === 'object') {
+          if (current.timeout) {
+            clearTimeout(current.timeout);
+            current.timeout = undefined;
+          }
+          current.busy = false;
+          current.kind = undefined;
+        } else {
+          // Reset to proper object if it got corrupted
+          openFileDialogBusyRef.current = { busy: false };
+        }
       }
     },
     [nle]
@@ -139,7 +227,7 @@ export const useMedia = () => {
     try {
       showToast(ToastMessages.OPENING_VIDEO_PICKER, "info");
       const path = await openFileDialog("video");
-      if (path) {
+      if (path && path.trim() !== '') {
         // Set video path - preview will show after upload completes
         debugLog('[useMedia] selectVideo: Setting video path', { path });
         setSelection((prev) => ({
@@ -184,7 +272,7 @@ export const useMedia = () => {
           const response = await fetch(getApiUrl("/upload"), {
             method: "POST",
             headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ path, apiKey: settings.syncApiKey || "" }),
+            body: JSON.stringify({ path, syncApiKey: settings.syncApiKey || "" }),
             signal: controller.signal,
           });
           
@@ -248,7 +336,7 @@ export const useMedia = () => {
     try {
       showToast(ToastMessages.OPENING_AUDIO_PICKER, "info");
       const path = await openFileDialog("audio");
-      if (path) {
+      if (path && path.trim() !== '') {
         setSelection((prev) => ({
           ...prev,
           audio: path,
@@ -286,7 +374,7 @@ export const useMedia = () => {
           const response = await fetch(getApiUrl("/upload"), {
             method: "POST",
             headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ path, apiKey: settings.syncApiKey || "" }),
+            body: JSON.stringify({ path, syncApiKey: settings.syncApiKey || "" }),
             signal: controller.signal,
           });
           
@@ -455,7 +543,7 @@ export const useMedia = () => {
         const response = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ path: videoPath, apiKey: settings.syncApiKey || "" }),
+          body: JSON.stringify({ path: videoPath, syncApiKey: settings.syncApiKey || "" }),
           signal: controller.signal,
         });
         
@@ -585,7 +673,7 @@ export const useMedia = () => {
         const response = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ path: audioPath, apiKey: settings.syncApiKey || "" }),
+          body: JSON.stringify({ path: audioPath, syncApiKey: settings.syncApiKey || "" }),
           signal: controller.signal,
         });
         

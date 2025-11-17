@@ -31,8 +31,11 @@ def _get_project():
         return None
     try:
         project_manager = resolve.GetProjectManager()
+        if not project_manager:
+            return None
         return project_manager.GetCurrentProject()
-    except:
+    except Exception as e:
+        print(f"Error getting project: {e}", file=sys.stderr)
         return None
 
 def _get_timeline():
@@ -427,11 +430,18 @@ def import_file_to_bin(payload_json):
 def get_project_dir():
     """Get current project directory"""
     try:
+        # Check if Resolve is initialized
+        if not resolve:
+            return _respond({'ok': False, 'error': 'Resolve API not initialized. Make sure DaVinci Resolve is running.'})
+        
         project = _get_project()
         if not project:
-            return _respond({'ok': False, 'error': 'No active project'})
+            return _respond({'ok': False, 'error': 'No active project. Please open or create a project in DaVinci Resolve.'})
         
-        project_name = project.GetName()
+        try:
+            project_name = project.GetName()
+        except:
+            project_name = 'Untitled Project'
         
         # Try to get actual project directory from Resolve
         # Resolve stores projects in a database, but we can use project name
@@ -448,7 +458,10 @@ def get_project_dir():
             pass  # Fall back to Documents
         
         output_dir = os.path.join(project_dir, 'sync. outputs')
-        os.makedirs(output_dir, exist_ok=True)
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except Exception as e:
+            return _respond({'ok': False, 'error': f'Failed to create output directory: {str(e)}'})
         
         return _respond({
             'ok': True,
@@ -458,7 +471,12 @@ def get_project_dir():
         })
         
     except Exception as e:
-        return _respond({'ok': False, 'error': str(e)})
+        # Ensure we always return valid JSON, even on unexpected errors
+        try:
+            return _respond({'ok': False, 'error': str(e)})
+        except:
+            # Last resort: return minimal valid JSON
+            return json.dumps({'ok': False, 'error': 'Unknown error occurred'})
 
 def reveal_file(path_json):
     """Reveal file in Finder/Explorer"""
@@ -484,6 +502,10 @@ def reveal_file(path_json):
 def diag_in_out():
     """Get diagnostic info about timeline"""
     try:
+        # Check if Resolve is initialized
+        if not resolve:
+            return _respond({'ok': False, 'error': 'Resolve API not initialized. Make sure DaVinci Resolve is running.'})
+        
         timeline = _get_timeline()
         project = _get_project()
         
@@ -494,9 +516,18 @@ def diag_in_out():
         }
         
         if timeline:
+            try:
             info['timelineName'] = timeline.GetName()
+            except:
+                info['timelineName'] = None
+            try:
             info['startFrame'] = timeline.GetStartFrame()
+            except:
+                info['startFrame'] = None
+            try:
             info['endFrame'] = timeline.GetEndFrame()
+            except:
+                info['endFrame'] = None
             try:
                 info['currentTimecode'] = timeline.GetCurrentTimecode()
             except:
@@ -511,7 +542,10 @@ def diag_in_out():
                 info['markOut'] = None
         
         if project:
+            try:
             info['projectName'] = project.GetName()
+            except:
+                info['projectName'] = None
         
         return _respond(info)
         

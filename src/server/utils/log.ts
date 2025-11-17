@@ -68,7 +68,7 @@ export function tlogSync(...args: unknown[]): void {
  * Sanitizes an object by removing sensitive fields like API keys before logging.
  * Returns a new object with sensitive fields replaced with '[REDACTED]'.
  */
-export function sanitizeForLogging(obj: any): any {
+export function sanitizeForLogging(obj: unknown): unknown {
   if (obj === null || obj === undefined) {
     return obj;
   }
@@ -103,7 +103,8 @@ export function sanitizeForLogging(obj: any): any {
     'Password',
   ];
   
-  const sanitized: any = {};
+  // At this point, obj is a non-null, non-array object
+  const sanitized: Record<string, unknown> = {};
   
   for (const [key, value] of Object.entries(obj)) {
     const lowerKey = key.toLowerCase();

@@ -10,7 +10,8 @@ function _callSystem(cmd) {
       return system.callSystem(cmd);
     }
   } catch(e2) { /* ignore */ }
-  return '';
+  // Return non-zero exit code if system call is not available
+  return -1;
 }
 function SYNC_getBaseDirs(){
   try{
@@ -863,7 +864,7 @@ export function PPRO_startBackend() {
       } else {
         cmd = "/bin/bash -lc 'curl -s -m 1 \"" + url + "\" >/dev/null 2>&1'";
       }
-      var result = system.callSystem(cmd);
+      var result = _callSystem(cmd);
       // If curl succeeds, server is already running
       if (result === 0) {
         try {
@@ -1044,7 +1045,7 @@ export function PPRO_startBackend() {
         }
       } catch(e) {}
       
-      var spawnResult = system.callSystem(spawnCmd);
+      var spawnResult = _callSystem(spawnCmd);
       
       try {
         var logFile = _pproDebugLogFile();
@@ -1067,7 +1068,7 @@ export function PPRO_startBackend() {
           } else {
             checkCmd = "/bin/bash -lc 'curl -s -m 1 \"" + checkUrl + "\" >/dev/null 2>&1'";
           }
-          var checkResult = system.callSystem(checkCmd);
+          var checkResult = _callSystem(checkCmd);
           if (checkResult === 0) {
             serverStarted = true;
             try {
@@ -1144,12 +1145,12 @@ export function PPRO_stopBackend() {
     if (isWindows) {
       // Windows: kill processes on port 3000
       try {
-        System.callSystem('cmd.exe /c "for /f \"tokens=5\" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"');
+        _callSystem('cmd.exe /c "for /f \"tokens=5\" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"');
       } catch(e) {}
     } else {
       // macOS: kill processes on port 3000
       try {
-        System.callSystem("/bin/bash -lc 'lsof -tiTCP:3000 | xargs -r kill -9 || true'");
+        _callSystem("/bin/bash -lc 'lsof -tiTCP:3000 | xargs -r kill -9 || true'");
       } catch(e) {}
     }
     

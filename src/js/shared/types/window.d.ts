@@ -6,9 +6,9 @@ interface Window {
       getSystemPath?: (path: string) => string;
       evalScript?: (script: string, callback?: (result: string) => void) => void;
       openURLInDefaultBrowser?: (url: string) => void;
-      addEventListener?: (event: string, callback: (event: any) => void) => void;
-      removeEventListener?: (event: string, callback: (event: any) => void, scope?: any) => void;
-      dispatchEvent?: (event: any) => void;
+      addEventListener?: (event: string, callback: (event: unknown) => void) => void;
+      removeEventListener?: (event: string, callback: (event: unknown) => void, scope?: unknown) => void;
+      dispatchEvent?: (event: unknown) => void;
       getApplicationID?: () => string;
       getExtensionID?: () => string;
     };
@@ -25,11 +25,11 @@ interface Window {
   };
   __adobe_cep__?: {
     getHostEnvironment?: () => string;
-    invokeSync?: (method: string, ...args: any[]) => any;
+    invokeSync?: (method: string, ...args: unknown[]) => unknown;
     invokeAsync?: (method: string, data: string, callback: (result: string) => void) => void;
-    addEventListener?: (event: string, callback: (event: any) => void) => void;
+    addEventListener?: (event: string, callback: (event: unknown) => void) => void;
   };
-  debugLog?: (message: string, data?: any) => void;
+  debugLog?: (message: string, data?: unknown) => void;
   HOST_CONFIG?: {
     hostId: "AEFT" | "PPRO" | "RESOLVE";
     hostName: string;
@@ -42,22 +42,22 @@ interface Window {
   nle?: {
     getHostId: () => string;
     loadHostScript: () => Promise<void>;
-    startBackend: () => Promise<any>;
-    getProjectDir: () => Promise<any>;
-    exportInOutVideo: (opts?: any) => Promise<any>;
-    exportInOutAudio: (opts?: any) => Promise<any>;
-    insertFileAtPlayhead: (fsPath?: string) => Promise<any>;
-    importFileToBin: (fsPath?: string, binName?: string) => Promise<any>;
-    revealFile: (fsPath?: string) => Promise<any>;
-    diagInOut: () => Promise<any>;
+    startBackend: () => Promise<unknown>;
+    getProjectDir: () => Promise<{ path?: string; error?: string }>;
+    exportInOutVideo: (opts?: Record<string, unknown>) => Promise<{ path?: string; error?: string }>;
+    exportInOutAudio: (opts?: Record<string, unknown>) => Promise<{ path?: string; error?: string }>;
+    insertFileAtPlayhead: (fsPath?: string) => Promise<{ ok: boolean; error?: string }>;
+    importFileToBin: (fsPath?: string, binName?: string) => Promise<{ ok: boolean; error?: string }>;
+    revealFile: (fsPath?: string) => Promise<{ ok: boolean; error?: string }>;
+    diagInOut: () => Promise<{ inPoint?: number; outPoint?: number; error?: string }>;
   };
   electronAPI?: {
-    showOpenDialog: (options: any) => Promise<any>;
+    showOpenDialog: (options: { properties?: string[]; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<{ canceled: boolean; filePaths: string[] }>;
     getApiKey: () => Promise<string>;
     setApiKey: (key: string) => Promise<boolean>;
   };
-  evalExtendScript?: (fn: string, payload?: any) => Promise<any>;
-  generateThumbnailsForJobs?: (jobs: any[]) => Promise<void>;
+  evalExtendScript?: (fn: string, payload?: unknown) => Promise<unknown>;
+  generateThumbnailsForJobs?: (jobs: Array<Record<string, unknown>>) => Promise<void>;
   historyScrollObserver?: IntersectionObserver | null;
   showToast?: (message: string, type: string) => void;
   authHeaders?: () => Record<string, string>;
@@ -79,7 +79,7 @@ interface Window {
   selectedVideoIsUrl?: boolean;
   selectedAudioIsUrl?: boolean;
   startLipsync?: () => Promise<void>;
-  jobs?: any[];
+  jobs?: Array<Record<string, unknown>>;
   showTab?: (tabName: string) => void;
   setLipsyncButtonState?: (state: { disabled?: boolean; text?: string }) => void;
   updateHistory?: () => Promise<void>;

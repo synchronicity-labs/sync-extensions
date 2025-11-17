@@ -30,8 +30,24 @@ export const setupWindowGlobals = (
 
   // Media functions
   (window as any).openFileDialog = media.openFileDialog;
-  (window as any).selectVideo = media.selectVideo;
-  (window as any).selectAudio = media.selectAudio;
+  
+  // For Resolve, don't override selectVideo/selectAudio - they're set by nle-resolve.ts
+  // Check if we're in Resolve (Electron context)
+  const isResolve = typeof (window as any).electronAPI !== 'undefined' || 
+                    (typeof process !== 'undefined' && process.versions && process.versions.electron);
+  
+  if (!isResolve) {
+    (window as any).selectVideo = media.selectVideo;
+    (window as any).selectAudio = media.selectAudio;
+  } else {
+    // In Resolve, only set if they don't already exist (from nle-resolve.ts)
+    if (typeof (window as any).selectVideo !== 'function') {
+      (window as any).selectVideo = media.selectVideo;
+    }
+    if (typeof (window as any).selectAudio !== 'function') {
+      (window as any).selectAudio = media.selectAudio;
+    }
+  }
   (window as any).selectedVideo = media.selection.video;
   (window as any).selectedVideoUrl = media.selection.videoUrl;
   (window as any).selectedAudio = media.selection.audio;

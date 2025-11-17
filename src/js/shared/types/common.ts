@@ -109,6 +109,20 @@ export interface AuthState {
 }
 
 /**
+ * Settings interface for application configuration
+ */
+export interface Settings {
+  syncApiKey?: string;
+  elevenlabsApiKey?: string;
+  elevenLabsApiKey?: string; // Alternative spelling
+  model?: string;
+  temperature?: number;
+  activeSpeakerOnly?: boolean;
+  detectObstructions?: boolean;
+  [key: string]: unknown; // Allow additional settings
+}
+
+/**
  * NLE (Non-Linear Editor) interface
  */
 export interface NLEInterface {

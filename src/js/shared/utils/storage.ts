@@ -5,12 +5,13 @@
 
 import { STORAGE_KEYS } from "./constants";
 import { debugLog } from "./debugLog";
+import { Settings } from "../types/common";
 
 /**
  * Get settings from localStorage with fallback to empty object
  * Used throughout the codebase - centralizes the parsing logic
  */
-export const getSettings = (): Record<string, any> => {
+export const getSettings = (): Settings => {
   try {
     const stored = localStorage.getItem(STORAGE_KEYS.SYNC_SETTINGS);
     if (stored) {
@@ -43,7 +44,7 @@ export const getStorageItem = <T = string>(key: string, defaultValue: T | null =
 /**
  * Set a localStorage value
  */
-export const setStorageItem = <T = any>(key: string, value: T): void => {
+export const setStorageItem = <T = unknown>(key: string, value: T): void => {
   try {
     const serialized = typeof value === "string" ? value : JSON.stringify(value);
     localStorage.setItem(key, serialized);

@@ -245,17 +245,33 @@ function _hostLog(msg){
     if (isWindows) {
       var url = "http://127.0.0.1:3000/hostlog?msg=" + encodeURIComponent(s).replace(/\"/g,'\\"');
       var wcmd = 'cmd.exe /c curl -s -m 1 ' + '"' + url.replace(/"/g,'\"') + '"' + ' >NUL 2>&1';
-      system.callSystem(wcmd);
+      _callSystem(wcmd);
     } else {
       var payload = '{"msg": ' + JSON.stringify(s) + '}';
       var cmd = "/bin/bash -lc " + _shq("(curl -s -m 1 -X POST -H 'Content-Type: application/json' --data " + _shq(payload) + " http://127.0.0.1:3000/hostlog || true) >/dev/null 2>&1");
-      system.callSystem(cmd);
+      _callSystem(cmd);
     }
   }catch(e){ }
 }
 
 function _shq(s) {
   try { return "'" + String(s || '').replace(/'/g, "'\\''") + "'"; } catch (e) { return "''"; }
+}
+
+// Safe system caller across environments
+function _callSystem(cmd) {
+  try {
+    if (typeof System !== 'undefined' && System.callSystem) {
+      return System.callSystem(cmd);
+    }
+  } catch(e) { /* fallthrough */ }
+  try {
+    if (typeof system !== 'undefined' && system.callSystem) {
+      return system.callSystem(cmd);
+    }
+  } catch(e2) { /* ignore */ }
+  // Return non-zero exit code if system call is not available
+  return -1;
 }
 
 function SYNC_getBaseDirs(){
@@ -826,7 +842,7 @@ export function AEFT_exportInOutAudio(payloadJson) {
           dbg4.close();
         } catch(_){ }
         
-        var exitCode = system.callSystem(cmd);
+        var exitCode = _callSystem(cmd);
         
         // Wait a moment for file to be written (curl might not have flushed yet)
         $.sleep(100);
@@ -1033,7 +1049,7 @@ export function AEFT_exportInOutAudio(payloadJson) {
           dbg4.close();
         } catch(_){ }
         
-        var exitCode = system.callSystem(cmd);
+        var exitCode = _callSystem(cmd);
         
         // Read the JSON response from the temp file
         var result = '';
@@ -1197,7 +1213,7 @@ export function AEFT_exportInOutAudio(payloadJson) {
           dbg4.close();
         } catch(_){ }
         
-        var exitCode = system.callSystem(cmd);
+        var exitCode = _callSystem(cmd);
         
         // Read the JSON response from the temp file
         var result = '';
@@ -1756,7 +1772,7 @@ export function AEFT_revealFile(payloadJson) {
     try {
       var esc = String(f.fsName||'').replace(/\\/g, "\\\\").replace(/\"/g, "\\\"").replace(/"/g, "\\\"");
       var cmd = "/usr/bin/osascript -e 'tell application " + '"Finder"' + " to reveal POSIX file \"" + esc + "\"' -e 'tell application " + '"Finder"' + " to activate'";
-      system.callSystem(cmd);
+      _callSystem(cmd);
       return _respond({ ok:true });
     } catch(e) {
       return _respond({ ok:false, error:String(e) });
@@ -1789,7 +1805,7 @@ export function AEFT_startBackend() {
       } else {
         cmd = "/bin/bash -lc 'curl -s -m 1 \"" + url + "\" >/dev/null 2>&1'";
       }
-      var result = system.callSystem(cmd);
+      var result = _callSystem(cmd);
       // If curl succeeds, server is already running
       if (result === 0) {
         try {
@@ -1961,7 +1977,7 @@ export function AEFT_startBackend() {
         }
       } catch(e) {}
       
-      var spawnResult = system.callSystem(spawnCmd);
+      var spawnResult = _callSystem(spawnCmd);
       
       try {
         var logFile = _syncDebugLogFile();
@@ -1984,7 +2000,7 @@ export function AEFT_startBackend() {
           } else {
             checkCmd = "/bin/bash -lc 'curl -s -m 1 \"" + checkUrl + "\" >/dev/null 2>&1'";
           }
-          var checkResult = system.callSystem(checkCmd);
+          var checkResult = _callSystem(checkCmd);
           if (checkResult === 0) {
             serverStarted = true;
             try {
@@ -2061,12 +2077,12 @@ export function AEFT_stopBackend() {
     if (isWindows) {
       // Windows: kill processes on port 3000
       try {
-        system.callSystem('cmd.exe /c "for /f \"tokens=5\" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"');
+        _callSystem('cmd.exe /c "for /f \"tokens=5\" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"');
       } catch(e) {}
     } else {
       // macOS: kill processes on port 3000
       try {
-        system.callSystem("/bin/bash -lc 'lsof -tiTCP:3000 | xargs -r kill -9 || true'");
+        _callSystem("/bin/bash -lc 'lsof -tiTCP:3000 | xargs -r kill -9 || true'");
       } catch(e) {}
     }
     

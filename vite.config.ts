@@ -65,14 +65,18 @@ async function buildResolvePlugin() {
   ];
   
   if (tsFiles.length > 0) {
+    console.log(`\n🔨 Building Resolve plugin TypeScript files...`);
     try {
       // Use dynamic import for esbuild in ESM context
+      console.log('   Loading esbuild...');
       const esbuildModule = await import('esbuild');
       const esbuild = esbuildModule.default || esbuildModule;
+      console.log('   ✓ esbuild loaded');
       
       for (const { src, dest } of tsFiles) {
         const srcFile = path.join(resolveSrc, src);
         const destFile = path.join(resolveDest, dest);
+        console.log(`   Compiling ${src} -> ${dest}...`);
         if (fs.existsSync(srcFile)) {
           try {
             fs.mkdirSync(path.dirname(destFile), { recursive: true });
@@ -80,35 +84,41 @@ async function buildResolvePlugin() {
             if (fs.existsSync(destFile)) {
               fs.unlinkSync(destFile);
             }
-            esbuild.buildSync({
+            const buildResult = esbuild.buildSync({
               entryPoints: [srcFile],
               bundle: false,
               platform: (src.includes('preload') || src.includes('backend')) ? 'node' : 'browser',
               target: 'es2020',
               format: 'cjs',
               outfile: destFile,
-              external: (src.includes('preload') || src.includes('backend')) ? ['electron'] : [],
+              // Note: external only works with bundle: true, but we're not bundling
+              // Electron imports will be resolved at runtime by Node.js
             });
-            console.log(`✓ Compiled ${src} to ${dest}`);
+            
+            // Verify file was created
+            if (!fs.existsSync(destFile)) {
+              throw new Error(`Compilation succeeded but output file not found: ${destFile}`);
+            }
+            
+            console.log(`✓ Compiled ${src} to ${dest} (${fs.statSync(destFile).size} bytes)`);
           } catch (error: any) {
-            console.warn(`Failed to compile ${src}:`, error?.message || error);
-            // Fallback: copy .ts file as-is (may need runtime compilation)
-            fs.copyFileSync(srcFile, destFile.replace('.js', '.ts'));
-            console.log(`Copied ${src} as .ts (compilation failed)`);
+            console.error(`❌ Failed to compile ${src}:`, error?.message || error);
+            console.error(`   Source: ${srcFile}`);
+            console.error(`   Dest: ${destFile}`);
+            // Don't fallback to .ts - Electron can't execute TypeScript
+            // Throw error to make build fail visibly
+            throw new Error(`Failed to compile ${src} to ${dest}: ${error?.message || error}`);
           }
         }
       }
     } catch (error: any) {
-      console.warn('esbuild not available, copying .ts files as-is:', error?.message || error);
-      tsFiles.forEach(({ src, dest }) => {
-        const srcFile = path.join(resolveSrc, src);
-        const destFile = path.join(resolveDest, dest);
-        if (fs.existsSync(srcFile)) {
-          fs.mkdirSync(path.dirname(destFile), { recursive: true });
-          fs.copyFileSync(srcFile, destFile.replace('.js', '.ts'));
-        }
-      });
+      console.error('❌ CRITICAL: esbuild compilation failed:', error?.message || error);
+      console.error('   Stack:', error?.stack);
+      // Don't fallback - throw error to fail build visibly
+      throw new Error(`Failed to compile Resolve plugin TypeScript files: ${error?.message || error}`);
     }
+  } else {
+    console.log('⚠️  No TypeScript files to compile for Resolve plugin');
   }
   
   // Copy Resolve-specific files (backend.js is compiled from backend.ts above)
@@ -212,8 +222,10 @@ async function buildResolvePlugin() {
   const sharedMainDir = path.join(sharedOutDir, 'main');
   const sharedAssetsDir = path.join(sharedOutDir, 'assets');
   
-  const sourceMainDir = fs.existsSync(sharedMainDir) ? sharedMainDir : cepMainDir;
-  const sourceAssetsDir = fs.existsSync(sharedAssetsDir) ? sharedAssetsDir : cepAssetsDir;
+  // Ensure we use the most up-to-date build (shared takes precedence, then CEP)
+  // Wait for CEP build to complete if needed
+  let sourceMainDir = fs.existsSync(sharedMainDir) ? sharedMainDir : cepMainDir;
+  let sourceAssetsDir = fs.existsSync(sharedAssetsDir) ? sharedAssetsDir : cepAssetsDir;
   
   // Wait for CEP build to complete if it's still building (for parallel builds)
   if (!fs.existsSync(sourceMainDir) && !fs.existsSync(cepMainDir)) {
@@ -236,13 +248,51 @@ async function buildResolvePlugin() {
     }
   }
   
-  // Copy index.html
+  // Ensure source directories are from the same build
+  // If using shared build, verify it exists; otherwise use CEP build directly
+  if (sourceMainDir === sharedMainDir && !fs.existsSync(sharedMainDir)) {
+    console.log('Shared build not found, using CEP build directly');
+    sourceMainDir = cepMainDir;
+    sourceAssetsDir = cepAssetsDir;
+  }
+  
+  // Verify HTML and assets are from the same build by checking file timestamps
   const sourceHtml = path.join(sourceMainDir, 'index.html');
+  if (fs.existsSync(sourceHtml) && fs.existsSync(sourceAssetsDir)) {
+    const htmlStat = fs.statSync(sourceHtml);
+    const assetsStat = fs.statSync(sourceAssetsDir);
+    const timeDiff = Math.abs(htmlStat.mtimeMs - assetsStat.mtimeMs);
+    if (timeDiff > 5000) { // More than 5 seconds difference suggests different builds
+      console.warn(`Warning: HTML and assets timestamps differ by ${Math.round(timeDiff / 1000)}s - may be from different builds`);
+    }
+  }
+  
+  // Copy index.html and fix asset paths (sourceHtml already defined above)
   const resolveHtml = path.join(resolveStaticDir, 'index.html');
   if (fs.existsSync(sourceHtml)) {
     fs.mkdirSync(path.dirname(resolveHtml), { recursive: true });
-    fs.copyFileSync(sourceHtml, resolveHtml);
-    console.log(`✓ Copied UI index.html to ${resolveHtml}`);
+    let htmlContent = fs.readFileSync(sourceHtml, 'utf-8');
+    
+    // Verify referenced assets exist before fixing paths
+    const assetMatches = htmlContent.matchAll(/(href|src)=["']([^"']*assets\/[^"']*)["']/g);
+    for (const match of assetMatches) {
+      const assetPath = match[2];
+      // Extract filename from path (e.g., "../assets/main-C-8lw79q.css" -> "main-C-8lw79q.css")
+      const filename = assetPath.split('/').pop();
+      if (filename && fs.existsSync(sourceAssetsDir)) {
+        const assetFiles = fs.readdirSync(sourceAssetsDir);
+        const fileExists = assetFiles.some(f => f === filename || f.startsWith(filename.split('-')[0] + '-'));
+        if (!fileExists) {
+          console.warn(`Warning: Referenced asset "${filename}" not found in assets directory. Available files: ${assetFiles.slice(0, 3).join(', ')}...`);
+        }
+      }
+    }
+    
+    // Fix asset paths: ../assets/ -> ./assets/ (assets are in same directory as index.html)
+    htmlContent = htmlContent.replace(/href=["']\.\.\/assets\//g, 'href="./assets/');
+    htmlContent = htmlContent.replace(/src=["']\.\.\/assets\//g, 'src="./assets/');
+    fs.writeFileSync(resolveHtml, htmlContent, 'utf-8');
+    console.log(`✓ Copied UI index.html to ${resolveHtml} (fixed asset paths)`);
   } else if (!isProduction) {
     const devHtml = `<!DOCTYPE html>
 <html>
@@ -265,8 +315,12 @@ async function buildResolvePlugin() {
   // Copy assets
   if (fs.existsSync(sourceAssetsDir)) {
     const resolveAssetsDir = path.join(resolveStaticDir, 'assets');
+    // Remove existing assets directory if it exists to avoid conflicts
+    if (fs.existsSync(resolveAssetsDir)) {
+      fs.rmSync(resolveAssetsDir, { recursive: true, force: true });
+    }
     fs.mkdirSync(resolveAssetsDir, { recursive: true });
-    fs.cpSync(sourceAssetsDir, resolveAssetsDir, { recursive: true });
+    fs.cpSync(sourceAssetsDir, resolveAssetsDir, { recursive: true, force: true });
     console.log(`✓ Copied UI assets to ${resolveAssetsDir}`);
   }
   
@@ -368,7 +422,7 @@ async function buildResolvePlugin() {
           
           while (!installSuccess && retries >= 0) {
             try {
-              execSync('npm install --production --no-audit --no-fund', {
+              execSync('npm install --omit=dev --no-audit --no-fund', {
                 cwd: serverDest,
                 stdio: 'inherit',
                 env: { ...process.env, npm_config_progress: 'false' },
@@ -411,7 +465,7 @@ async function buildResolvePlugin() {
       
       while (!installSuccess && retries >= 0) {
         try {
-          execSync('npm install --production --no-audit --no-fund', {
+          execSync('npm install --omit=dev --no-audit --no-fund', {
             cwd: resolveDest,
             stdio: 'inherit',
             env: { ...process.env, npm_config_progress: 'false' },
@@ -820,8 +874,28 @@ export default defineConfig({
             if (fs.existsSync(binDest)) {
               fs.rmSync(binDest, { recursive: true, force: true });
             }
-            // Copy bin folder recursively
-            fs.cpSync(binSource, binDest, { recursive: true });
+            // Copy bin folder recursively, but exclude build scripts
+            fs.mkdirSync(binDest, { recursive: true });
+            const walkDir = (srcDir: string, destDir: string) => {
+              const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+              for (const entry of entries) {
+                const srcPath = path.join(srcDir, entry.name);
+                const destPath = path.join(destDir, entry.name);
+                
+                // Skip build scripts that shouldn't be in the extension package
+                if (entry.name === 'release.sh' || entry.name === 'uninstall.sh' || entry.name === 'uninstall.bat') {
+                  continue;
+                }
+                
+                if (entry.isDirectory()) {
+                  fs.mkdirSync(destPath, { recursive: true });
+                  walkDir(srcPath, destPath);
+                } else {
+                  fs.copyFileSync(srcPath, destPath);
+                }
+              }
+            };
+            walkDir(binSource, binDest);
             console.log('Copied bin folder with bundled Node binaries to dist/cep/bin');
           } catch (err) {
             console.error('CRITICAL: Failed to copy bin folder:', err);

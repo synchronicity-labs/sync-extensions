@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNLE } from "./useNLE";
 import { getApiUrl } from "../utils/serverConfig";
+import { getSettings } from "../utils/storage";
 
 interface AuthState {
   token: string;
@@ -215,7 +216,7 @@ export const useCore = () => {
   const updateModelDisplay = useCallback(() => {
     const modelEl = document.getElementById("currentModel");
     if (modelEl) {
-      const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+      const settings = getSettings();
       const model = settings.model || "lipsync-2-pro";
       
       const modelDisplayMap: Record<string, string> = {

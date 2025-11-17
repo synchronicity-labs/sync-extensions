@@ -52,8 +52,15 @@ const TTSVoiceSelector: React.FC<TTSVoiceSelectorProps> = ({ isOpen, onClose, on
 
   const handleSelectVoice = (voiceId: string) => {
     if (!voiceId) return;
-    debugLog('[TTSVoiceSelector] Selecting voice', { voiceId });
+    const voice = voices.find((v) => (v.id || v.voice_id) === voiceId);
+    debugLog('[TTSVoiceSelector] Selecting voice', { 
+      voiceId, 
+      voiceName: voice?.name,
+      currentSelectedVoice: selectedVoice,
+      voiceObject: voice ? { id: voice.id, voice_id: voice.voice_id, name: voice.name } : null
+    });
     setSelectedVoice(voiceId);
+    debugLog('[TTSVoiceSelector] Voice state updated', { newSelectedVoice: voiceId });
     onClose();
   };
 

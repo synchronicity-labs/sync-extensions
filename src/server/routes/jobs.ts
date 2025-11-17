@@ -15,7 +15,7 @@ import { validateJobRequest, validateRequiredFields } from '../utils/validation'
 
 const router = express.Router();
 
-async function convertIfAiff(p) {
+async function convertIfAiff(p: string | undefined): Promise<string | undefined> {
   try {
     if (!p || typeof p !== 'string') return p;
     const lower = p.toLowerCase();

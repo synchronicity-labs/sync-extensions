@@ -4,6 +4,7 @@ import { useTTS } from "../hooks/useTTS";
 import { useSettings } from "../hooks/useSettings";
 import { useMedia } from "../hooks/useMedia";
 import { getApiUrl } from "../utils/serverConfig";
+import { showToast } from "../utils/toast";
 
 interface TTSVoiceCloneModalProps {
   isOpen: boolean;
@@ -295,9 +296,7 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
 
   const handleFromVideo = async () => {
     try {
-      if ((window as any).showToast) {
-        (window as any).showToast("extracting audio from video...", "info");
-      }
+      showToast("extracting audio from video...", "info");
 
       // Get selected video
       const selectedVideo = (window as any).selectedVideo;
@@ -309,9 +308,7 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
         const newVideo = (window as any).selectedVideo;
         const newVideoUrl = (window as any).selectedVideoUrl;
         if (!newVideo && !newVideoUrl) {
-          if ((window as any).showToast) {
-            (window as any).showToast("no video selected", "info");
-          }
+          showToast("no video selected", "info");
           return;
         }
       }
@@ -352,13 +349,9 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
         },
       ]);
 
-      if ((window as any).showToast) {
-        (window as any).showToast("audio extracted successfully", "success");
-      }
+      showToast("audio extracted successfully", "success");
     } catch (error: any) {
-      if ((window as any).showToast) {
-        (window as any).showToast(`failed to extract audio: ${error.message}`, "error");
-      }
+      showToast(`failed to extract audio: ${error.message}`, "error");
     }
   };
 
@@ -494,10 +487,8 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
             >
-              <div className="tts-clone-upload-text">
-                <Upload size={24} />
-                <span>drag and drop audio files here</span>
-              </div>
+              <Upload size={20} />
+              <div className="tts-clone-upload-text">drag and drop audio files here</div>
               <div className="tts-clone-upload-hint">or use the buttons below</div>
               <div className="tts-clone-upload-buttons">
                 <button
@@ -516,16 +507,16 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
                   {isRecording ? <Square size={16} /> : <Mic size={16} />}
                   <span>{isRecording ? "stop" : "record"}</span>
                 </button>
-                <button
-                  type="button"
-                  className="tts-clone-upload-btn tts-clone-video-btn"
-                  onClick={handleFromVideo}
-                >
-                  <Video size={16} />
-                  <span>from video</span>
-                </button>
               </div>
             </div>
+            <button
+              type="button"
+              className="tts-clone-video-btn"
+              onClick={handleFromVideo}
+            >
+              <Video size={16} />
+              <span>from video</span>
+            </button>
             <input
               ref={fileInputRef}
               type="file"

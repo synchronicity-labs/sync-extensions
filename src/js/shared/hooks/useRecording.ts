@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
 import { showToast, ToastMessages } from "../utils/toast";
+import { getSettings } from "../utils/storage";
 
 export const useRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -165,7 +166,7 @@ export const useRecording = () => {
             // Upload to R2 separately (matches main branch)
             let r2Url: string | null = null;
             try {
-              const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
+              const settings = getSettings();
               if ((window as any).ensureAuthToken) {
                 await (window as any).ensureAuthToken();
               }
@@ -183,7 +184,7 @@ export const useRecording = () => {
               const uploadResponse = await fetch(getApiUrl("/upload"), {
                 method: "POST",
                 headers: (window as any).authHeaders ? (window as any).authHeaders({ "Content-Type": "application/json" }) : { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: data.path, apiKey: settings.syncApiKey || "" }),
+                body: JSON.stringify({ path: data.path, syncApiKey: settings.syncApiKey || "" }),
                 signal: controller.signal,
               });
               

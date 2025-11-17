@@ -5,6 +5,7 @@
 
 import { debugLog as debugLogFn } from './debugLog';
 import { renderIconAsHTML } from './iconUtils';
+import { getApiUrl } from './serverConfig';
 
 // Cache directory in Application Support
 const CACHE_DIR = 'sync. extensions/sync-thumbnails';
@@ -32,7 +33,22 @@ function logToFile(message: string) {
  */
 async function getCacheDir(): Promise<string | null> {
   try {
-    // Try CSInterface first (preferred method)
+    // Try Electron API first (for Resolve plugin)
+    if (typeof (window as any).electronAPI !== 'undefined' && 
+        typeof (window as any).electronAPI.getUserDataPath === 'function') {
+      try {
+        const userDataPath = await (window as any).electronAPI.getUserDataPath();
+        if (userDataPath) {
+          const cacheDir = `${userDataPath}/${CACHE_DIR}`;
+          logToFile(`[Thumbnails] Cache directory path (from Electron): ${cacheDir}`);
+          return cacheDir;
+        }
+      } catch(e: any) {
+        logToFile(`[Thumbnails] Electron getUserDataPath failed: ${e.message}`);
+      }
+    }
+    
+    // Try CSInterface first (preferred method for CEP)
     if (window.CSInterface) {
       try {
         const cs = new window.CSInterface();
@@ -72,7 +88,7 @@ async function getCacheDir(): Promise<string | null> {
     // On macOS, CEP typically uses ~/Library/Application Support
     // We can't access process.env in browser context, so we'll construct a reasonable default
     // Note: This is a best-effort fallback and may not work in all cases
-    logToFile(`[Thumbnails] All CEP methods failed, cannot determine cache directory`);
+    logToFile(`[Thumbnails] All methods failed, cannot determine cache directory`);
     logToFile(`[Thumbnails] Thumbnails will be generated but not cached to disk`);
     return null;
   } catch(e: any) {
@@ -89,7 +105,21 @@ async function ensureCacheDir(): Promise<boolean> {
   if (!cacheDir) return false;
   
   try {
-    // Call host script to create directory if it doesn't exist
+    // Try Electron API first (for Resolve plugin)
+    if (typeof (window as any).electronAPI !== 'undefined' && 
+        typeof (window as any).electronAPI.ensureDir === 'function') {
+      try {
+        const result = await (window as any).electronAPI.ensureDir(cacheDir);
+        if (result?.ok) {
+          logToFile(`[Thumbnails] Created cache directory via Electron: ${cacheDir}`);
+          return true;
+        }
+      } catch(e: any) {
+        logToFile(`[Thumbnails] Electron ensureDir failed: ${e.message}`);
+      }
+    }
+    
+    // Fallback to CEP ExtendScript (for Adobe hosts)
     const isAE = (window.HOST_CONFIG && (window.HOST_CONFIG as any).isAE);
     const fn = isAE ? 'AEFT_ensureDir' : 'PPRO_ensureDir';
     
@@ -131,11 +161,20 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
     video.muted = true;
     (video as any).playsInline = true;
     
-    // For HTTP URLs, try without crossOrigin first - works for many CDNs
+    // Use proxy for external URLs - proxy makes video same-origin, allowing canvas export
+    // Proxy URLs are from our server (same-origin), so crossOrigin = 'anonymous' works
     if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
-      video.crossOrigin = null;
+      // Check if it's our proxy endpoint (same-origin) or direct external URL
+      if (videoUrl.includes('/video/proxy')) {
+        // Proxy endpoint - same origin, canvas export will work (no taint)
+        video.crossOrigin = 'anonymous';
+      } else {
+        // Direct external URL - will cause taint, but allow video to load
+        video.crossOrigin = null;
+      }
     } else {
-      video.crossOrigin = 'anonymous';
+      // Local file - no CORS needed
+      video.crossOrigin = null;
     }
     
     return new Promise((resolve) => {
@@ -217,8 +256,23 @@ async function generateThumbnail(videoUrl: string, jobId: string): Promise<strin
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
           // Convert to JPEG data URL with lower quality (0.6) for faster encoding
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-          logToFile(`[Thumbnails] Thumbnail generated successfully for: ${jobId}`);
+          let dataUrl: string;
+          try {
+            dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            logToFile(`[Thumbnails] Thumbnail generated successfully for: ${jobId}`);
+          } catch (canvasError: any) {
+            // Canvas taint error - CORS issue with external video
+            if (canvasError.message && canvasError.message.includes('tainted')) {
+              logToFile(`[Thumbnails] Canvas taint error for ${jobId} - CORS issue with video URL. Video server may not send proper CORS headers.`);
+              // Try to use a placeholder or fetch frame via proxy
+              // For now, return null and show placeholder
+            } else {
+              logToFile(`[Thumbnails] Canvas toDataURL error for ${jobId}: ${canvasError.message}`);
+            }
+            clearTimeout(timeout);
+            resolveOnce(null);
+            return;
+          }
           
           clearTimeout(timeout);
           resolveOnce(dataUrl);
@@ -271,7 +325,31 @@ async function loadThumbnail(jobId: string): Promise<string | null> {
   logToFile(`[Thumbnails] Checking if thumbnail exists at: ${thumbnailPath}`);
   
   try {
-    // Check if thumbnail file exists and read it
+    // Try Electron API first (for Resolve plugin)
+    if (typeof (window as any).electronAPI !== 'undefined' && 
+        typeof (window as any).electronAPI.fileExists === 'function' &&
+        typeof (window as any).electronAPI.readThumbnail === 'function') {
+      try {
+        const existsResult = await (window as any).electronAPI.fileExists(thumbnailPath);
+        if (existsResult?.ok && existsResult?.exists) {
+          logToFile(`[Thumbnails] Thumbnail file exists (Electron), reading: ${jobId}`);
+          const readResult = await (window as any).electronAPI.readThumbnail(thumbnailPath);
+          if (readResult?.ok && readResult?.dataUrl) {
+            logToFile(`[Thumbnails] Successfully loaded cached thumbnail via Electron: ${jobId}`);
+            return readResult.dataUrl;
+          } else {
+            logToFile(`[Thumbnails] Failed to read thumbnail via Electron: ${readResult?.error || 'unknown error'}`);
+          }
+        } else {
+          logToFile(`[Thumbnails] Thumbnail file does not exist (Electron): ${jobId}`);
+        }
+      } catch(e: any) {
+        logToFile(`[Thumbnails] Electron API error: ${e.message}`);
+        // Fall through to CEP fallback
+      }
+    }
+    
+    // Fallback to CEP ExtendScript (for Adobe hosts)
     const isAE = (window.HOST_CONFIG && (window.HOST_CONFIG as any).isAE);
     const fnExists = isAE ? 'AEFT_fileExists' : 'PPRO_fileExists';
     
@@ -320,7 +398,25 @@ async function cacheThumbnail(jobId: string, thumbnailDataUrl: string): Promise<
       logToFile(`[Thumbnails] Directory ensured: ${ensured}`);
     }
     
-    // Save thumbnail using host function
+    // Try Electron API first (for Resolve plugin)
+    if (typeof (window as any).electronAPI !== 'undefined' && 
+        typeof (window as any).electronAPI.saveThumbnail === 'function') {
+      try {
+        logToFile(`[Thumbnails] Using Electron API to save thumbnail: ${jobId}`);
+        const result = await (window as any).electronAPI.saveThumbnail(thumbnailPath, thumbnailDataUrl);
+        if (result?.ok) {
+          logToFile(`[Thumbnails] Cached thumbnail successfully via Electron: ${jobId}`);
+          return true;
+        } else {
+          logToFile(`[Thumbnails] Failed to cache thumbnail via Electron: ${result?.error || 'unknown error'}`);
+        }
+      } catch(e: any) {
+        logToFile(`[Thumbnails] Electron saveThumbnail error: ${e.message}`);
+        // Fall through to CEP fallback
+      }
+    }
+    
+    // Fallback to CEP ExtendScript (for Adobe hosts)
     const isAE = (window.HOST_CONFIG && (window.HOST_CONFIG as any).isAE);
     const saveFn = isAE ? 'AEFT_saveThumbnail' : 'PPRO_saveThumbnail';
     logToFile(`[Thumbnails] Using save function: ${saveFn}, isAE: ${isAE}`);
@@ -509,13 +605,13 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
         return;
       }
       
-      // For HTTP URLs, try to generate through backend proxy
+      // For HTTP URLs, use proxy endpoint so canvas export works (no taint)
       let finalVideoUrl = videoUrl;
       if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
-        logToFile(`[Thumbnails] HTTP URL detected, will try with CORS: ${videoUrl.substring(0, 100)}`);
-        // We'll try to load it directly - many CDNs support CORS
-        // If it fails, the onerror handler will hide the loader
-        finalVideoUrl = videoUrl;
+        // Use proxy endpoint - video appears same-origin, canvas export works
+        const encodedUrl = encodeURIComponent(videoUrl);
+        finalVideoUrl = getApiUrl(`/video/proxy?url=${encodedUrl}`);
+        logToFile(`[Thumbnails] Using proxy for external URL: ${finalVideoUrl.substring(0, 100)}`);
       } else if (videoUrl.startsWith('file://')) {
         finalVideoUrl = videoUrl;
       } else {

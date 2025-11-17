@@ -1,4 +1,5 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
+// Express type extensions are automatically loaded by TypeScript from ./types/express.d.ts
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
@@ -106,8 +107,7 @@ app.disable('x-powered-by');
   }
 })();
 
-// Health check endpoint BEFORE middleware to avoid blocking
-app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
+// Health check endpoint - will be handled after CORS middleware
 
 // Conditional body parsing - skip JSON parsing for session-replay to preserve gzip
 app.use((req, res, next) => {
@@ -142,15 +142,28 @@ app.use((req, res, next) => {
 
 // Restrict CORS to local panel (file:// → Origin null) and localhost
 // Relaxed CORS: allow any origin on localhost-only service
+// CORS - Allow all localhost and file:// origins (minimal security, maximum compatibility)
 app.use(cors({
   origin: function(origin, cb) {
+    // Allow null origin (file://) and all localhost origins
     if (!origin) return cb(null, true);
+    // Allow localhost with any port
+    if (origin && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
+      return cb(null, true);
+    }
+    // Allow all origins for local development (localhost-only service)
     cb(null, true);
   },
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization', 'X-CEP-Panel'],
+  allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization', 'X-CEP-Panel', 'x-auth-token'],
+  credentials: true,
   maxAge: 86400
 }));
+
+// Health check endpoint AFTER CORS middleware
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', ts: Date.now() });
+});
 
 let jobs = [];
 // jobCounter removed - using Sync API IDs directly
@@ -224,7 +237,7 @@ setSaveJobsCallback(saveJobs);
 
 const tokenRateLimit = new Map();
 
-function checkTokenRateLimit(ip) {
+function checkTokenRateLimit(ip: string): boolean {
   // In dev mode, disable rate limiting entirely (React Strict Mode causes rapid requests)
   const isDevMode = process.env.NODE_ENV !== 'production' || process.env.DEV === 'true';
   if (isDevMode) return true; // No rate limit in dev mode
@@ -242,7 +255,7 @@ function checkTokenRateLimit(ip) {
   return true;
 }
 
-function requireCEPHeader(req, res, next) {
+function requireCEPHeader(req: Request, res: Response, next: NextFunction): void {
   const origin = req.headers.origin || req.headers.referer || null;
   if (!origin || origin === 'file://') return next();
   const cepHeader = req.headers['x-cep-panel'];
@@ -255,12 +268,8 @@ function requireCEPHeader(req, res, next) {
 
 /**
  * Auth middleware - validates token from request
- * @param {object} req - Express request object
- * @param {object} res - Express response object
- * @param {function} next - Express next middleware function
- * @returns {void}
  */
-function requireAuth(req, res, next) {
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = req.headers['x-auth-token'] || req.query.token;
   if (token === AUTH_TOKEN) {
     return next();
@@ -304,6 +313,7 @@ app.use((req, res, next) => {
     '/wav/file',
     '/waveform/file',
     '/video/file',
+    '/video/proxy',
     '/telemetry/test',
     '/telemetry/posthog-status',
     '/telemetry/session-replay'

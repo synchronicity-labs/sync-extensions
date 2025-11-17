@@ -5,7 +5,7 @@ import { useSettings } from "./useSettings";
 import { useTabs } from "./useTabs";
 import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
-import { getStorageItem } from "../utils/storage";
+import { getStorageItem, getSettings } from "../utils/storage";
 import { STORAGE_KEYS } from "../utils/constants";
 
 interface JobStatus {
@@ -172,7 +172,7 @@ export const useJobs = () => {
             
             // Check if job appears by fetching from API directly
             try {
-              const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+              const settings = getSettings();
               const apiKey = settings.syncApiKey || "";
               
               if (apiKey) {

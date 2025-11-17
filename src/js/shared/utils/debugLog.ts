@@ -10,7 +10,7 @@ import { getApiUrl } from './serverConfig';
  * Log a debug message to the server debug endpoint
  * Only writes to log files if logs/.debug flag file exists (checked by server)
  */
-export function debugLog(message: string, data?: any): void {
+export function debugLog(message: string, data?: unknown): void {
   try {
     const hostConfig = window.HOST_CONFIG || {};
     const logData = {
@@ -19,6 +19,9 @@ export function debugLog(message: string, data?: any): void {
       timestamp: new Date().toISOString(),
       hostConfig,
     };
+    
+    // Also output to console
+    console.log(`[UI] ${message}`, data || '');
     
     // Send to server debug endpoint (server checks for .debug flag)
     fetch(getApiUrl("/debug"), {
@@ -34,7 +37,7 @@ export function debugLog(message: string, data?: any): void {
 /**
  * Log an error to the server debug endpoint
  */
-export function debugError(message: string, error?: any): void {
+export function debugError(message: string, error?: unknown): void {
   try {
     const hostConfig = window.HOST_CONFIG || {};
     const logData = {
@@ -44,6 +47,9 @@ export function debugError(message: string, error?: any): void {
       timestamp: new Date().toISOString(),
       hostConfig,
     };
+    
+    // Also output to console
+    console.error(`[UI] ERROR: ${message}`, error || '');
     
     fetch(getApiUrl("/debug"), {
       method: "POST",
@@ -58,7 +64,7 @@ export function debugError(message: string, error?: any): void {
 /**
  * Log a warning to the server debug endpoint
  */
-export function debugWarn(message: string, data?: any): void {
+export function debugWarn(message: string, data?: unknown): void {
   try {
     const hostConfig = window.HOST_CONFIG || {};
     const logData = {
@@ -67,6 +73,9 @@ export function debugWarn(message: string, data?: any): void {
       timestamp: new Date().toISOString(),
       hostConfig,
     };
+    
+    // Also output to console
+    console.warn(`[UI] WARN: ${message}`, data || '');
     
     fetch(getApiUrl("/debug"), {
       method: "POST",

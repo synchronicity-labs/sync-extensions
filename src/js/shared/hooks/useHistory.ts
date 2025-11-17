@@ -2,18 +2,19 @@ import { useState, useEffect, useCallback } from "react";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
+import { getSettings } from "../utils/storage";
+import { Job } from "../types/common";
 
-interface Job {
-  id: string;
-  status: string;
+// Extended Job interface for API responses (may have additional fields)
+interface ApiJob extends Job {
+  outputUrl?: string;
   createdAt: number | string;
-  outputPath?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export const useHistory = () => {
   const { authHeaders, ensureAuthToken, fetchWithTimeout } = useCore();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<ApiJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [displayedCount, setDisplayedCount] = useState(0);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -39,7 +40,7 @@ export const useHistory = () => {
         await new Promise(resolve => setTimeout(resolve, 100));
         token = await ensureAuthToken();
         if (!token) {
-          setServerError("authentication failed - server may not be running");
+          setServerError("SERVER_DOWN");
           setJobs([]);
           setDisplayedCount(0);
           setIsLoading(false);
@@ -47,7 +48,7 @@ export const useHistory = () => {
         }
       }
       
-      const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+      const settings = getSettings();
       const apiKey = settings.syncApiKey || "";
       
       if (!apiKey) {
@@ -126,7 +127,7 @@ export const useHistory = () => {
         } catch (_) {}
         
         // Handle both response formats: array directly or wrapped in { jobs: [...] }
-        let rawJobs: any[] = [];
+        let rawJobs: ApiJob[] = [];
         if (Array.isArray(data)) {
           rawJobs = data;
         } else if (data && typeof data === 'object' && Array.isArray(data.jobs)) {
@@ -209,7 +210,7 @@ export const useHistory = () => {
         setDisplayedCount(0);
         setServerError(`Server returned error ${response.status}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       debugError("[History] Failed to load jobs", error);
       
       // Log catch error
@@ -220,7 +221,7 @@ export const useHistory = () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "history_load_jobs_catch",
-            error: String(error),
+            error: error instanceof Error ? error.message : String(error),
             timestamp: new Date().toISOString(),
             hostConfig,
           }),
@@ -228,15 +229,15 @@ export const useHistory = () => {
       } catch (_) {}
       
       // Detect network/server connectivity errors
-      const errorMessage = String(error || "");
+      const errorMessage = error instanceof Error ? error.message : String(error || "");
       const isNetworkError = 
         errorMessage.includes("Failed to fetch") ||
         errorMessage.includes("NetworkError") ||
         errorMessage.includes("network") ||
         errorMessage.includes("ECONNREFUSED") ||
         errorMessage.includes("timeout") ||
-        error?.name === "TypeError" ||
-        error?.message?.includes("fetch");
+        (error instanceof Error && error.name === "TypeError") ||
+        (error instanceof Error && error.message?.includes("fetch"));
       
       if (!isNetworkError) {
         setServerError(`failed to load history: ${errorMessage.substring(0, 100).toLowerCase()}`);

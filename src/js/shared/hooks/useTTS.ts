@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useCore } from "./useCore";
 import { useSettings } from "./useSettings";
 import { getApiUrl } from "../utils/serverConfig";
@@ -16,7 +16,42 @@ export const useTTS = () => {
   const { authHeaders, ensureAuthToken } = useCore();
   const { settings } = useSettings();
   const [voices, setVoices] = useState<TTSVoice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>("rachel");
+  
+  // Load selected voice from localStorage or default to "rachel"
+  const [selectedVoice, setSelectedVoiceState] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("sync_selectedVoice");
+      return stored || "rachel";
+    } catch {
+      return "rachel";
+    }
+  });
+  
+  // Wrapper to persist selected voice to localStorage and notify other components
+  const setSelectedVoice = useCallback((voiceId: string) => {
+    try {
+      localStorage.setItem("sync_selectedVoice", voiceId);
+      // Dispatch custom event to sync across components in same window
+      window.dispatchEvent(new CustomEvent("sync_selectedVoice_changed", { detail: voiceId }));
+    } catch {
+      // Ignore localStorage errors
+    }
+    setSelectedVoiceState(voiceId);
+  }, []);
+  
+  // Listen for custom events to sync selected voice across components
+  useEffect(() => {
+    const handleVoiceChange = (e: CustomEvent<string>) => {
+      if (e.detail && e.detail !== selectedVoice) {
+        setSelectedVoiceState(e.detail);
+      }
+    };
+    window.addEventListener("sync_selectedVoice_changed", handleVoiceChange as EventListener);
+    return () => {
+      window.removeEventListener("sync_selectedVoice_changed", handleVoiceChange as EventListener);
+    };
+  }, [selectedVoice]);
+  
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("eleven_v3");
   const [voiceSettings, setVoiceSettings] = useState({

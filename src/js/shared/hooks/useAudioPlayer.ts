@@ -4,6 +4,7 @@ import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import { loaderHTML } from "../utils/loader";
 import { debugLog, debugError, debugWarn } from "../utils/debugLog";
+import { getSettings } from "../utils/storage";
 
 interface WaveformBar {
   x: number;
@@ -1131,7 +1132,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
             }
 
             // Get ElevenLabs API key from settings
-            const settings = JSON.parse(localStorage.getItem("syncSettings") || "{}");
+            const settings = getSettings();
             const elevenLabsApiKey = settings.elevenlabsApiKey || settings.elevenLabsApiKey;
 
             if (!elevenLabsApiKey) {
@@ -1263,7 +1264,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
                 // Upload dubbed audio to R2 for lipsync
                 try {
                   debugLog("[Dubbing] Starting R2 upload for dubbed audio", { audioPath: result.audioPath });
-                  const uploadBody = { path: result.audioPath, apiKey: settings.syncApiKey || "" };
+                  const uploadBody = { path: result.audioPath, syncApiKey: settings.syncApiKey || "" };
                   const uploadResponse = await fetch(getApiUrl("/upload"), {
                     method: "POST",
                     headers: authHeaders({ "Content-Type": "application/json" }),

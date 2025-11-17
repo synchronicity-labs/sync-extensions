@@ -5,6 +5,7 @@ import { useTTS } from "../hooks/useTTS";
 import { useSettings } from "../hooks/useSettings";
 import { useMedia } from "../hooks/useMedia";
 import { getApiUrl } from "../utils/serverConfig";
+import { debugLog } from "../utils/debugLog";
 import "../styles/components/tts.scss";
 
 interface TTSInterfaceProps {
@@ -41,8 +42,29 @@ const TTSInterface: React.FC<TTSInterfaceProps> = ({ isOpen, onClose, onVoiceSel
     }
   }, [isOpen, voices.length, loadVoices]);
 
-  // Find the selected voice name
-  const selectedVoiceName = voices.find((v) => (v.id || v.voice_id) === selectedVoice)?.name || selectedVoice;
+  // Find the selected voice name - check both id and voice_id fields
+  const selectedVoiceName = React.useMemo(() => {
+    if (!selectedVoice) return "rachel";
+    const voice = voices.find((v) => 
+      (v.id === selectedVoice) || 
+      (v.voice_id === selectedVoice)
+    );
+    if (voice) {
+      debugLog('[TTSInterface] Found selected voice', { 
+        selectedVoice, 
+        voiceName: voice.name,
+        voiceId: voice.id,
+        voiceVoiceId: voice.voice_id
+      });
+      return voice.name;
+    }
+    debugLog('[TTSInterface] Voice not found, using fallback', { 
+      selectedVoice, 
+      voicesCount: voices.length,
+      sampleVoiceIds: voices.slice(0, 3).map(v => ({ id: v.id, voice_id: v.voice_id, name: v.name }))
+    });
+    return selectedVoice; // Fallback to ID if name not found
+  }, [selectedVoice, voices]);
 
   // Model display names
   const modelDisplayNames: Record<string, string> = {
@@ -147,7 +169,7 @@ const TTSInterface: React.FC<TTSInterfaceProps> = ({ isOpen, onClose, onVoiceSel
   if (!isOpen) return null;
 
   return (
-    <div className="tts-textarea">
+    <div id="ttsInterface" className="tts-textarea">
       <button className="tts-close-x" onClick={onClose} type="button">
         <X size={14} />
       </button>
@@ -183,10 +205,28 @@ const TTSInterface: React.FC<TTSInterfaceProps> = ({ isOpen, onClose, onVoiceSel
           <button
             className="tts-voice-btn"
             onClick={(e) => {
+              try {
+                debugLog('[TTSInterface] Voice button clicked - START');
               e.preventDefault();
               e.stopPropagation();
+                if (e.stopImmediatePropagation && typeof e.stopImmediatePropagation === 'function') {
               e.stopImmediatePropagation();
+                }
+                debugLog('[TTSInterface] Event prevented/stopped');
+                debugLog('[TTSInterface] Checking onVoiceSelectClick', { 
+                  exists: !!onVoiceSelectClick, 
+                  type: typeof onVoiceSelectClick 
+                });
+                if (onVoiceSelectClick) {
+                  debugLog('[TTSInterface] Calling onVoiceSelectClick - BEFORE');
               onVoiceSelectClick();
+                  debugLog('[TTSInterface] Calling onVoiceSelectClick - AFTER');
+                } else {
+                  debugLog('[TTSInterface] ERROR: onVoiceSelectClick is not a function!');
+                }
+              } catch (error) {
+                debugLog('[TTSInterface] ERROR in voice button click handler', { error: String(error) });
+              }
             }}
             type="button"
           >
@@ -197,11 +237,26 @@ const TTSInterface: React.FC<TTSInterfaceProps> = ({ isOpen, onClose, onVoiceSel
             ref={settingsButtonRef}
             className="tts-btn"
             onClick={(e) => {
+              try {
+                debugLog('[TTSInterface] Settings button clicked - START');
               e.preventDefault();
               e.stopPropagation();
+                if (e.stopImmediatePropagation && typeof e.stopImmediatePropagation === 'function') {
               e.stopImmediatePropagation();
-              setSettingsPopupOpen(!settingsPopupOpen);
+                }
+                debugLog('[TTSInterface] Event prevented/stopped');
+                const newState = !settingsPopupOpen;
+                debugLog('[TTSInterface] Toggling settings popup', { 
+                  currentState: settingsPopupOpen, 
+                  newState,
+                  settingsButtonRefExists: !!settingsButtonRef.current
+                });
+                setSettingsPopupOpen(newState);
               setModelMenuOpen(false);
+                debugLog('[TTSInterface] Settings popup state updated', { newState });
+              } catch (error) {
+                debugLog('[TTSInterface] ERROR in settings button click handler', { error: String(error) });
+              }
             }}
             type="button"
           >
@@ -243,16 +298,27 @@ const TTSInterface: React.FC<TTSInterfaceProps> = ({ isOpen, onClose, onVoiceSel
           {settingsPopupOpen && settingsButtonRef.current && createPortal(
             <div
               ref={settingsPopupRef}
-              className="tts-settings-popup show"
+              className={`tts-settings-popup ${settingsPopupOpen ? 'show' : ''}`}
               onClick={(e) => e.stopPropagation()}
               style={{
                 display: 'block',
                 position: 'fixed',
-                top: `${settingsButtonRef.current.getBoundingClientRect().top - 220}px`,
+                top: `${settingsButtonRef.current.getBoundingClientRect().top - 200}px`,
                 right: `${window.innerWidth - settingsButtonRef.current.getBoundingClientRect().right}px`,
                 zIndex: 10003,
               }}
             >
+              <button
+                className="tts-settings-close"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSettingsPopupOpen(false);
+                }}
+                type="button"
+              >
+                <X size={14} />
+              </button>
               <div className="tts-settings-content">
                 <h3 className="tts-settings-title">voice settings</h3>
                 

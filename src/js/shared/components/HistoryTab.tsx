@@ -160,6 +160,36 @@ const HistoryTabContent: React.FC = () => {
   const loadJobsRef = useRef(loadJobsFromServer);
   const handleLoadJobIntoSourcesRef = useRef<((jobId: string) => void) | null>(null);
 
+  // Helper function to restart the server
+  const handleRestartServer = useCallback(async () => {
+    const nleToUse = window.nle;
+    debugLog("[HistoryTab] Clicked fix this", { hasNLE: !!nleToUse });
+    if (!nleToUse) {
+      debugError("[HistoryTab] nle is null - JSX script failed to load (CEP error code 27)");
+      alert("JSX script failed to load. Check CEP logs at ~/Library/Logs/CSXS/CEP12-PPRO.log for error code 27. The extension may need to be rebuilt.");
+      return;
+    }
+    if (!nleToUse.startBackend) {
+      debugError("[HistoryTab] startBackend function missing");
+      alert("startBackend function is missing. JSX script may not have loaded correctly.");
+      return;
+    }
+    try {
+      const result = await nleToUse.startBackend();
+      debugLog("[HistoryTab] startBackend result", { result });
+      if (result && result.ok) {
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        alert("Server startup failed: " + (result?.error || "Unknown error"));
+      }
+    } catch (error) {
+      debugError("[HistoryTab] Error calling startBackend", error);
+      alert("Error starting server: " + String(error));
+    }
+  }, []);
+
   // Keep ref updated
   useEffect(() => {
     loadJobsRef.current = loadJobsFromServer;
@@ -1454,41 +1484,13 @@ const HistoryTabContent: React.FC = () => {
     <div id="history" className={`tab-pane ${activeTab === "history" ? "active" : ""}`}>
       <div className="history-wrapper">
         <div id="historyList" className="history-list-container">
-            {serverState?.isOffline ? (
+            {serverState?.isOffline || serverError === "SERVER_DOWN" ? (
               <div className="history-empty-state">
                 <div className="history-empty-icon">
                   <WifiOff size={24} />
                 </div>
                 <div className="history-empty-message">
-                  hmm... you might be offline, or<br />
-                  the local server is down. <a onClick={async () => {
-                    const nle = window.nle;
-                    debugLog("[HistoryTab] Clicked fix this", { hasNLE: !!nle });
-                    if (!nle) {
-                      debugError("[HistoryTab] nle is null - JSX script failed to load (CEP error code 27)");
-                      alert("JSX script failed to load. Check CEP logs at ~/Library/Logs/CSXS/CEP12-PPRO.log for error code 27. The extension may need to be rebuilt.");
-                      return;
-                    }
-                    if (!nle.startBackend) {
-                      debugError("[HistoryTab] startBackend function missing");
-                      alert("startBackend function is missing. JSX script may not have loaded correctly.");
-                      return;
-                    }
-                    try {
-                      const result = await nle.startBackend();
-                      debugLog("[HistoryTab] startBackend result", { result });
-                      if (result && result.ok) {
-                        setTimeout(() => {
-                          window.location.reload();
-                        }, 2000);
-                      } else {
-                        alert("Server startup failed: " + (result?.error || "Unknown error"));
-                      }
-                    } catch (error) {
-                      debugError("[HistoryTab] Error calling startBackend", error);
-                      alert("Error starting server: " + String(error));
-                    }
-                  }}>fix this</a>
+                  hmm, you might be offline, or the server's down. <a onClick={handleRestartServer}>fix this</a>
                 </div>
               </div>
           ) : hasError || serverError ? (

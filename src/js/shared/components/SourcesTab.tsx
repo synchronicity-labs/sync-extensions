@@ -201,7 +201,12 @@ const SourcesTab: React.FC = () => {
       }
     };
 
-    (window as any).selectVideo = selectVideo;
+    // For Resolve, don't override selectVideo - it's set by nle-resolve.ts
+    const isResolve = typeof (window as any).electronAPI !== 'undefined' || 
+                      (typeof process !== 'undefined' && process.versions && process.versions.electron);
+    if (!isResolve || typeof (window as any).selectVideo !== 'function') {
+      (window as any).selectVideo = selectVideo;
+    }
     (window as any).selectVideoInOut = async () => {
       if (nle?.exportInOutVideo) {
         let codec = "h264";
@@ -1302,6 +1307,51 @@ const SourcesTab: React.FC = () => {
       const handleClick = async (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         
+        // Debug: Log ALL clicks to see what's happening
+        console.log('[SourcesTab] Click handler called', {
+          targetTag: target.tagName,
+          targetClass: target.className,
+          targetId: target.id,
+          isTTS: !!target.closest('#ttsInterface')
+        });
+        
+        // FIRST: Check if click is inside TTS interface - use simplest possible check
+        // Check if target or any parent is inside #ttsInterface
+        // This MUST be the first check to prevent our handler from interfering with React handlers
+        const ttsContainer = target.closest('#ttsInterface');
+        if (ttsContainer) {
+          // This is a TTS element - let React handlers handle it, don't interfere at all
+          // Don't call preventDefault or stopPropagation - just return immediately
+          debugLog('[SourcesTab] Click detected inside TTS interface, skipping delegation handler', {
+            targetTag: target.tagName,
+            targetClass: target.className,
+            targetId: target.id
+          });
+          return;
+        }
+        
+        // Also check if target itself or its closest button is a TTS button
+        const clickedButton = target.closest('button');
+        if (clickedButton && (
+            clickedButton.classList.contains('tts-voice-btn') ||
+            clickedButton.classList.contains('tts-btn') ||
+            clickedButton.classList.contains('tts-preview-btn') ||
+            clickedButton.classList.contains('tts-close-x')
+        )) {
+          // TTS button - let React handle it
+          debugLog('[SourcesTab] Click detected on TTS button, skipping delegation handler', {
+            buttonClass: clickedButton.className,
+            targetTag: target.tagName
+          });
+          return;
+        }
+        
+        // Check if target is inside TTS controls
+        if (target.closest('.tts-controls') || target.closest('.tts-controls-right') || target.closest('.tts-controls-left')) {
+          debugLog('[SourcesTab] Click detected inside TTS controls, skipping delegation handler');
+          return;
+        }
+        
         // Skip clicks on video/audio player elements - let their own handlers work
         const videoPlayerSelectors = ['.custom-video-player', '#mainVideo', '#videoPlayOverlay', '.video-controls', '.video-progress-bar', '.video-progress-container', '#centerPlayBtn', '#volumeBtn', '#volumeSlider', '#videoTime', '#videoFrameInfo'];
         const audioPlayerSelectors = ['.custom-audio-player', '#audioPlayer', '#audioPlayBtn', '.audio-waveform-container', '#waveformCanvas', '#audioTime', '.dubbing-dropdown-wrapper', '#dubbingBtn', '#dubbingSubmitBtn', '#dubbingDropdown'];
@@ -1314,15 +1364,33 @@ const SourcesTab: React.FC = () => {
           return;
         }
         
-        // Check if click is on a button or inside a button
+        // Check if click is on a button or inside a button (TTS buttons already excluded above)
         let button = target.closest('button[data-action]') as HTMLButtonElement;
         if (!button) {
           const anyButton = target.closest('button') as HTMLButtonElement;
-          if (anyButton && anyButton.hasAttribute('data-action')) {
+          if (anyButton) {
+            // Double-check: if this button is a TTS button, skip it (shouldn't happen but safety check)
+            if (anyButton.classList.contains('tts-voice-btn') ||
+                anyButton.classList.contains('tts-btn') ||
+                anyButton.classList.contains('tts-preview-btn') ||
+                anyButton.classList.contains('tts-close-x') ||
+                anyButton.closest('#ttsInterface')) {
+              return;
+            }
+            if (anyButton.hasAttribute('data-action')) {
             button = anyButton;
+            }
           }
         }
         if (!button && target.tagName === 'BUTTON' && target.hasAttribute('data-action')) {
+          // Final safety check for TTS buttons
+          if ((target as HTMLElement).classList.contains('tts-voice-btn') ||
+              (target as HTMLElement).classList.contains('tts-btn') ||
+              (target as HTMLElement).classList.contains('tts-preview-btn') ||
+              (target as HTMLElement).classList.contains('tts-close-x') ||
+              (target as HTMLElement).closest('#ttsInterface')) {
+            return;
+          }
           button = target as HTMLButtonElement;
         }
         
@@ -1444,7 +1512,8 @@ const SourcesTab: React.FC = () => {
       // Store handler in ref so it persists
       handleClickRef.current = handleClick;
       
-      // Use bubbling phase (not capture) to allow player handlers to run first
+      // Use bubbling phase (not capture) to allow React handlers to run first
+      // React's handlers will call stopImmediatePropagation() if needed
       sourcesContainer.addEventListener('click', handleClick, false);
       
       cleanupHandlers = () => {
@@ -1739,7 +1808,7 @@ const SourcesTab: React.FC = () => {
                   src={(() => {
                     // CEP blocks file:// URLs (error code 4: MEDIA_ERR_SRC_NOT_SUPPORTED)
                     // Use HTTP proxy route instead, similar to /wav/file and /mp3/file
-                    let computedSrc = '';
+                    let computedSrc: string | undefined = undefined;
                     if (selection.videoIsUrl && selection.videoUrl) {
                       // Already an HTTP URL
                       computedSrc = selection.videoUrl;
@@ -1748,8 +1817,9 @@ const SourcesTab: React.FC = () => {
                       const encodedPath = encodeURIComponent(selection.video);
                       computedSrc = getApiUrl(`/video/file?path=${encodedPath}`);
                     }
+                    // Return undefined (not empty string) when no video to prevent browser from using base URL
                     debugLog('[SourcesTab] Video src computed', {
-                      computedSrc: computedSrc.substring(0, 100) + '...',
+                      computedSrc: computedSrc ? computedSrc.substring(0, 100) + '...' : 'undefined',
                       videoIsUrl: selection.videoIsUrl,
                       hasVideoUrl: !!selection.videoUrl,
                       hasVideo: !!selection.video,
@@ -1946,17 +2016,24 @@ const SourcesTab: React.FC = () => {
 
           {/* Audio Upload Section */}
           <div 
-            className={`upload-box audio-upload ${selection.audio ? "has-media" : ""}`} 
+            className={`upload-box audio-upload ${selection.audio ? "has-media" : ""} ${ttsInterfaceOpen && !selection.audio ? "tts-open" : ""}`} 
             id="audioSection"
-            style={ttsInterfaceOpen && !selection.audio ? { height: '99px', minHeight: '99px', maxHeight: '99px' } : {}}
           >
             {ttsInterfaceOpen && !selection.audio ? (
               <TTSInterface
                 isOpen={ttsInterfaceOpen}
                 onClose={() => setTtsInterfaceOpen(false)}
                 onVoiceSelectClick={() => {
-                  debugLog('[SourcesTab] Voice select clicked, opening selector');
+                  try {
+                    debugLog('[SourcesTab] Voice select clicked callback - START');
+                    debugLog('[SourcesTab] Opening voice selector', { 
+                      currentState: ttsVoiceSelectorOpen 
+                    });
                   setTtsVoiceSelectorOpen(true);
+                    debugLog('[SourcesTab] Voice selector state set to true');
+                  } catch (error) {
+                    debugLog('[SourcesTab] ERROR in onVoiceSelectClick callback', { error: String(error) });
+                  }
                 }}
               />
             ) : (

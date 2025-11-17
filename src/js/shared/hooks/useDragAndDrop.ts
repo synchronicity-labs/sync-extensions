@@ -331,7 +331,7 @@ export const useDragAndDrop = (options: UseDragAndDropOptions) => {
         
         await ensureAuthToken();
         const settings = getSettings();
-        const body = { path: raw, apiKey: settings.syncApiKey || "" };
+        const body = { path: raw, syncApiKey: settings.syncApiKey || "" };
         const r = await fetch(getApiUrl("/upload"), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),

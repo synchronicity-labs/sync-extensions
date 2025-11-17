@@ -39,6 +39,9 @@ declare global {
   // Debug logging helper - per debug.md: only writes when logs/.debug flag exists
   function debugLog(message: string, data?: any): void {
     try {
+      // Also output to console
+      console.log(`[resolve] ${message}`, data || '');
+      
       fetch(`${DEBUG_BASE}/debug`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -54,6 +57,9 @@ declare global {
   
   function debugError(message: string, error?: any): void {
     try {
+      // Also output to console
+      console.error(`[resolve] ERROR: ${message}`, error || '');
+      
       fetch(`${DEBUG_BASE}/debug`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -75,7 +81,32 @@ declare global {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {})
       });
-      return res.json();
+      
+      if (!res.ok) {
+        const text = await res.text();
+        debugError('HTTP error', { status: res.status, statusText: res.statusText, text });
+        try {
+          const json = JSON.parse(text);
+          return json;
+        } catch {
+          return { ok: false, error: `HTTP ${res.status}: ${text || res.statusText}` };
+        }
+      }
+      
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        debugError('Non-JSON response', { contentType, text: text.substring(0, 200) });
+        return { ok: false, error: `Invalid response format: ${contentType}` };
+      }
+      
+      const json = await res.json();
+      if (!json || typeof json !== 'object') {
+        debugError('Invalid JSON response', { json });
+        return { ok: false, error: 'Invalid response format' };
+      }
+      
+      return json;
     } catch (error) {
       const err = error as Error;
       debugError('Fetch error', err);
@@ -86,7 +117,32 @@ declare global {
   async function jsonGet(path: string): Promise<any> {
     try {
       const res = await fetch(BASE + path);
-      return res.json();
+      
+      if (!res.ok) {
+        const text = await res.text();
+        debugError('HTTP error', { status: res.status, statusText: res.statusText, text });
+        try {
+          const json = JSON.parse(text);
+          return json;
+        } catch {
+          return { ok: false, error: `HTTP ${res.status}: ${text || res.statusText}` };
+        }
+      }
+      
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await res.text();
+        debugError('Non-JSON response', { contentType, text: text.substring(0, 200) });
+        return { ok: false, error: `Invalid response format: ${contentType}` };
+      }
+      
+      const json = await res.json();
+      if (!json || typeof json !== 'object') {
+        debugError('Invalid JSON response', { json });
+        return { ok: false, error: 'Invalid response format' };
+      }
+      
+      return json;
     } catch (error) {
       const err = error as Error;
       debugError('Fetch error', err);
@@ -96,6 +152,9 @@ declare global {
 
   // Electron dialog for file picker using preload API
   async function showFileDialog(options: any): Promise<string | null> {
+    console.log('[resolve] showFileDialog called', { hasElectronAPI: !!window.electronAPI });
+    debugLog('showFileDialog called', { hasElectronAPI: !!window.electronAPI });
+    
     // Wait for electronAPI to be available (might load after this script)
     let retries = 10;
     while (!window.electronAPI && retries > 0) {
@@ -103,24 +162,58 @@ declare global {
       retries--;
     }
     
-    if (window.electronAPI && window.electronAPI.showOpenDialog) {
-      try {
-        const result = await window.electronAPI.showOpenDialog(options);
-        if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
-          return result.filePaths[0];
-        }
-        return null;
-      } catch (error) {
-        const err = error as Error;
-        debugError('Error opening file dialog', err);
-        // Fall through to HTML5 fallback
-      }
+    console.log('[resolve] After waiting for electronAPI:', { hasElectronAPI: !!window.electronAPI, retries });
+    
+    if (!window.electronAPI) {
+      console.error('[resolve] electronAPI not available after retries');
+      debugError('File dialog not available - electronAPI not loaded after retries');
+      return null;
     }
     
-    // Fallback to HTML5 file input (but this won't work well in Electron)
-    // Return null instead to show proper error
-    debugError('File dialog not available - electronAPI not loaded');
-    return null;
+    if (!window.electronAPI.showOpenDialog) {
+      console.error('[resolve] showOpenDialog method missing', { 
+        electronAPI: !!window.electronAPI,
+        methods: Object.keys(window.electronAPI || {})
+      });
+      debugError('File dialog not available - showOpenDialog method missing', { 
+        electronAPI: !!window.electronAPI,
+        methods: Object.keys(window.electronAPI || {})
+      });
+      return null;
+    }
+    
+    try {
+      console.log('[resolve] Calling showOpenDialog', { options });
+      debugLog('Calling showOpenDialog', { options });
+      const result = await window.electronAPI.showOpenDialog(options);
+      console.log('[resolve] showOpenDialog result', { canceled: result?.canceled, fileCount: result?.filePaths?.length || 0 });
+      debugLog('showOpenDialog result', { result, canceled: result?.canceled, fileCount: result?.filePaths?.length || 0 });
+      
+      // Validate result structure
+      if (!result || typeof result !== 'object') {
+        debugError('Invalid file dialog response format', { result, resultType: typeof result });
+        return null;
+      }
+      if (result.canceled === true) {
+        debugLog('User cancelled file dialog');
+        return null; // User cancelled
+      }
+      if (result.filePaths && Array.isArray(result.filePaths) && result.filePaths.length > 0) {
+        const filePath = result.filePaths[0];
+        if (typeof filePath === 'string' && filePath.trim() !== '') {
+          debugLog('File selected', { filePath });
+          return filePath;
+        }
+        debugError('Invalid file path in result', { filePath, filePathType: typeof filePath });
+      } else {
+        debugError('No file paths in result', { result });
+      }
+      return null;
+    } catch (error) {
+      const err = error as Error;
+      debugError('Error opening file dialog', { error: err.message, stack: err.stack });
+      return null;
+    }
   }
 
   // NLE methods matching useNLE.ts interface
@@ -140,13 +233,21 @@ declare global {
   // File picker functions for upload buttons
   window.selectVideo = async function(): Promise<string | null> {
     try {
+      console.log('[resolve] selectVideo called');
+      debugLog('selectVideo called');
+      
       const filePath = await showFileDialog({
         properties: ['openFile'],
         filters: [
           { name: 'Video Files', extensions: ['mp4', 'mov', 'mxf', 'mkv', 'avi', 'm4v', 'mpg', 'mpeg'] }
         ]
       });
-      if (filePath) {
+      
+      console.log('[resolve] selectVideo got result:', filePath);
+      debugLog('selectVideo got result', { filePath: filePath ? 'path provided' : 'null' });
+      
+      // Ensure we always return a string or null, never an error object
+      if (filePath && typeof filePath === 'string' && filePath.trim() !== '') {
         window.selectedVideo = filePath;
         debugLog('Video selected', { filePath });
         
@@ -160,11 +261,14 @@ declare global {
         
         return filePath;
       }
+      debugLog('No video file selected or path is empty', { filePath });
+      return null;
     } catch (error) {
       const err = error as Error;
+      console.error('[resolve] Error selecting video:', err);
       debugError('Error selecting video', err);
+      return null;
     }
-    return null;
   };
 
   window.selectAudio = async function(): Promise<string | null> {
@@ -175,7 +279,8 @@ declare global {
           { name: 'Audio Files', extensions: ['wav', 'mp3', 'aac', 'aif', 'aiff', 'm4a'] }
         ]
       });
-      if (filePath) {
+      // Ensure we always return a string or null, never an error object
+      if (filePath && typeof filePath === 'string' && filePath.trim() !== '') {
         window.selectedAudio = filePath;
         debugLog('Audio selected', { filePath });
         
@@ -189,11 +294,13 @@ declare global {
         
         return filePath;
       }
+      debugLog('No audio file selected or path is empty', { filePath });
+      return null;
     } catch (error) {
       const err = error as Error;
       debugError('Error selecting audio', err);
+      return null;
     }
-    return null;
   };
 
   // API key persistence using Electron's storage
