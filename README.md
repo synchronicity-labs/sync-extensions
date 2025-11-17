@@ -23,11 +23,13 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 
 ## Features
 
-- Video and audio upload and processing
-- AI-powered lipsync generation
-- Job history and status tracking
-- Settings and API key management
-- Text-to-speech functionality
+- **Video and audio upload** - Upload files directly or use URLs
+- **Timeline export** - Export video/audio from timeline using in/out points
+- **AI-powered lipsync generation** - Multiple model options with quality/speed tradeoffs
+- **Job history and tracking** - View all generations with status and progress
+- **Save and insert** - Save outputs to project or insert directly into timeline
+- **Settings management** - Configure API keys, models, and save locations
+- **Text-to-speech** - Generate audio from text with voice cloning support
 
 ## Supported Applications
 
@@ -35,6 +37,14 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 - **Premiere Pro** 2024 or later
 - **DaVinci Resolve** (all versions with Workflow Integration support)
 - Works on both **Windows** and **macOS**
+
+## Documentation
+
+- **[Getting Started Guide](./docs/getting_started.md)** - Complete setup and workflow guide
+- **[Saving and Inserting Jobs](./docs/save-insert.md)** - Learn how to save and insert completed jobs
+- **[Using In/Out Points](./docs/use-in-out.md)** - Export video/audio from timeline ranges
+- **[Debug Guide](./docs/debug.md)** - Enable logging and troubleshoot issues
+- **[Hot Reload](./docs/hot-reload.md)** - Development workflow for contributors
 
 ## Troubleshooting
 
@@ -58,6 +68,32 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 1. Check that port 3000 is available
 2. Verify Node.js binaries are present in the extension/plugin
 3. Check extension/plugin debug console for server errors
+
+### Save/Insert Not Working
+
+1. Ensure you have an active sequence/timeline/composition
+2. Check that your project is saved (for project folder saves)
+3. Verify the job is completed (not still processing)
+4. Check write permissions to save location
+5. See [Save/Insert Guide](./docs/save-insert.md) for detailed troubleshooting
+
+### Export In/Out Not Working
+
+1. Ensure in/out points are set on your timeline
+2. Verify you have an active sequence/timeline/composition
+3. Check that export size doesn't exceed 1GB limit
+4. See [In/Out Points Guide](./docs/use-in-out.md) for detailed instructions
+
+## Quick Start
+
+1. **Install** the extension/plugin (see Installation above)
+2. **Get API key** from [sync.media](https://sync.media) (or your API provider)
+3. **Configure** settings in the extension (Settings tab)
+4. **Select media** - Upload files, export from timeline, or enter URLs
+5. **Generate** - Click Lipsync button and wait for completion
+6. **Use result** - Save to project or insert into timeline
+
+For detailed instructions, see the [Getting Started Guide](./docs/getting_started.md).
 
 ## Security & Trust
 
