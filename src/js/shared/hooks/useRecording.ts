@@ -67,10 +67,22 @@ export const useRecording = () => {
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+          debugLog('[useRecording] Data chunk received', { size: e.data.size, totalChunks: chunks.length });
+        }
+      };
+      
+      // Ensure we capture data even if stop is called quickly
+      recorder.onerror = (e) => {
+        debugError('[useRecording] MediaRecorder error', e);
       };
 
       recorder.onstop = async () => {
+        // Request final data chunk before processing
+        if (recorder.state !== 'inactive') {
+          recorder.requestData();
+        }
         setIsRecording(false);
         setRecordingType(null);
         
@@ -93,9 +105,25 @@ export const useRecording = () => {
         }
         
         // Wait a bit for any remaining data to be captured (matches main branch)
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check if we have any data
+        if (chunks.length === 0) {
+          debugError('[useRecording] No data chunks captured', { type, recorderState: recorder.state });
+          showToast('Recording failed - no data captured. Please try again.', "error");
+          return;
+        }
         
         const blob = new Blob(chunks, { type: mimeType });
+        
+        // Check blob size
+        if (blob.size === 0) {
+          debugError('[useRecording] Empty blob created', { type, chunksLength: chunks.length });
+          showToast('Recording failed - empty file. Please try again.', "error");
+          return;
+        }
+        
+        debugLog('[useRecording] Blob created', { size: blob.size, type, chunksLength: chunks.length });
         const url = URL.createObjectURL(blob);
         
         // Show loading toast immediately
@@ -461,7 +489,9 @@ export const useRecording = () => {
       // Wait a bit for camera/mic to warm up
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      recorder.start();
+      // Start with timeslice to ensure data is captured continuously
+      // Timeslice of 1000ms ensures we get data chunks every second
+      recorder.start(1000);
       setIsRecording(true);
       setRecordingType(type);
     } catch (error: any) {

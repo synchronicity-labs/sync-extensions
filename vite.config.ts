@@ -50,6 +50,8 @@ const config = {
 if (action) runAction(config, action);
 
 // Build Resolve plugin (file copying and installation)
+let resolvePluginWatcher: any = null;
+
 async function buildResolvePlugin() {
   const resolveSrc = path.join(__dirname, 'src', 'resolve');
   const resolveDest = resolveOutDir;
@@ -64,13 +66,20 @@ async function buildResolvePlugin() {
   
   if (tsFiles.length > 0) {
     try {
-      const esbuild = require('esbuild');
-      tsFiles.forEach(({ src, dest }) => {
+      // Use dynamic import for esbuild in ESM context
+      const esbuildModule = await import('esbuild');
+      const esbuild = esbuildModule.default || esbuildModule;
+      
+      for (const { src, dest } of tsFiles) {
         const srcFile = path.join(resolveSrc, src);
         const destFile = path.join(resolveDest, dest);
         if (fs.existsSync(srcFile)) {
           try {
             fs.mkdirSync(path.dirname(destFile), { recursive: true });
+            // Always rebuild - remove old file first to ensure fresh build
+            if (fs.existsSync(destFile)) {
+              fs.unlinkSync(destFile);
+            }
             esbuild.buildSync({
               entryPoints: [srcFile],
               bundle: false,
@@ -80,7 +89,7 @@ async function buildResolvePlugin() {
               outfile: destFile,
               external: (src.includes('preload') || src.includes('backend')) ? ['electron'] : [],
             });
-            console.log(`Compiled ${src} to ${dest}`);
+            console.log(`✓ Compiled ${src} to ${dest}`);
           } catch (error: any) {
             console.warn(`Failed to compile ${src}:`, error?.message || error);
             // Fallback: copy .ts file as-is (may need runtime compilation)
@@ -88,7 +97,7 @@ async function buildResolvePlugin() {
             console.log(`Copied ${src} as .ts (compilation failed)`);
           }
         }
-      });
+      }
     } catch (error: any) {
       console.warn('esbuild not available, copying .ts files as-is:', error?.message || error);
       tsFiles.forEach(({ src, dest }) => {
@@ -499,6 +508,63 @@ async function buildResolvePlugin() {
     
     console.log(`\nCreating Resolve plugin ZIP package...`);
     
+    // Create installation instructions file
+    const instructionsPath = path.join(resolveDest, 'INSTALLATION_INSTRUCTIONS.txt');
+    const instructions = `INSTALLATION INSTRUCTIONS FOR DAVINCI RESOLVE PLUGIN
+================================================
+
+Follow these simple steps to install the sync. plugin for DaVinci Resolve:
+
+MACOS:
+------
+1. Extract this ZIP file (double-click it or right-click and choose "Extract")
+
+2. Open Finder and press Cmd+Shift+G (or go to Go > Go to Folder...)
+
+3. Copy and paste this path into the dialog:
+   /Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/
+
+4. Press Enter or click Go
+
+5. Copy the "sync.resolve" folder from the extracted ZIP into this folder
+
+6. Restart DaVinci Resolve
+
+7. Find the plugin in: Workspace > Workflow Integration > sync.
+
+
+WINDOWS:
+--------
+1. Extract this ZIP file (right-click and choose "Extract All...")
+
+2. Open File Explorer and navigate to:
+   C:\\ProgramData\\Blackmagic Design\\DaVinci Resolve\\Support\\Workflow Integration Plugins\\
+
+   Note: If you can't see ProgramData, it's hidden by default:
+   - In File Explorer, click View > Show > Hidden items
+   - Or type the path directly in the address bar
+
+3. Copy the "sync.resolve" folder from the extracted ZIP into this folder
+
+4. Restart DaVinci Resolve
+
+5. Find the plugin in: Workspace > Workflow Integration > sync.
+
+
+TROUBLESHOOTING:
+----------------
+- If the plugin doesn't appear, make sure you copied the entire "sync.resolve" folder
+- Ensure DaVinci Resolve is completely closed before copying files
+- You may need administrator/sudo permissions to copy to these system folders
+- After installation, restart DaVinci Resolve completely
+
+
+For more help, visit: https://sync.so
+`;
+    
+    fs.writeFileSync(instructionsPath, instructions, 'utf-8');
+    console.log(`✓ Created installation instructions file`);
+    
     // Use native zip command (works on macOS/Linux, Windows needs PowerShell)
     try {
       if (process.platform === 'win32') {
@@ -845,6 +911,57 @@ export default defineConfig({
         // Build Resolve plugin if RESOLVE_BUILD is set
         if (isResolveBuild) {
           await buildResolvePlugin();
+          
+          // Set up watch mode for Resolve plugin files in development
+          if (!isProduction && !resolvePluginWatcher) {
+            try {
+              const chokidar = require('chokidar');
+              const resolveSrc = path.join(__dirname, 'src', 'resolve');
+              
+              console.log('\n🔍 Setting up file watcher for Resolve plugin...');
+              resolvePluginWatcher = chokidar.watch([
+                path.join(resolveSrc, '**/*.ts'),
+                path.join(resolveSrc, '**/*.py'),
+                path.join(resolveSrc, '**/*.json'),
+                path.join(resolveSrc, '**/*.sh'),
+              ], {
+                ignored: /node_modules/,
+                persistent: true,
+                ignoreInitial: true, // Don't trigger on initial scan
+              });
+              
+              let rebuildTimeout: NodeJS.Timeout | null = null;
+              resolvePluginWatcher.on('change', (filePath: string) => {
+                console.log(`\n📝 Resolve plugin file changed: ${path.relative(__dirname, filePath)}`);
+                
+                // Debounce rebuilds
+                if (rebuildTimeout) {
+                  clearTimeout(rebuildTimeout);
+                }
+                
+                rebuildTimeout = setTimeout(async () => {
+                  console.log('🔄 Rebuilding Resolve plugin...');
+                  try {
+                    await buildResolvePlugin();
+                    console.log('✅ Resolve plugin rebuilt successfully');
+                    console.log('💡 Restart DaVinci Resolve plugin window to see changes');
+                  } catch (error: any) {
+                    console.error('❌ Resolve plugin rebuild failed:', error.message);
+                  }
+                }, 500);
+              });
+              
+              resolvePluginWatcher.on('ready', () => {
+                console.log('✅ Resolve plugin file watcher ready');
+              });
+              
+              resolvePluginWatcher.on('error', (error: Error) => {
+                console.error('❌ Resolve plugin watcher error:', error.message);
+              });
+            } catch (error: any) {
+              console.warn('⚠️  Could not set up Resolve plugin watcher (chokidar not available):', error.message);
+            }
+          }
         }
       },
       async buildStart() {

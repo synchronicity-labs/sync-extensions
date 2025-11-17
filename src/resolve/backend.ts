@@ -109,19 +109,37 @@ if (process.versions.electron) {
       });
 
       pythonProcess.on('close', (code: number | null) => {
+        const trimmedStdout = stdout.trim();
+        
         if (code !== 0) {
-          debugLog('Python API error', { code, stderr });
-          reject(new Error(`Python script exited with code ${code}: ${stderr}`));
+          debugLog('Python API error', { code, stderr, stdout: trimmedStdout });
+          // Try to parse error response as JSON
+          if (trimmedStdout) {
+            try {
+              const errorResult = JSON.parse(trimmedStdout);
+              reject(new Error(errorResult.error || stderr || `Python script exited with code ${code}`));
+              return;
+            } catch (_) {
+              // Not JSON, use raw error
+            }
+          }
+          reject(new Error(`Python script exited with code ${code}: ${stderr || trimmedStdout || 'Unknown error'}`));
+          return;
+        }
+
+        if (!trimmedStdout) {
+          debugLog('Python API empty output', { stderr });
+          reject(new Error('Python script returned empty output'));
           return;
         }
 
         try {
-          const result = JSON.parse(stdout.trim());
+          const result = JSON.parse(trimmedStdout);
           resolve(result);
         } catch (e) {
           const err = e as Error;
-          debugLog('Python API parse error', { stdout, error: err.message });
-          reject(new Error(`Failed to parse Python output: ${stdout}`));
+          debugLog('Python API parse error', { stdout: trimmedStdout, stderr, error: err.message });
+          reject(new Error(`Failed to parse Python output: ${trimmedStdout.substring(0, 200)}`));
         }
       });
 
@@ -262,33 +280,45 @@ if (process.versions.electron) {
       debugLog('DOM ready, injecting scripts');
 
       // Sync API key from Electron storage to localStorage
-      try {
-        const apiKeyFile = path.join(os.homedir(), 'Library', 'Application Support', 'sync. extensions', 'api-key.txt');
-        let apiKey = '';
-        if (fs.existsSync(apiKeyFile)) {
-          apiKey = fs.readFileSync(apiKeyFile, 'utf8').trim();
-        }
+      const syncApiKey = () => {
+        try {
+          const apiKeyFile = path.join(os.homedir(), 'Library', 'Application Support', 'sync. extensions', 'api-key.txt');
+          let apiKey = '';
+          if (fs.existsSync(apiKeyFile)) {
+            apiKey = fs.readFileSync(apiKeyFile, 'utf8').trim();
+          }
 
-        if (apiKey) {
-          const apiKeyJson = JSON.stringify(apiKey);
-          mainWindow.webContents.executeJavaScript(`
-            (function() {
-              try {
-                const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
-                settings.syncApiKey = ${apiKeyJson};
-                localStorage.setItem('syncSettings', JSON.stringify(settings));
-                // Note: This runs in browser context via executeJavaScript
-                // Logging is handled by the injected script's error handler
-              } catch (e) {
-                debugLog('[Resolve] Error syncing API key', { error: e });
-              }
-            })();
-          `);
+          if (apiKey) {
+            const apiKeyJson = JSON.stringify(apiKey);
+            mainWindow.webContents.executeJavaScript(`
+              (function() {
+                try {
+                  const settings = JSON.parse(localStorage.getItem('syncSettings') || '{}');
+                  settings.syncApiKey = ${apiKeyJson};
+                  localStorage.setItem('syncSettings', JSON.stringify(settings));
+                  // Trigger storage event so components can react
+                  window.dispatchEvent(new Event('storage'));
+                  // Note: This runs in browser context via executeJavaScript
+                  // Logging is handled by the injected script's error handler
+                } catch (e) {
+                  console.error('[Resolve] Error syncing API key', e);
+                }
+              })();
+            `).catch((err: Error) => {
+              debugLog('Error executing API key sync script', { error: err.message });
+            });
+          }
+        } catch (error) {
+          const err = error as Error;
+          debugLog('Error syncing API key on DOM ready', { error: err.message });
         }
-      } catch (error) {
-        const err = error as Error;
-        debugLog('Error syncing API key on DOM ready', { error: err.message });
-      }
+      };
+      
+      // Sync immediately
+      syncApiKey();
+      
+      // Also sync after a short delay to ensure localStorage is ready
+      setTimeout(syncApiKey, 500);
 
       mainWindow.webContents.executeJavaScript(`
         (function() {

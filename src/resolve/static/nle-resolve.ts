@@ -96,47 +96,31 @@ declare global {
 
   // Electron dialog for file picker using preload API
   async function showFileDialog(options: any): Promise<string | null> {
+    // Wait for electronAPI to be available (might load after this script)
+    let retries = 10;
+    while (!window.electronAPI && retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      retries--;
+    }
+    
     if (window.electronAPI && window.electronAPI.showOpenDialog) {
       try {
         const result = await window.electronAPI.showOpenDialog(options);
-        return result.canceled ? null : result.filePaths[0];
+        if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
+          return result.filePaths[0];
+        }
+        return null;
       } catch (error) {
         const err = error as Error;
         debugError('Error opening file dialog', err);
-        return null;
+        // Fall through to HTML5 fallback
       }
     }
     
-    // Fallback to HTML5 file input
-    return new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.style.display = 'none';
-      
-      if (options.filters && options.filters.length > 0) {
-        const extensions = options.filters[0].extensions;
-        input.accept = extensions.map((ext: string) => `.${ext}`).join(',');
-      }
-      
-      input.onchange = (e) => {
-        const target = e.target as HTMLInputElement;
-        const file = target.files?.[0];
-        if (file) {
-          resolve((file as any).path || file.name);
-        } else {
-          resolve(null);
-        }
-        document.body.removeChild(input);
-      };
-      
-      input.oncancel = () => {
-        resolve(null);
-        document.body.removeChild(input);
-      };
-      
-      document.body.appendChild(input);
-      input.click();
-    });
+    // Fallback to HTML5 file input (but this won't work well in Electron)
+    // Return null instead to show proper error
+    debugError('File dialog not available - electronAPI not loaded');
+    return null;
   }
 
   // NLE methods matching useNLE.ts interface

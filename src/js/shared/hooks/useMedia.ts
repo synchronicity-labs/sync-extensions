@@ -54,18 +54,38 @@ export const useMedia = () => {
         if (hostId === HOST_IDS.RESOLVE) {
           if (kind === "video") {
             if (typeof (window as any).selectVideo === 'function') {
-              const path = await (window as any).selectVideo();
-              return path;
+              try {
+                const path = await (window as any).selectVideo();
+                if (!path) {
+                  debugLog('openFileDialog: User cancelled or no file selected', { kind });
+                }
+                return path;
+              } catch (error) {
+                debugError('openFileDialog: Error calling selectVideo', error);
+                showToast('Failed to open file dialog. Please try again.', "error");
+                return null;
+              }
             } else {
               debugLog('openFileDialog: window.selectVideo not available for Resolve', { kind });
+              showToast('File dialog not ready. Please wait a moment and try again.', "error");
               return null;
             }
           } else {
             if (typeof (window as any).selectAudio === 'function') {
-              const path = await (window as any).selectAudio();
-              return path;
+              try {
+                const path = await (window as any).selectAudio();
+                if (!path) {
+                  debugLog('openFileDialog: User cancelled or no file selected', { kind });
+                }
+                return path;
+              } catch (error) {
+                debugError('openFileDialog: Error calling selectAudio', error);
+                showToast('Failed to open file dialog. Please try again.', "error");
+                return null;
+              }
             } else {
               debugLog('openFileDialog: window.selectAudio not available for Resolve', { kind });
+              showToast('File dialog not ready. Please wait a moment and try again.', "error");
               return null;
             }
           }

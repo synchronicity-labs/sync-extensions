@@ -10,7 +10,7 @@
     "dev": "concurrently -n vite,server,resolve -c blue,green,yellow \"vite\" \"npm run dev:server\" \"npm run dev:resolve-build\"",
     "dev:server": "NODE_ENV=development HOST_APP=PPRO tsx src/server/server.ts",
     "dev:resolve": "concurrently -n vite,server -c blue,green \"vite\" \"NODE_ENV=development HOST_APP=RESOLVE tsx src/server/server.ts\"",
-    "dev:resolve-build": "cross-env RESOLVE_BUILD=true NODE_ENV=development vite build",
+    "dev:resolve-build": "cross-env RESOLVE_BUILD=true NODE_ENV=development vite build --watch",
     "build": "npm run build:adobe && npm run build:davinci",
     "build:parallel": "concurrently -n adobe,davinci -c blue,green \"npm run build:adobe\" \"npm run build:davinci\"",
     "build:adobe": "npm run prezxp && dotenv -e src/server/.env -- cross-env ZXP_PACKAGE=true NODE_ENV=production vite build",
