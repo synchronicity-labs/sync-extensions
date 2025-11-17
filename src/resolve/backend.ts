@@ -263,7 +263,17 @@ if (process.versions.electron) {
 
       // Sync API key from Electron storage to localStorage
       try {
-        const apiKeyFile = path.join(os.homedir(), 'Library', 'Application Support', 'sync. extensions', 'api-key.txt');
+        // Use same path logic as debugLog function
+        const home = os.homedir();
+        let apiKeyDir: string;
+        if (process.platform === 'win32') {
+          apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'AppData', 'Roaming', 'sync. extensions');
+        } else if (process.platform === 'darwin') {
+          apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'Library', 'Application Support', 'sync. extensions');
+        } else {
+          apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, '.config', 'sync. extensions');
+        }
+        const apiKeyFile = path.join(apiKeyDir, 'api-key.txt');
         let apiKey = '';
         if (fs.existsSync(apiKeyFile)) {
           apiKey = fs.readFileSync(apiKeyFile, 'utf8').trim();
@@ -315,7 +325,16 @@ if (process.versions.electron) {
   // IPC handlers for API key storage
   ipcMain.handle('get-api-key', async () => {
     try {
-      const apiKeyFile = path.join(os.homedir(), 'Library', 'Application Support', 'sync. extensions', 'api-key.txt');
+      const home = os.homedir();
+      let apiKeyDir: string;
+      if (process.platform === 'win32') {
+        apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'AppData', 'Roaming', 'sync. extensions');
+      } else if (process.platform === 'darwin') {
+        apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'Library', 'Application Support', 'sync. extensions');
+      } else {
+        apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, '.config', 'sync. extensions');
+      }
+      const apiKeyFile = path.join(apiKeyDir, 'api-key.txt');
       if (fs.existsSync(apiKeyFile)) {
         return fs.readFileSync(apiKeyFile, 'utf8').trim();
       }
@@ -329,11 +348,19 @@ if (process.versions.electron) {
 
   ipcMain.handle('set-api-key', async (event, key: string) => {
     try {
-      const debugDir = path.join(os.homedir(), 'Library', 'Application Support', 'sync. extensions');
-      const apiKeyFile = path.join(debugDir, 'api-key.txt');
+      const home = os.homedir();
+      let apiKeyDir: string;
+      if (process.platform === 'win32') {
+        apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'AppData', 'Roaming', 'sync. extensions');
+      } else if (process.platform === 'darwin') {
+        apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, 'Library', 'Application Support', 'sync. extensions');
+      } else {
+        apiKeyDir = process.env.SYNC_EXTENSIONS_DIR || path.join(home, '.config', 'sync. extensions');
+      }
+      const apiKeyFile = path.join(apiKeyDir, 'api-key.txt');
 
-      if (!fs.existsSync(debugDir)) {
-        fs.mkdirSync(debugDir, { recursive: true });
+      if (!fs.existsSync(apiKeyDir)) {
+        fs.mkdirSync(apiKeyDir, { recursive: true });
       }
 
       fs.writeFileSync(apiKeyFile, key);

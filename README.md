@@ -13,8 +13,27 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 
 ### DaVinci Resolve
 
-1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
-2. Extract the `sync-resolve-plugin-*.zip` file
+#### Easy Installation (Recommended)
+
+**macOS:**
+1. Download `sync-resolve-installer-*.dmg` from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+2. Open the DMG file
+3. Double-click "Install sync.resolve.command" and follow the prompts
+4. Restart DaVinci Resolve
+5. Find the plugin in **Workspace > Workflow Integration > sync.**
+
+**Windows:**
+1. Download `sync-resolve-installer-*.zip` from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+2. Extract the ZIP file
+3. Right-click `Install.bat` and select "Run as Administrator"
+4. Follow the on-screen instructions
+5. Restart DaVinci Resolve
+6. Find the plugin in **Workspace > Workflow Integration > sync.**
+
+#### Manual Installation
+
+1. Download `sync-resolve-plugin-*.zip` from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+2. Extract the ZIP file
 3. Copy the `sync.resolve` folder to:
    - **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/`
    - **Windows**: `C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\`

@@ -398,13 +398,58 @@ echo "   - UI files (shared with Adobe extension)"
 echo "   - Node.js server with dependencies"
 echo "   - Python API scripts"
 
+# Create Mac DMG installer
+echo ""
+echo "🍎 Creating Mac DMG installer..."
+if [ "$(uname)" = "Darwin" ]; then
+  if [ -f "$REPO_DIR/bin/create-mac-installer.sh" ]; then
+    bash "$REPO_DIR/bin/create-mac-installer.sh" "$VERSION"
+    MAC_DMG_PATH="$REPO_DIR/dist/sync-resolve-installer-v${VERSION}.dmg"
+    if [ -f "$MAC_DMG_PATH" ]; then
+      echo "✅ Mac DMG installer created: $MAC_DMG_PATH"
+    else
+      echo "⚠️  Mac DMG installer creation failed (non-fatal)"
+    fi
+  else
+    echo "⚠️  Mac installer script not found (skipping)"
+  fi
+else
+  echo "⚠️  Not running on macOS, skipping DMG creation"
+  echo "   (DMG can be created manually on macOS using: ./bin/create-mac-installer.sh $VERSION)"
+fi
+
+# Create Windows installer
+echo ""
+echo "🪟 Creating Windows installer..."
+if [ -f "$REPO_DIR/bin/create-windows-installer.ps1" ]; then
+  # Try to run PowerShell script (works on Windows, WSL, or if pwsh is available)
+  if command -v pwsh >/dev/null 2>&1; then
+    pwsh -File "$REPO_DIR/bin/create-windows-installer.ps1" "$VERSION" || {
+      echo "⚠️  Windows installer creation failed (non-fatal)"
+      echo "   Installer can be created manually on Windows using: .\\bin\\create-windows-installer.ps1 $VERSION"
+    }
+  elif command -v powershell >/dev/null 2>&1; then
+    powershell -File "$REPO_DIR/bin/create-windows-installer.ps1" "$VERSION" || {
+      echo "⚠️  Windows installer creation failed (non-fatal)"
+      echo "   Installer can be created manually on Windows using: .\\bin\\create-windows-installer.ps1 $VERSION"
+    }
+  else
+    echo "⚠️  PowerShell not found, skipping Windows installer creation"
+    echo "   Installer can be created manually on Windows using: .\\bin\\create-windows-installer.ps1 $VERSION"
+  fi
+else
+  echo "⚠️  Windows installer script not found (skipping)"
+fi
 
 # Commit changes
 echo ""
 echo "Committing changes..."
+# Add all built files (installers may or may not exist depending on platform)
 git add package.json package-lock.json \
   dist/zxp/com.sync.extension.zxp \
-  dist/sync-resolve-plugin-v${VERSION}.zip
+  dist/sync-resolve-plugin-v${VERSION}.zip || true
+# Add installers if they exist
+git add dist/sync-resolve-installer-v${VERSION}.dmg dist/sync-resolve-installer-v${VERSION}.zip 2>/dev/null || true
 git commit -m "Bump version to $VERSION" || echo "No changes to commit"
 
 # Create git tag
@@ -423,5 +468,12 @@ echo ""
 echo "📦 Built packages:"
 echo "   - ZXP: dist/zxp/com.sync.extension.zxp"
 echo "   - ZIP: dist/sync-resolve-plugin-v${VERSION}.zip"
+if [ -f "$REPO_DIR/dist/sync-resolve-installer-v${VERSION}.dmg" ]; then
+  echo "   - DMG: dist/sync-resolve-installer-v${VERSION}.dmg (Mac installer)"
+fi
+WIN_INSTALLER_ZIP="$REPO_DIR/dist/sync-resolve-installer-v${VERSION}.zip"
+if [ -f "$WIN_INSTALLER_ZIP" ]; then
+  echo "   - ZIP: dist/sync-resolve-installer-v${VERSION}.zip (Windows installer)"
+fi
 echo ""
 echo "🚀 GitHub Actions will upload packages to releases on tag push"

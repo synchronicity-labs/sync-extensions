@@ -26,6 +26,8 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           ZXP_PATH="dist/zxp/com.sync.extension.zxp"
           ZIP_PATH="dist/sync-resolve-plugin-v${VERSION}.zip"
+          MAC_DMG_PATH="dist/sync-resolve-installer-v${VERSION}.dmg"
+          WIN_INSTALLER_PATH="dist/sync-resolve-installer-v${VERSION}.zip"
           
           if [ ! -f "$ZXP_PATH" ]; then
             echo "Error: ZXP file not found at $ZXP_PATH"
@@ -40,6 +42,19 @@ jobs:
             exit 1
           fi
           echo "✅ Resolve ZIP file found"
+          
+          # Installers are optional (platform-specific)
+          if [ -f "$MAC_DMG_PATH" ]; then
+            echo "✅ Mac DMG installer found"
+          else
+            echo "ℹ️  Mac DMG installer not found (optional, platform-specific)"
+          fi
+          
+          if [ -f "$WIN_INSTALLER_PATH" ]; then
+            echo "✅ Windows installer found"
+          else
+            echo "ℹ️  Windows installer not found (optional, platform-specific)"
+          fi
 
       - name: Get tag message
         id: tag_message
@@ -59,8 +74,19 @@ jobs:
             ${{ steps.tag_message.outputs.message }}
             
             **Downloads:**
+            
+            **Adobe Applications (After Effects & Premiere Pro):**
             - `com.sync.extension.zxp` - Unified extension for After Effects and Premiere Pro (works on Windows and macOS)
-            - `sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip` - DaVinci Resolve plugin
+              - Install using [ZXP Installer](https://aescripts.com/learn/zxp-installer/)
+            
+            **DaVinci Resolve:**
+            - `sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip` - Plugin package (manual installation)
+            - `sync-resolve-installer-v${{ steps.version.outputs.version }}.dmg` - Mac installer (drag-and-drop installation)
+            - `sync-resolve-installer-v${{ steps.version.outputs.version }}.zip` - Windows installer (PowerShell installer)
+            
+            **Installation Instructions:**
+            - **Mac**: Open the DMG, drag `sync.resolve` to the Install Location folder, or copy to `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/`
+            - **Windows**: Extract the installer ZIP, run `Install.bat` or `install-resolve-plugin.ps1` as Administrator
             
             **Security & Trust:**
             - ZXP package is digitally signed and verified (signed locally before upload)
@@ -68,6 +94,8 @@ jobs:
           files: |
             dist/zxp/com.sync.extension.zxp
             dist/sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip
+            dist/sync-resolve-installer-v${{ steps.version.outputs.version }}.dmg
+            dist/sync-resolve-installer-v${{ steps.version.outputs.version }}.zip
           draft: false
           prerelease: false
           generate_release_notes: true
