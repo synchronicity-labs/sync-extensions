@@ -399,29 +399,42 @@ echo "   - Node.js server with dependencies"
 echo "   - Python API scripts"
 
 
-# Commit changes
+# Commit changes (package.json only - dist files are too large for git)
 echo ""
 echo "Committing changes..."
-git add package.json package-lock.json \
-  dist/zxp/com.sync.extension.zxp \
-  dist/sync-resolve-plugin-v${VERSION}.zip
+git add package.json package-lock.json
 git commit -m "Bump version to $VERSION" || echo "No changes to commit"
 
 # Create git tag
 echo "Creating git tag..."
 git tag -a "v$VERSION" -m "$MESSAGE" || echo "Tag exists; continuing"
 
-# Push to GitHub
+# Push to GitHub (without large dist files)
 echo "Pushing to GitHub..."
 git push origin HEAD || true
 git push origin "v$VERSION" || true
+
+# Create GitHub release and upload files directly (bypasses git's 100MB limit)
+echo ""
+echo "Creating GitHub release and uploading files..."
+echo "⚠️  Uploading large files (273MB ZXP + 552MB ZIP) - this may take several minutes..."
+gh release create "v$VERSION" \
+  dist/zxp/com.sync.extension.zxp \
+  "dist/sync-resolve-plugin-v${VERSION}.zip" \
+  --title "Release v${VERSION}" \
+  --notes "$MESSAGE" \
+  2>&1 || {
+    echo "⚠️  Release creation failed or already exists"
+    echo "You may need to upload files manually:"
+    echo "  gh release upload v${VERSION} dist/zxp/com.sync.extension.zxp dist/sync-resolve-plugin-v${VERSION}.zip --clobber"
+  }
 
 echo ""
 echo "============================================================"
 echo "✅ Release $VERSION completed!"
 echo ""
 echo "📦 Built packages:"
-echo "   - ZXP: dist/zxp/com.sync.extension.zxp"
-echo "   - ZIP: dist/sync-resolve-plugin-v${VERSION}.zip"
+echo "   - ZXP: dist/zxp/com.sync.extension.zxp (273MB)"
+echo "   - ZIP: dist/sync-resolve-plugin-v${VERSION}.zip (552MB)"
 echo ""
-echo "🚀 GitHub Actions will upload packages to releases on tag push"
+echo "🔗 View release: https://github.com/mhadifilms/sync-extensions/releases/tag/v${VERSION}"
