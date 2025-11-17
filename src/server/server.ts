@@ -73,6 +73,7 @@ import jobsRoutes from './routes/jobs';
 import recordingRoutes from './routes/recording';
 import debugRoutes from './routes/debug';
 import { DOCS_DEFAULT_DIR, TEMP_DEFAULT_DIR, FILE_SIZE_LIMIT_20MB, SYNC_API_BASE } from './routes/constants';
+import { validateEnvironment, logEnvValidation } from './utils/envValidation';
 
 const isSpawnedByCEP = process.stdout.isTTY === false && process.stderr.isTTY === false;
 
@@ -85,6 +86,15 @@ if (isSpawnedByCEP) {
 
 const app = express();
 app.disable('x-powered-by');
+
+// Validate environment variables on startup
+const envValidation = validateEnvironment();
+logEnvValidation(envValidation);
+if (!envValidation.isValid) {
+  try {
+    tlogSync('[server] Environment validation failed - some features may not work correctly');
+  } catch (_) {}
+}
 
 // Initialize PostHog user identification
 (async () => {

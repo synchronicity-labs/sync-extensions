@@ -13,6 +13,7 @@ import SourcesTab from "../shared/components/SourcesTab";
 import HistoryTab from "../shared/components/HistoryTab";
 import SettingsTab from "../shared/components/SettingsTab";
 import BottomBar from "../shared/components/BottomBar";
+import { GlobalErrorBoundary } from "../shared/components/GlobalErrorBoundary";
 import "../shared/styles/main.scss";
 
 const AppContent: React.FC = () => {
@@ -314,9 +315,11 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <TabsProvider>
-      <AppContent />
-    </TabsProvider>
+    <GlobalErrorBoundary>
+      <TabsProvider>
+        <AppContent />
+      </TabsProvider>
+    </GlobalErrorBoundary>
   );
 };
 

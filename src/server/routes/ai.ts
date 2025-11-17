@@ -3,23 +3,41 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
 import FormData from 'form-data';
-import { tlog } from '../utils/log';
+import { tlog, sanitizeForLogging } from '../utils/log';
 import { DIRS, BASE_DIR } from '../serverConfig';
 import { convertAudio } from '../services/audio';
+import { validateRequiredString, validateUrl } from '../utils/validation';
+import { validateApiKey, sanitizeApiKey } from '../../js/shared/utils/validation';
 
 const router = express.Router();
 
 router.post('/dubbing', async (req, res) => {
   try {
     const { audioPath, audioUrl, targetLang, elevenApiKey } = req.body || {};
-    tlog('POST /dubbing', 'targetLang=' + targetLang, 'audioPath=' + audioPath, 'audioUrl=' + audioUrl);
     
-    if (!targetLang) {
-      return res.status(400).json({ error: 'Target language required' });
+    // Validate and sanitize inputs
+    const langError = validateRequiredString(targetLang, 'targetLang');
+    if (langError) {
+      return res.status(400).json({ error: langError });
     }
     
-    if (!elevenApiKey) {
-      return res.status(400).json({ error: 'elevenApiKey required' });
+    const apiKeyError = validateApiKey(elevenApiKey);
+    if (!apiKeyError.valid) {
+      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
+    }
+    
+    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+    const sanitizedLang = targetLang.trim();
+    
+    // Log sanitized request (no sensitive data)
+    tlog('POST /dubbing', 'targetLang=' + sanitizedLang, 'hasAudioPath=' + !!audioPath, 'hasAudioUrl=' + !!audioUrl);
+    
+    // Validate audioUrl if provided
+    if (audioUrl) {
+      const urlError = validateUrl(audioUrl);
+      if (urlError) {
+        return res.status(400).json({ error: urlError });
+      }
     }
     
     let localAudioPath = audioPath;
@@ -71,12 +89,12 @@ router.post('/dubbing', async (req, res) => {
     try {
       const formData = new FormData();
       formData.append('file', fs.createReadStream(localAudioPath));
-      formData.append('target_lang', targetLang);
+      formData.append('target_lang', sanitizedLang);
       
       const dubbingResponse = await fetch('https://api.elevenlabs.io/v1/dubbing', {
         method: 'POST',
         headers: {
-          'xi-api-key': elevenApiKey,
+          'xi-api-key': sanitizedApiKey,
         },
         body: formData,
         signal: AbortSignal.timeout(300000)
@@ -112,7 +130,7 @@ router.post('/dubbing', async (req, res) => {
           
           const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
             headers: {
-              'xi-api-key': elevenApiKey,
+              'xi-api-key': sanitizedApiKey,
             },
             signal: AbortSignal.timeout(10000)
           });
@@ -127,9 +145,9 @@ router.post('/dubbing', async (req, res) => {
           tlog('Dubbing status check:', status, 'attempt:', attempts);
           
           if (status === 'dubbed') {
-            const audioResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${targetLang}`, {
+            const audioResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${sanitizedLang}`, {
               headers: {
-                'xi-api-key': elevenApiKey,
+                'xi-api-key': sanitizedApiKey,
               },
               signal: AbortSignal.timeout(30000)
             });
@@ -185,19 +203,34 @@ router.post('/dubbing', async (req, res) => {
 router.post('/tts/generate', async (req, res) => {
   try {
     const { text, voiceId, elevenApiKey, model = 'eleven_turbo_v2_5', voiceSettings } = req.body || {};
-    tlog('POST /tts/generate', 'voiceId=' + voiceId, 'model=' + model, 'text=' + text?.substring(0, 50));
     
-    if (!text) {
-      return res.status(400).json({ error: 'Text required' });
+    // Validate inputs
+    const textError = validateRequiredString(text, 'text');
+    if (textError) {
+      return res.status(400).json({ error: textError });
     }
     
-    if (!voiceId) {
-      return res.status(400).json({ error: 'Voice ID required' });
+    const voiceIdError = validateRequiredString(voiceId, 'voiceId');
+    if (voiceIdError) {
+      return res.status(400).json({ error: voiceIdError });
     }
     
-    if (!elevenApiKey) {
-      return res.status(400).json({ error: 'elevenApiKey required' });
+    const apiKeyError = validateApiKey(elevenApiKey);
+    if (!apiKeyError.valid) {
+      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
     }
+    
+    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+    const sanitizedText = text.trim();
+    const sanitizedVoiceId = voiceId.trim();
+    const sanitizedModel = (model || 'eleven_turbo_v2_5').trim();
+    
+    // Validate text length (reasonable limit)
+    if (sanitizedText.length > 5000) {
+      return res.status(400).json({ error: 'Text must be 5000 characters or less' });
+    }
+    
+    tlog('POST /tts/generate', 'voiceId=' + sanitizedVoiceId, 'model=' + sanitizedModel, 'textLength=' + sanitizedText.length);
     
     const settings = voiceSettings || {
       stability: 0.5,
@@ -205,18 +238,26 @@ router.post('/tts/generate', async (req, res) => {
     };
     
     try {
-      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      // Validate voice settings
+      const validatedSettings = {
+        stability: typeof settings.stability === 'number' && settings.stability >= 0 && settings.stability <= 1 
+          ? settings.stability : 0.5,
+        similarity_boost: typeof settings.similarity_boost === 'number' && settings.similarity_boost >= 0 && settings.similarity_boost <= 1
+          ? settings.similarity_boost : 0.75
+      };
+      
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}`, {
         method: 'POST',
         headers: {
-          'xi-api-key': elevenApiKey,
+          'xi-api-key': sanitizedApiKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          text: text,
-          model_id: model,
+          text: sanitizedText,
+          model_id: sanitizedModel,
           voice_settings: {
-            stability: settings.stability,
-            similarity_boost: settings.similarity_boost,
+            stability: validatedSettings.stability,
+            similarity_boost: validatedSettings.similarity_boost,
             style: 0.0,
             use_speaker_boost: true
           }
@@ -258,24 +299,33 @@ router.post('/tts/generate', async (req, res) => {
 router.get('/tts/voices', async (req, res) => {
   try {
     const { elevenApiKey, page_size = 100, category, voice_type } = req.query;
-    tlog('GET /tts/voices');
     
-    if (!elevenApiKey) {
-      return res.status(400).json({ error: 'elevenApiKey required' });
+    const apiKeyError = validateApiKey(String(elevenApiKey || ''));
+    if (!apiKeyError.valid) {
+      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
     }
+    
+    const sanitizedApiKey = sanitizeApiKey(String(elevenApiKey));
+    
+    // Validate and sanitize query parameters
+    const sanitizedPageSize = Math.min(Math.max(parseInt(String(page_size || 100)), 1), 1000);
+    const sanitizedCategory = category ? String(category).trim() : undefined;
+    const sanitizedVoiceType = voice_type ? String(voice_type).trim() : undefined;
+    
+    tlog('GET /tts/voices', 'page_size=' + sanitizedPageSize);
     
     try {
       // Build query parameters for v2 API
       const params = new URLSearchParams();
-      if (page_size) params.append('page_size', page_size.toString());
-      if (category) params.append('category', category);
-      if (voice_type) params.append('voice_type', voice_type);
+      params.append('page_size', sanitizedPageSize.toString());
+      if (sanitizedCategory) params.append('category', sanitizedCategory);
+      if (sanitizedVoiceType) params.append('voice_type', sanitizedVoiceType);
       
-      const url = `https://api.elevenlabs.io/v2/voices${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `https://api.elevenlabs.io/v2/voices?${params.toString()}`;
       
       const response = await fetch(url, {
         headers: {
-          'xi-api-key': elevenApiKey,
+          'xi-api-key': sanitizedApiKey,
         },
         signal: AbortSignal.timeout(10000)
       });
@@ -310,24 +360,41 @@ router.get('/tts/voices', async (req, res) => {
 router.post('/tts/voices/create', async (req, res) => {
   try {
     const { name, files, elevenApiKey } = req.body || {};
-    tlog('POST /tts/voices/create', 'name=' + name, 'files=' + files?.length);
     
-    if (!name) {
-      return res.status(400).json({ error: 'Voice name required' });
+    // Validate inputs
+    const nameError = validateRequiredString(name, 'name');
+    if (nameError) {
+      return res.status(400).json({ error: nameError });
     }
     
     if (!files || !Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ error: 'At least one audio file required' });
     }
     
-    if (!elevenApiKey) {
-      return res.status(400).json({ error: 'elevenApiKey required' });
+    // Validate file count (reasonable limit)
+    if (files.length > 25) {
+      return res.status(400).json({ error: 'Maximum 25 files allowed' });
     }
+    
+    const apiKeyError = validateApiKey(elevenApiKey);
+    if (!apiKeyError.valid) {
+      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey required' });
+    }
+    
+    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+    const sanitizedName = name.trim();
+    
+    // Validate name length
+    if (sanitizedName.length > 100) {
+      return res.status(400).json({ error: 'Voice name must be 100 characters or less' });
+    }
+    
+    tlog('POST /tts/voices/create', 'name=' + sanitizedName, 'files=' + files.length);
     
     try {
       // Create FormData for ElevenLabs API
       const formData = new FormData();
-      formData.append('name', name);
+      formData.append('name', sanitizedName);
       
       // Add all files to FormData
       for (const filePath of files) {
@@ -348,7 +415,7 @@ router.post('/tts/voices/create', async (req, res) => {
       const response = await fetch('https://api.elevenlabs.io/v1/voices/add', {
         method: 'POST',
         headers: {
-          'xi-api-key': elevenApiKey,
+          'xi-api-key': sanitizedApiKey,
         },
         body: formData,
         signal: AbortSignal.timeout(300000) // 5 minute timeout
@@ -381,21 +448,33 @@ router.post('/tts/voices/create', async (req, res) => {
 router.post('/tts/voices/delete', async (req, res) => {
   try {
     const { voiceId, elevenApiKey } = req.body || {};
-    tlog('POST /tts/voices/delete', 'voiceId=' + voiceId);
     
-    if (!voiceId) {
-      return res.status(400).json({ error: 'voiceId is required' });
+    // Validate inputs
+    const voiceIdError = validateRequiredString(voiceId, 'voiceId');
+    if (voiceIdError) {
+      return res.status(400).json({ error: voiceIdError });
     }
     
-    if (!elevenApiKey) {
-      return res.status(400).json({ error: 'elevenApiKey is required' });
+    const apiKeyError = validateApiKey(elevenApiKey);
+    if (!apiKeyError.valid) {
+      return res.status(400).json({ error: apiKeyError.error || 'elevenApiKey is required' });
     }
+    
+    const sanitizedApiKey = sanitizeApiKey(elevenApiKey);
+    const sanitizedVoiceId = voiceId.trim();
+    
+    // Validate voiceId format (basic check)
+    if (sanitizedVoiceId.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(sanitizedVoiceId)) {
+      return res.status(400).json({ error: 'Invalid voiceId format' });
+    }
+    
+    tlog('POST /tts/voices/delete', 'voiceId=' + sanitizedVoiceId);
     
     // Call ElevenLabs API to delete voice
-    const response = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+    const response = await fetch(`https://api.elevenlabs.io/v1/voices/${sanitizedVoiceId}`, {
       method: 'DELETE',
       headers: {
-        'xi-api-key': elevenApiKey,
+        'xi-api-key': sanitizedApiKey,
       },
     });
     
