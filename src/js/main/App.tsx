@@ -29,7 +29,6 @@ const AppContent: React.FC = () => {
     setupWindowGlobals(media, jobs, { setActiveTab, activeTab }, core, history);
   }, [media, jobs, setActiveTab, activeTab, core, history]);
 
-  // Bootstrap initialization - matching main branch bootstrap.js behavior
   useEffect(() => {
     const init = async () => {
       try {

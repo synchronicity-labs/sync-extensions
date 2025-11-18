@@ -11,6 +11,8 @@ import { loaderHTML } from "../utils/loader";
 import { HOST_IDS } from "../../../shared/host";
 import { generateThumbnailsForJobs } from "../utils/thumbnails";
 import { debugLog, debugError, debugWarn } from "../utils/debugLog";
+import { isDevMode } from "../utils/env";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 // Utility functions
 function formatDuration(ms: number): string {
@@ -48,7 +50,8 @@ function formatHistoryTimestamp(job: any): string {
     });
     
     // Add duration if completed (Sync API returns "COMPLETED" uppercase)
-    if ((job.status === 'COMPLETED' || job.status === 'completed') && job.completedAt) {
+    const normalizedStatus = String(job.status || '').toLowerCase();
+    if (normalizedStatus === 'completed' && job.completedAt) {
       const created = new Date(job.createdAt);
       const completed = new Date(job.completedAt);
       const durationMs = completed.getTime() - created.getTime();
@@ -276,14 +279,14 @@ const HistoryTabContent: React.FC = () => {
         });
 
         if (response.ok) {
-          const data = await response.json().catch(() => null);
+          const data = await parseJsonResponse<any[]>(response);
           const jobsArray = Array.isArray(data) ? data : [];
           
-          const job = jobsArray.find((j: any) => String(j.id) === String(monitoringJobId));
+          const job = jobsArray.find((j: any) => j?.id === monitoringJobId);
           
           if (job) {
             const status = String(job.status || "").toLowerCase();
-            const isCompleted = status === "completed" || status === "COMPLETED";
+            const isCompleted = status === "completed";
             const isFailed = status === "failed" || status === "rejected";
             
             debugLog("[HistoryTab] Job status check", { 
@@ -294,7 +297,6 @@ const HistoryTabContent: React.FC = () => {
             });
 
             if (isCompleted || isFailed) {
-              // Stop monitoring first to prevent multiple triggers
               isMonitoring = false;
               if (pollInterval) {
                 clearInterval(pollInterval);
@@ -465,7 +467,7 @@ const HistoryTabContent: React.FC = () => {
         
         // Load cached thumbnails first (fast path)
         const completedJobs = firstBatch.filter(job => 
-          job?.id && (job.status === 'COMPLETED' || job.status === 'completed')
+          job?.id && String(job.status || '').toLowerCase() === 'completed'
         );
         
         // Load all cached thumbnails in parallel immediately
@@ -506,12 +508,8 @@ const HistoryTabContent: React.FC = () => {
     }
   }, [activeTab, jobs]);
 
-  // Trigger first page load when jobs are loaded and displayedCount is 0
-  // Matching main branch: initially show first 10 items, then set displayedCount to 10
-  // This ensures we start with 10 items visible
   useEffect(() => {
     if (activeTab === "history" && jobs.length > 0 && displayedCount === 0 && !isLoading) {
-      // Set displayedCount to 10 to show first page (matching main branch behavior)
       const timer = setTimeout(() => {
         loadMore();
       }, 100);
@@ -572,7 +570,7 @@ const HistoryTabContent: React.FC = () => {
     
     // Load cached thumbnails immediately for all rendered jobs (fast)
     const loadCachedThumbnails = async () => {
-      const completedJobs = renderedJobs.filter(job => job?.id && job.status === 'COMPLETED');
+      const completedJobs = renderedJobs.filter(job => job?.id && String(job.status || '').toLowerCase() === 'completed');
       
       const loadPromises = completedJobs.map(async (job) => {
         // Skip if already loaded
@@ -627,8 +625,8 @@ const HistoryTabContent: React.FC = () => {
               const card = entry.target as HTMLElement;
               const jobId = card.getAttribute('data-job-id');
               if (jobId && !loadedThumbnailsRef.current.has(jobId)) {
-                const job = renderedJobs.find(j => String(j.id) === String(jobId));
-                if (job && job.status === 'COMPLETED' && (job.outputPath || job.outputUrl)) {
+                const job = renderedJobs.find(j => j?.id === jobId);
+                if (job && String(job.status || '').toLowerCase() === 'completed' && (job.outputPath || job.outputUrl)) {
                   jobsToGenerate.push(job);
                   loadedThumbnailsRef.current.add(jobId);
                 }
@@ -657,7 +655,7 @@ const HistoryTabContent: React.FC = () => {
       
       // Also generate thumbnails for first 3 cards immediately (above the fold)
       const immediateJobs = renderedJobs.slice(0, 3).filter(j => 
-        j?.id && j.status === 'COMPLETED' && !loadedThumbnailsRef.current.has(j.id)
+        j?.id && String(j.status || '').toLowerCase() === 'completed' && !loadedThumbnailsRef.current.has(j.id)
       );
       if (immediateJobs.length > 0) {
         generateThumbnailsForJobs(immediateJobs).catch(error => {
@@ -778,7 +776,6 @@ const HistoryTabContent: React.FC = () => {
             isLoadingMoreRef.current = true;
             // Temporarily disconnect observer to prevent multiple triggers
             observer.disconnect();
-            // Load next page (10 more jobs)
             loadMore();
             // Reconnect observer after state update - recalculate hasMore using ref
             setTimeout(() => {
@@ -819,7 +816,7 @@ const HistoryTabContent: React.FC = () => {
   // Action handlers - matching main branch implementation
   const handleSaveJob = async (jobId: string) => {
     try {
-      const job = jobs.find(j => String(j.id) === String(jobId)) || { id: jobId, status: 'completed' };
+      const job = jobs.find(j => j?.id === jobId) || { id: jobId, status: 'completed' };
       const saveLocation = settings.saveLocation || 'project';
       let location = saveLocation === 'documents' || saveLocation === 'universal' ? 'documents' : 'project';
       let targetDir = '';
@@ -869,7 +866,7 @@ const HistoryTabContent: React.FC = () => {
           body: JSON.stringify({ location, targetDir, syncApiKey: apiKey })
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await parseJsonResponse<{ outputPath?: string; ok?: boolean; error?: string }>(response);
         if (response.ok && data && data.outputPath) {
           savedPath = data.outputPath;
         } else if (!response.ok) {
@@ -895,7 +892,7 @@ const HistoryTabContent: React.FC = () => {
         try {
           const headers = await authHeaders();
           const res = await fetch(getApiUrl(`/jobs/${jobId}`), { headers });
-          const j = await res.json().catch(() => null);
+          const j = await parseJsonResponse<any>(res);
           if (j && j.outputPath) savedPath = j.outputPath;
         } catch(_) {}
       }
@@ -937,7 +934,7 @@ const HistoryTabContent: React.FC = () => {
     (window as any).__insertingGuard = true;
     
     try {
-      const job = jobs.find(j => String(j.id) === String(jobId)) || { id: jobId, status: 'completed' };
+      const job = jobs.find(j => j?.id === jobId) || { id: jobId, status: 'completed' };
       const saveLocation = settings.saveLocation || 'project';
       let location = saveLocation === 'documents' || saveLocation === 'universal' ? 'documents' : 'project';
       let targetDir = '';
@@ -1003,7 +1000,7 @@ const HistoryTabContent: React.FC = () => {
           body: JSON.stringify({ location, targetDir, syncApiKey: apiKey })
         });
         
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<{ outputPath?: string; ok?: boolean; error?: string }>(response);
         if (response.ok && data && data.outputPath) {
           savedPath = data.outputPath;
         } else if (!response.ok) {
@@ -1041,7 +1038,7 @@ const HistoryTabContent: React.FC = () => {
         try {
           const headers = await authHeaders();
           const res = await fetch(getApiUrl(`/jobs/${jobId}`), { headers });
-          const j = await res.json().catch(() => null);
+          const j = await parseJsonResponse<any>(res);
           if (j && j.outputPath) savedPath = j.outputPath;
         } catch(_) {}
       }
@@ -1104,7 +1101,7 @@ const HistoryTabContent: React.FC = () => {
   };
 
   const handleCopyOutputLink = (jobId: string) => {
-    const job = jobs.find(j => String(j.id) === String(jobId));
+    const job = jobs.find(j => j?.id === jobId);
     const outputPath = job?.outputPath || job?.outputUrl;
     if (!job || !outputPath) {
       if (window.showToast) window.showToast('output path not available', 'error');
@@ -1129,7 +1126,7 @@ const HistoryTabContent: React.FC = () => {
   };
 
   const handleLoadJobIntoSources = useCallback((jobId: string) => {
-    const job = jobs.find(j => String(j.id) === String(jobId));
+    const job = jobs.find(j => j?.id === jobId);
     
     if (!job) {
       if ((window as any).showToast) {
@@ -1139,7 +1136,7 @@ const HistoryTabContent: React.FC = () => {
     }
     
     const outputPath = job.outputPath || job.outputUrl;
-    const isCompleted = job.status === 'COMPLETED' || job.status === 'completed';
+    const isCompleted = String(job.status || '').toLowerCase() === 'completed';
     if (!isCompleted || !outputPath) {
       if ((window as any).showToast) {
         (window as any).showToast('job is not completed yet', 'error');
@@ -1207,7 +1204,7 @@ const HistoryTabContent: React.FC = () => {
     (window as any).__historyInsertJob = handleInsertJob;
     (window as any).__historyLoadJobIntoSources = handleLoadJobIntoSources;
     (window as any).__historyRedoGeneration = async (jobId: string) => {
-      const job = jobs.find(j => String(j.id) === String(jobId));
+      const job = jobs.find(j => j?.id === jobId);
       if (!job) {
         if (window.showToast) window.showToast('job not found', 'error');
         return;
@@ -1260,15 +1257,8 @@ const HistoryTabContent: React.FC = () => {
 
   // Ensure jobs is always an array
   const safeJobs = Array.isArray(jobs) ? jobs : [];
-  // Calculate which jobs to render - matching main branch exactly
-  // Main branch behavior:
-  // - Initially: displayedCount=0, show first 10 items (slice(0, 10))
-  // - After first loadMore: displayedCount=10, show first 10 items (slice(0, 10)) - same items
-  // - After second loadMore: displayedCount=20, show first 20 items (slice(0, 20))
-  // So displayedCount represents the total number of items to show
   const pageSize = 10;
   const currentDisplayedCount = typeof displayedCount === 'number' ? displayedCount : 0;
-  // If displayedCount is 0, show first page (10 items). Otherwise show all up to displayedCount
   const endIndex = currentDisplayedCount === 0 
     ? Math.min(pageSize, safeJobs.length)
     : Math.min(currentDisplayedCount, safeJobs.length);
@@ -1322,7 +1312,7 @@ const HistoryTabContent: React.FC = () => {
     // Enable buttons if job is completed and has outputPath or outputUrl
     // Jobs from Sync API may have outputUrl instead of outputPath
     // Check for both uppercase (Sync API) and lowercase status
-    const hasOutput = (isCompleted || job.status === 'COMPLETED') && (job.outputPath || job.outputUrl);
+    const hasOutput = isCompleted && (job.outputPath || job.outputUrl);
 
     const timestamp = formatHistoryTimestamp(job);
     const modelText = getModelText(job);
@@ -1589,7 +1579,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         `  Component Stack: ${errorInfo.componentStack || "no component stack"}\n\n`;
       
       fs.appendFileSync(logFile, logMessage);
-    } catch (_) {}
+    } catch (fileError) {
+      // If file logging fails, at least log to console
+      console.error("[HistoryTab] Failed to write error to log file:", fileError);
+      console.error("[HistoryTab] Error boundary caught error:", error);
+      console.error("[HistoryTab] Error info:", errorInfo);
+    }
     
     try {
       const hostConfig = window.HOST_CONFIG || {};
@@ -1604,8 +1599,20 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           timestamp: new Date().toISOString(),
           hostConfig,
         }),
-      }).catch(() => {});
-    } catch (_) {}
+      }).catch((fetchError) => {
+        // If fetch fails, at least log to console
+        console.error("[HistoryTab] Failed to send error to debug endpoint:", fetchError);
+      });
+    } catch (fetchCatchError) {
+      // If fetch setup fails, log to console
+      console.error("[HistoryTab] Failed to setup error fetch:", fetchCatchError);
+    }
+    
+    // In development, also log to console (consistent with GlobalErrorBoundary)
+    if (isDevMode()) {
+      console.error("[HistoryTab] Error boundary caught error:", error);
+      console.error("[HistoryTab] Error info:", errorInfo);
+    }
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps) {

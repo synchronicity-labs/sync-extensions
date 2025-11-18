@@ -1,5 +1,4 @@
 // Inline ns value to avoid import issues in ExtendScript
-// const ns = "com.sync.extension"; // from cep.config.ts
 const ns = "com.sync.extension";
 
 import * as aeft from "./aeft/aeft";
@@ -72,12 +71,38 @@ try {
         host[key] = aeft[key];
       }
     }
-  } catch(globalErr) {}
+  } catch(globalErr) {
+    // Try to log initialization error if debug logging is available
+    try {
+      // Check if we're in After Effects context with debug logging available
+      if (typeof _syncDebugLogFile === 'function') {
+        var log = _syncDebugLogFile();
+        log.open('a');
+        log.writeln('[' + new Date().toString() + '] [index.ts] Error setting global functions: ' + String(globalErr));
+        log.close();
+      }
+    } catch(_) {
+      // If logging fails, silently continue - initialization must not fail
+    }
+  }
 } catch(e) {
   // Last resort: try to set at least one
   try {
     host[ns] = ppro; // Always default to ppro
-  } catch(e2) {}
+  } catch(e2) {
+    // Try to log this critical initialization error if possible
+    try {
+      if (typeof _syncDebugLogFile === 'function') {
+        var log = _syncDebugLogFile();
+        log.open('a');
+        log.writeln('[' + new Date().toString() + '] [index.ts] CRITICAL: Failed to initialize host[ns]: ' + String(e));
+        log.writeln('[' + new Date().toString() + '] [index.ts] Fallback also failed: ' + String(e2));
+        log.close();
+      }
+    } catch(_) {
+      // If logging fails, silently continue - initialization must not fail
+    }
+  }
 }
 
 const empty = {};

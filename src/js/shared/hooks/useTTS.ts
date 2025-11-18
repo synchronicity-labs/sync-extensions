@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useCore } from "./useCore";
 import { useSettings } from "./useSettings";
 import { getApiUrl } from "../utils/serverConfig";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface TTSVoice {
   id?: string;
@@ -74,7 +75,7 @@ export const useTTS = () => {
       );
 
       if (response.ok) {
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<any>(response);
         if (data?.voices && Array.isArray(data.voices)) {
           // Normalize voice IDs - map voice_id to id for consistency
           const normalizedVoices = data.voices.map((voice: any) => ({
@@ -115,7 +116,7 @@ export const useTTS = () => {
           }),
         });
 
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<any>(response);
         if (response.ok && data?.ok && data?.audioPath) {
           return data.audioPath;
         }
@@ -143,7 +144,7 @@ export const useTTS = () => {
           }),
         });
 
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<any>(response);
         if (response.ok && data?.voice_id) {
           // Reload voices to get the new one
           await loadVoices();
@@ -170,7 +171,7 @@ export const useTTS = () => {
           }),
         });
 
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<any>(response);
         if (response.ok && data?.ok) {
           // Remove from local state and reload
           setVoices((prev) => prev.filter((v) => (v.voice_id || v.id) !== voiceId));

@@ -5,6 +5,7 @@ import { useSettings } from "../hooks/useSettings";
 import { useMedia } from "../hooks/useMedia";
 import { getApiUrl } from "../utils/serverConfig";
 import { showToast } from "../utils/toast";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface TTSVoiceCloneModalProps {
   isOpen: boolean;
@@ -49,7 +50,6 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
     };
   }, [previewAudio]);
 
-  // Reset form when modal opens/closes
   useEffect(() => {
     if (!isOpen) {
       setVoiceName("");
@@ -112,7 +112,7 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
         body: formData,
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await parseJsonResponse<any>(response);
       if (response.ok && data?.ok && data?.path) {
         setSamples((prev) => [
           ...prev,
@@ -228,7 +228,7 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
             body: formData,
           });
 
-          const data = await response.json().catch(() => null);
+          const data = await parseJsonResponse<any>(response);
           if (response.ok && data?.ok && data?.path) {
             let finalPath = data.path;
 
@@ -247,7 +247,7 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
                 });
 
                 if (convertResponse.ok) {
-                  const convertData = await convertResponse.json().catch(() => null);
+                  const convertData = await parseJsonResponse<any>(convertResponse);
                   if (convertData?.ok && convertData?.audioPath) {
                     finalPath = convertData.audioPath;
                   }
@@ -333,7 +333,7 @@ const TTSVoiceCloneModal: React.FC<TTSVoiceCloneModalProps> = ({
         throw new Error(error.error || "Failed to extract audio");
       }
 
-      const data = await response.json().catch(() => null);
+      const data = await parseJsonResponse<any>(response);
       if (!data?.ok || !data?.audioPath) {
         throw new Error("No audio path returned");
       }

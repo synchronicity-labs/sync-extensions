@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, DownloadCloud } from "lucide-react";
 import { useMedia } from "../hooks/useMedia";
 import { getApiUrl } from "../utils/serverConfig";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface URLInputModalProps {
   isOpen: boolean;
@@ -25,21 +26,18 @@ const URLInputModal: React.FC<URLInputModalProps> = ({ isOpen, onClose, type }) 
 
     setIsLoading(true);
     try {
-      // Download and set URL
       const response = await fetch(getApiUrl("/download"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, type }),
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await parseJsonResponse<any>(response);
       if (response.ok && data?.ok && data?.path) {
         if (type === "video") {
-          // Set video URL
           (window as any).selectedVideoUrl = url;
           (window as any).selectedVideoIsUrl = true;
         } else {
-          // Set audio URL
           (window as any).selectedAudioUrl = url;
           (window as any).selectedAudioIsUrl = true;
         }

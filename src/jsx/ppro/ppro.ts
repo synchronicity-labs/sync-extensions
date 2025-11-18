@@ -647,7 +647,22 @@ export function PPRO_pickPreset(payloadJson){
   }catch(e){ return _respond({ ok:false, error:String(e) }); }
 }
 
-function _eprRoot(){ try{ return _extensionRoot() + '/epr'; }catch(e){ return ''; } }
+function _eprRoot(){ 
+  try{ 
+    var extRoot = _extensionRoot();
+    if(!extRoot) return '';
+    // vite-cep-plugin copies EPR files to js/panels/ppro/epr (preserving path structure)
+    // Check both locations for backward compatibility: js/panels/ppro/epr (actual) and /epr (legacy)
+    var actualPath = extRoot + '/js/panels/ppro/epr';
+    var legacyPath = extRoot + '/epr';
+    var actualFolder = new Folder(actualPath);
+    var legacyFolder = new Folder(legacyPath);
+    if(actualFolder.exists) return actualPath;
+    if(legacyFolder.exists) return legacyPath;
+    // Fallback to actual path even if it doesn't exist yet (for development)
+    return actualPath;
+  }catch(e){ return ''; } 
+}
 function _listEprRec(folder, depth){ var out=[]; try{ var f=new Folder(folder); if(!f.exists) return out; var items=f.getFiles(); for(var i=0;i<items.length;i++){ var it=items[i]; try{ if(it instanceof File && String(it.name||'').toLowerCase().indexOf('.epr')!==-1){ out.push(it); } else if (it instanceof Folder && depth>0){ var sub=_listEprRec(it.fsName, depth-1); for(var j=0;j<sub.length;j++){ out.push(sub[j]); } } }catch(e){} } }catch(e){} return out; }
 function _findEprByKeywords(kind, prefers){
   try{

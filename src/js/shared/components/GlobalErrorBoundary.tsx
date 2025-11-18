@@ -48,8 +48,11 @@ export class GlobalErrorBoundary extends Component<Props, State> {
     });
 
     // Log error to server
-    logErrorBoundary(error, errorInfo, "GlobalErrorBoundary").catch(() => {
-      // Silent failure - error logging shouldn't break the app
+    logErrorBoundary(error, errorInfo, "GlobalErrorBoundary").catch((logError) => {
+      // If server logging fails, at least log to console
+      console.error("[GlobalErrorBoundary] Failed to log error to server:", logError);
+      console.error("[GlobalErrorBoundary] Original error:", error);
+      console.error("[GlobalErrorBoundary] Error info:", errorInfo);
     });
 
     // In development, also log to console

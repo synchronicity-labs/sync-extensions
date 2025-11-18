@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
-import { formatTime } from "../utils/formatTime";
+import { formatTime } from "../utils/stringUtils";
 import { useCore } from "./useCore";
 import { getApiUrl } from "../utils/serverConfig";
 import { loaderHTML } from "../utils/loader";
 import { debugLog, debugError, debugWarn } from "../utils/debugLog";
 import { getSettings } from "../utils/storage";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface WaveformBar {
   x: number;
@@ -177,7 +178,6 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       return;
     }
 
-    // Check if audio source has changed - if so, reset everything
     if (currentAudioSrcRef.current !== audioSrc) {
       debugLog('[useAudioPlayer] Audio source changed, resetting', {
         oldSrc: currentAudioSrcRef.current?.substring(0, 100) + '...',
@@ -210,7 +210,6 @@ export const useAudioPlayer = (audioSrc: string | null) => {
       currentAudioSrcRef.current = audioSrc;
     }
 
-    // Retry getting elements if they don't exist yet
     let retryCount = 0;
     const maxRetries = 20;
     const getElements = () => {
@@ -760,8 +759,6 @@ export const useAudioPlayer = (audioSrc: string | null) => {
         if (timeDisplay)
           timeDisplay.innerHTML = `<span class="time-current">${current}</span> <span class="time-total">/ ${durationStr}</span>`;
         
-        // Sync waveform if animation loop isn't running or there's drift
-        // Animation loop handles smooth updates, this ensures accuracy
         if (!animationFrameIdRef.current) {
           const w = canvas.clientWidth || canvas.offsetWidth || 600;
           const h = canvas.clientHeight || canvas.offsetHeight || 80;
@@ -1248,7 +1245,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
 
               clearTimeout(timeoutId);
 
-              const result = await response.json().catch(() => null);
+              const result = await parseJsonResponse<any>(response);
 
               if (!response.ok || !result || !result.ok) {
                 throw new Error(result?.error || "Dubbing failed");
@@ -1271,7 +1268,7 @@ export const useAudioPlayer = (audioSrc: string | null) => {
                     body: JSON.stringify(uploadBody),
                   });
 
-                  const uploadResult = await uploadResponse.json().catch(() => null);
+                  const uploadResult = await parseJsonResponse<any>(uploadResponse);
                   debugLog("[Dubbing] R2 upload response", { ok: uploadResponse.ok, result: uploadResult });
 
                   if (uploadResponse.ok && uploadResult && uploadResult.ok && uploadResult.url) {

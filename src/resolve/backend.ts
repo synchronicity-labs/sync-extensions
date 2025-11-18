@@ -596,7 +596,10 @@ if (process.versions.electron) {
         };
         console.log('[Resolve] HOST_CONFIG set early:', window.HOST_CONFIG);
       })();
-    `).catch(() => {});
+    `).catch((err) => {
+      // If HOST_CONFIG setup fails, log it - this is critical for host detection
+      console.error('[Resolve] Failed to set HOST_CONFIG:', err);
+    });
 
     // Load the UI - use Vite dev server in development, static file in production
     const isDev = process.env.NODE_ENV === 'development' || !fs.existsSync(path.join(pluginDir, 'static', 'index.html'));

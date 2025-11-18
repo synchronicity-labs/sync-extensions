@@ -6,6 +6,7 @@ import { getExtensionVersion } from "../utils/clientVersion";
 import { getApiUrl } from "../utils/serverConfig";
 import whiteIcon from "../../assets/icons/white_icon.png";
 import avatarIcon from "../../assets/icons/avatar.png";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface HeaderProps {
   activeTab: Tab;
@@ -89,7 +90,6 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
         e.preventDefault();
         e.stopPropagation();
         action.onClick();
-        // Remove toast immediately when button is clicked
         if (toast.parentNode) {
           toast.parentNode.removeChild(toast);
         }
@@ -148,7 +148,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     try {
       // Step 1: Check for updates
       const checkResponse = await fetch(getApiUrl("/update/check"));
-      const checkData = await checkResponse.json().catch(() => null);
+      const checkData = await parseJsonResponse<any>(checkResponse);
       
       if (!checkResponse.ok || !checkData?.ok) {
         showToast("Failed to check for updates. Please try again later.", "error");
@@ -164,7 +164,6 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
       // Step 2: Update available - show downloading message
       showToast(`Downloading update v.${checkData.latest}...`, "info", 5000);
 
-      // Step 3: Apply the update automatically
       try {
         const applyResponse = await fetch(getApiUrl("/update/apply"), {
           method: "POST",
@@ -173,7 +172,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
           },
         });
 
-        const applyData = await applyResponse.json().catch(() => null);
+        const applyData = await parseJsonResponse<any>(applyResponse);
 
         if (!applyResponse.ok || !applyData?.ok) {
           const errorMsg = applyData?.error || applyData?.message || "Failed to install update";

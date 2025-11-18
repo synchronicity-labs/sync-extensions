@@ -5,6 +5,7 @@
  */
 
 import { getApiUrl } from './serverConfig';
+import type { ErrorInfo } from 'react';
 
 /**
  * Log a debug message to the server debug endpoint
@@ -28,7 +29,10 @@ export function debugLog(message: string, data?: unknown): void {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(logData),
-    }).catch(() => {});
+    }).catch((fetchError) => {
+      // If fetch fails, at least we already logged to console above
+      // Don't log fetch errors to avoid infinite loops
+    });
   } catch (_) {
     // Silent failure - logging shouldn't break the app
   }
@@ -55,7 +59,10 @@ export function debugError(message: string, error?: unknown): void {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(logData),
-    }).catch(() => {});
+    }).catch((fetchError) => {
+      // If fetch fails, at least we already logged to console above
+      // Don't log fetch errors to avoid infinite loops
+    });
   } catch (_) {
     // Silent failure
   }
@@ -81,9 +88,46 @@ export function debugWarn(message: string, data?: unknown): void {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(logData),
-    }).catch(() => {});
+    }).catch((fetchError) => {
+      // If fetch fails, at least we already logged to console above
+      // Don't log fetch errors to avoid infinite loops
+    });
   } catch (_) {
     // Silent failure
   }
+}
+
+/**
+ * Log a React error boundary error to the server debug endpoint
+ * Returns a Promise that resolves when logging completes (or fails silently)
+ */
+export function logErrorBoundary(error: Error, errorInfo: ErrorInfo, componentName: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const hostConfig = window.HOST_CONFIG || {};
+      const logData = {
+        message: `[UI] ERROR BOUNDARY: ${componentName}`,
+        error: error.message,
+        stack: error.stack,
+        componentStack: errorInfo.componentStack,
+        timestamp: new Date().toISOString(),
+        hostConfig,
+      };
+      
+      fetch(getApiUrl("/debug"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(logData),
+      })
+        .then(() => resolve())
+        .catch((fetchError) => {
+          // If fetch fails, silently resolve - error already logged to console by caller
+          resolve();
+        });
+    } catch (_) {
+      // Silent failure - logging shouldn't break the app
+      resolve();
+    }
+  });
 }
 

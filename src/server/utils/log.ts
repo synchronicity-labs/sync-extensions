@@ -48,7 +48,9 @@ export async function tlog(...args: unknown[]): Promise<void> {
     const timestamp = new Date().toISOString();
     const message = args.map(a => String(a)).join(' ');
     const logLine = `[${timestamp}] [server] ${message}\n`;
-    await fs.promises.appendFile(DEBUG_LOG, logLine).catch(() => {});
+    await fs.promises.appendFile(DEBUG_LOG, logLine).catch(() => {
+      // If file logging fails, at least we tried - outer catch will handle it
+    });
   } catch (e){ }
 }
 

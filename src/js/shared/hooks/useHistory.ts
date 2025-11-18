@@ -4,6 +4,7 @@ import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
 import { getSettings } from "../utils/storage";
 import { Job } from "../types/common";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 // Extended Job interface for API responses (may have additional fields)
 interface ApiJob extends Job {
@@ -68,7 +69,6 @@ export const useHistory = () => {
       // Pass token directly to avoid race condition with state update
       const headers = authHeaders({}, token);
       
-      // Log debug info
       try {
         const hostConfig = window.HOST_CONFIG || {};
         fetch(getApiUrl("/debug"), {
@@ -89,7 +89,6 @@ export const useHistory = () => {
         headers,
       }, 10000);
 
-      // Log response status
       try {
         const hostConfig = window.HOST_CONFIG || {};
         fetch(getApiUrl("/debug"), {
@@ -106,9 +105,8 @@ export const useHistory = () => {
       } catch (_) {}
 
       if (response.ok) {
-        const data = await response.json().catch(() => null);
+        const data = await parseJsonResponse<any[]>(response);
         
-        // Log response data
         try {
           const hostConfig = window.HOST_CONFIG || {};
           fetch(getApiUrl("/debug"), {
@@ -142,8 +140,7 @@ export const useHistory = () => {
             return job && typeof job === 'object' && job.id != null && job.status != null;
           })
           .map((job) => {
-            // Debug: log first completed job structure
-            if (job.status === 'completed' && !job._logged) {
+            if (String(job.status || '').toLowerCase() === 'completed' && !job._logged) {
               job._logged = true;
               debugLog('[useHistory] Sample completed job structure', {
                 id: job.id,
@@ -168,7 +165,6 @@ export const useHistory = () => {
             return job;
           });
         
-        // Log final result
         try {
           const hostConfig = window.HOST_CONFIG || {};
           fetch(getApiUrl("/debug"), {
@@ -213,7 +209,6 @@ export const useHistory = () => {
     } catch (error: unknown) {
       debugError("[History] Failed to load jobs", error);
       
-      // Log catch error
       try {
         const hostConfig = window.HOST_CONFIG || {};
         fetch(getApiUrl("/debug"), {
@@ -255,9 +250,6 @@ export const useHistory = () => {
   const loadMore = useCallback(() => {
     try {
       setDisplayedCount((prev) => {
-        // Matching main branch: displayedCount is START index
-        // First render: displayedCount=0, slice(0, 10), then displayedCount becomes 10
-        // Next render: displayedCount=10, slice(10, 20), then displayedCount becomes 20
         const next = prev + pageSize;
         return Math.min(next, jobs.length);
       });

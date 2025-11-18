@@ -89,11 +89,7 @@ const config: CEP_Config = {
   },
   installModules: [],
   copyAssets: ["js/assets/icons", "js/lib", "server/package.json", "server/server.ts", "server/serverConfig.ts", "server/telemetry.ts", "server/routes", "server/services", "server/utils", "shared"],
-  copyFolders: ["js/panels/ppro/epr", "bin"],
-  // Note: server/node_modules is NOT in copyFolders because:
-  // 1. It doesn't exist in src/server (we install it during build)
-  // 2. vite-cep-plugin packages everything from dist/cep, so node_modules
-  //    installed in dist/cep/server/node_modules will be included automatically
+  copyFolders: ["js/panels/ppro/epr", "bin", "server/node_modules"],
   copyZipAssets: [],
 };
 

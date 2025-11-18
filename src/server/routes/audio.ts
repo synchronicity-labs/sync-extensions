@@ -26,7 +26,7 @@ router.get('/audio/convert', async (req, res) => {
       try {
         const out = await convertAudio(srcPath, fmt);
         if (!out || !fs.existsSync(out)) return res.status(500).json({ error: 'conversion failed' });
-        try { const sz = fs.statSync(out).size; tlog('convert mp3 ok', 'out=', out, 'bytes=', sz); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+        try { const sz = fs.statSync(out).size; tlog('convert mp3 ok', 'out=', out, 'bytes=', sz); } catch (_) {}
         res.json({ ok: true, path: out });
         return;
       } catch (e) {
@@ -37,7 +37,7 @@ router.get('/audio/convert', async (req, res) => {
     }
     const out = await convertAudio(srcPath, fmt);
     if (!out || !fs.existsSync(out)) return res.status(500).json({ error: 'conversion failed' });
-    try { const sz = fs.statSync(out).size; tlog('convert ok', 'out=', out, 'bytes=', sz); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+    try { const sz = fs.statSync(out).size; tlog('convert ok', 'out=', out, 'bytes=', sz); } catch (_) {}
     res.json({ ok: true, path: out });
   } catch (e) {
     const error = e as Error;
@@ -59,7 +59,7 @@ router.post('/audio/convert', async (req, res) => {
       try {
         const out = await convertAudio(srcPath, fmt);
         if (!out || !fs.existsSync(out)) return res.status(500).json({ error: 'conversion failed' });
-        try { const sz = fs.statSync(out).size; tlog('convert mp3 ok', 'out=', out, 'bytes=', sz); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+        try { const sz = fs.statSync(out).size; tlog('convert mp3 ok', 'out=', out, 'bytes=', sz); } catch (_) {}
         res.json({ ok: true, path: out });
         return;
       } catch (e) {
@@ -70,7 +70,7 @@ router.post('/audio/convert', async (req, res) => {
     }
     const out = await convertAudio(srcPath, fmt);
     if (!out || !fs.existsSync(out)) return res.status(500).json({ error: 'conversion failed' });
-    try { const sz = fs.statSync(out).size; tlog('convert ok', 'out=', out, 'bytes=', sz); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+    try { const sz = fs.statSync(out).size; tlog('convert ok', 'out=', out, 'bytes=', sz); } catch (_) {}
     res.json({ ok: true, path: out });
   } catch (e) {
     const error = e as Error;
