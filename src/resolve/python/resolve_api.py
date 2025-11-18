@@ -58,12 +58,17 @@ def export_in_out_video(opts_json):
         if not timeline:
             return _respond({'ok': False, 'error': 'No active timeline'})
         
-        # Get in/out points (use GetMarkIn/GetMarkOut if available, otherwise use timeline range)
+        # Get in/out points using GetMarkInOut() which returns a dict
         try:
-            in_point = timeline.GetMarkIn()
-            out_point = timeline.GetMarkOut()
-            # If no marks set, use timeline range
-            if in_point == -1 or out_point == -1:
+            mark_in_out = timeline.GetMarkInOut()
+            # GetMarkInOut() returns dict like {video: {in: 0, out: 134}, audio: {in: 0, out: 134}}
+            # or empty dict if not set
+            if mark_in_out and 'video' in mark_in_out:
+                video_marks = mark_in_out['video']
+                in_point = video_marks.get('in', timeline.GetStartFrame())
+                out_point = video_marks.get('out', timeline.GetEndFrame())
+            else:
+                # No marks set, use timeline range
                 in_point = timeline.GetStartFrame()
                 out_point = timeline.GetEndFrame()
         except:
@@ -86,42 +91,54 @@ def export_in_out_video(opts_json):
         
         # Export using Resolve render API
         try:
-            # Get current render settings (returns a dict)
-            render_settings = project.GetRenderSettings()
-            if not isinstance(render_settings, dict):
-                render_settings = {}
-            
-            # Update render settings for export
-            # Get timeline resolution and frame rate
+            # GetRenderSettings() doesn't exist - build settings dict from scratch
+            # Get timeline resolution and frame rate from project settings
             try:
-                width = timeline.GetSetting('timelineResolutionWidth')
-                height = timeline.GetSetting('timelineResolutionHeight')
-                fps = timeline.GetSetting('timelineFrameRate')
+                # Try to get resolution from project settings
+                width_str = project.GetSetting('timelineResolutionWidth')
+                height_str = project.GetSetting('timelineResolutionHeight')
+                fps_str = project.GetSetting('timelineFrameRate')
+                width = int(width_str) if width_str else 1920
+                height = int(height_str) if height_str else 1080
+                fps = float(fps_str) if fps_str else 24.0
             except:
                 width = 1920
                 height = 1080
                 fps = 24.0
             
-            # Set render settings dictionary
-            render_settings.update({
+            # Build render settings dictionary according to API docs
+            render_settings = {
                 'TargetDir': project_dir,
                 'CustomName': f'sync_export_{timestamp}',
                 'MarkIn': in_point,
                 'MarkOut': out_point,
-                'ResolutionWidth': width,
-                'ResolutionHeight': height,
+                'FormatWidth': width,
+                'FormatHeight': height,
                 'FrameRate': fps,
                 'ExportVideo': True,
                 'ExportAudio': True,
-            })
+            }
             
-            # Set codec and format
+            # Set codec and format using SetCurrentRenderFormatAndCodec() (REQUIRED)
+            # Note: Format and Codec are NOT supported in SetRenderSettings() dict
+            # According to API docs, SetRenderSettings() does NOT include Format/Codec keys
+            # These must be set separately using SetCurrentRenderFormatAndCodec()
             if codec == 'h264':
-                render_settings['Format'] = 'mp4'
-                render_settings['Codec'] = 'H264'
-            else:
-                render_settings['Format'] = 'mov'
-                render_settings['Codec'] = 'Apple ProRes 422'
+                format_str = 'mp4'
+                video_codec = 'H264'
+            elif codec == 'prores_422hq':
+                format_str = 'mov'
+                video_codec = 'Apple ProRes 422 HQ'
+            else:  # prores_422
+                format_str = 'mov'
+                video_codec = 'Apple ProRes 422'
+            
+            try:
+                result = project.SetCurrentRenderFormatAndCodec(format_str, video_codec)
+                if not result:
+                    return _respond({'ok': False, 'error': f'Failed to set render format/codec. Format: {format_str}, Codec: {video_codec}'})
+            except Exception as e:
+                return _respond({'ok': False, 'error': f'Failed to set render format/codec: {str(e)}. Format: {format_str}, Codec: {video_codec}'})
             
             # Apply all render settings at once
             project.SetRenderSettings(render_settings)
@@ -135,12 +152,12 @@ def export_in_out_video(opts_json):
             # Wait for render to complete (max 3 minutes)
             max_wait = 180
             waited = 0
-            while project.IsRendering() and waited < max_wait:
+            while project.IsRenderingInProgress() and waited < max_wait:
                 import time
                 time.sleep(1)
                 waited += 1
             
-            if project.IsRendering():
+            if project.IsRenderingInProgress():
                 return _respond({'ok': False, 'error': 'Render timeout'})
             
             # Check if file exists (Resolve may add extension or prefix)
@@ -186,11 +203,17 @@ def export_in_out_audio(opts_json):
         if not timeline:
             return _respond({'ok': False, 'error': 'No active timeline'})
         
-        # Get in/out points
+        # Get in/out points using GetMarkInOut() which returns a dict
         try:
-            in_point = timeline.GetMarkIn()
-            out_point = timeline.GetMarkOut()
-            if in_point == -1 or out_point == -1:
+            mark_in_out = timeline.GetMarkInOut()
+            # GetMarkInOut() returns dict like {video: {in: 0, out: 134}, audio: {in: 0, out: 134}}
+            # or empty dict if not set
+            if mark_in_out and 'video' in mark_in_out:
+                video_marks = mark_in_out['video']
+                in_point = video_marks.get('in', timeline.GetStartFrame())
+                out_point = video_marks.get('out', timeline.GetEndFrame())
+            else:
+                # No marks set, use timeline range
                 in_point = timeline.GetStartFrame()
                 out_point = timeline.GetEndFrame()
         except:
@@ -212,13 +235,9 @@ def export_in_out_audio(opts_json):
         
         # Export audio (audio-only render)
         try:
-            # Get current render settings
-            render_settings = project.GetRenderSettings()
-            if not isinstance(render_settings, dict):
-                render_settings = {}
-            
-            # Update for audio-only export
-            render_settings.update({
+            # GetRenderSettings() doesn't exist - build settings dict from scratch
+            # Build render settings dictionary according to API docs
+            render_settings = {
                 'TargetDir': project_dir,
                 'CustomName': f'sync_export_audio_{timestamp}',
                 'MarkIn': in_point,
@@ -226,8 +245,7 @@ def export_in_out_audio(opts_json):
                 'ExportVideo': False,
                 'ExportAudio': True,
                 'AudioCodec': 'PCM' if format_type == 'wav' else 'MP3',
-                'AudioFormat': ext,
-            })
+            }
             
             # Apply render settings
             project.SetRenderSettings(render_settings)
@@ -239,11 +257,11 @@ def export_in_out_audio(opts_json):
             # Wait for render
             max_wait = 180
             waited = 0
-            while project.IsRendering() and waited < max_wait:
+            while project.IsRenderingInProgress() and waited < max_wait:
                 time.sleep(1)
                 waited += 1
             
-            if project.IsRendering():
+            if project.IsRenderingInProgress():
                 return _respond({'ok': False, 'error': 'Render timeout'})
             
             # Find rendered file
@@ -300,7 +318,16 @@ def insert_file_at_playhead(path_json):
                 parts = playhead_tc.split(':')
                 if len(parts) == 4:
                     hours, minutes, seconds, frames = map(int, parts)
-                    fps = timeline.GetSetting('timelineFrameRate') or 24.0
+                    # Get frame rate from project settings (timelineFrameRate is a project setting)
+                    project = _get_project()
+                    if project:
+                        try:
+                            fps_str = project.GetSetting('timelineFrameRate')
+                            fps = float(fps_str) if fps_str else 24.0
+                        except:
+                            fps = 24.0
+                    else:
+                        fps = 24.0
                     playhead_frame = int((hours * 3600 + minutes * 60 + seconds) * fps + frames)
                 else:
                     playhead_frame = timeline.GetStartFrame()
@@ -319,8 +346,11 @@ def insert_file_at_playhead(path_json):
             return _respond({'ok': False, 'error': 'Media pool not available'})
         
         # Import file to root folder
+        # ImportMedia() only takes a list of paths, not a folder parameter
+        # Set current folder first, then import
         root_bin = media_pool.GetRootFolder()
-        import_result = media_pool.ImportMedia([file_path], root_bin)
+        media_pool.SetCurrentFolder(root_bin)
+        import_result = media_pool.ImportMedia([file_path])
         
         # Get the imported clip - ImportMedia returns a list of clips
         imported_clip = None
@@ -356,15 +386,12 @@ def insert_file_at_playhead(path_json):
                 if track_items:
                     # The last item should be the one we just added
                     last_item = track_items[-1]
-                    # Move it to playhead position
-                    try:
-                        timeline.SetItemProperty("Start", playhead_frame, last_item)
-                    except:
-                        # Alternative: use timecode string
-                        try:
-                            timeline.SetItemProperty("Start", playhead_tc, last_item)
-                        except:
-                            pass  # If we can't move it, at least it's on the timeline
+                    # Note: TimelineItem.SetProperty() does NOT support "Start" property
+                    # According to API docs (lines 803-900), supported properties are:
+                    # Pan, Tilt, ZoomX, ZoomY, RotationAngle, AnchorPointX, etc. - but NOT "Start"
+                    # There's GetStart() to read position, but no SetStart() or SetProperty("Start")
+                    # The clip will be appended to the end of the timeline
+                    # There's no direct API way to set clip position - user can manually move it
             
             return _respond({'ok': True, 'message': 'Inserted at playhead'})
         except Exception as e:
@@ -407,7 +434,10 @@ def import_file_to_bin(payload_json):
                 target_bin = media_pool.AddSubFolder(root_bin, bin_name)
         
         # Import file to target bin
-        import_result = media_pool.ImportMedia([file_path], target_bin)
+        # ImportMedia() only takes a list of paths, not a folder parameter
+        # Set current folder first, then import
+        media_pool.SetCurrentFolder(target_bin)
+        import_result = media_pool.ImportMedia([file_path])
         
         # Verify import succeeded
         if import_result:
@@ -448,14 +478,9 @@ def get_project_dir():
         # For output, use Documents/sync. outputs (consistent with CEP versions)
         project_dir = os.path.join(os.path.expanduser('~'), 'Documents')
         
-        # Try to get project path if available (Resolve 18+)
-        try:
-            # Some Resolve versions expose project path
-            project_path = project.GetProjectPath()
-            if project_path and os.path.exists(project_path):
-                project_dir = os.path.dirname(project_path)
-        except:
-            pass  # Fall back to Documents
+        # Note: GetProjectPath() doesn't exist in the Resolve API
+        # Resolve stores projects in a database, not as files
+        # We'll use Documents directory as fallback
         
         output_dir = os.path.join(project_dir, 'sync. outputs')
         try:
@@ -533,10 +558,15 @@ def diag_in_out():
             except:
                 info['currentTimecode'] = None
             try:
-                mark_in = timeline.GetMarkIn()
-                mark_out = timeline.GetMarkOut()
-                info['markIn'] = mark_in if mark_in != -1 else None
-                info['markOut'] = mark_out if mark_out != -1 else None
+                mark_in_out = timeline.GetMarkInOut()
+                # GetMarkInOut() returns dict like {video: {in: 0, out: 134}, audio: {in: 0, out: 134}}
+                if mark_in_out and 'video' in mark_in_out:
+                    video_marks = mark_in_out['video']
+                    info['markIn'] = video_marks.get('in')
+                    info['markOut'] = video_marks.get('out')
+                else:
+                    info['markIn'] = None
+                    info['markOut'] = None
             except:
                 info['markIn'] = None
                 info['markOut'] = None

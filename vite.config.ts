@@ -9,8 +9,6 @@ import { extendscriptConfig } from "./vite.es.config";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
-// Load environment variables from src/server/.env file (shared with server config)
-// MUST load before importing cep.config.ts to ensure ZXP_PASSWORD is available
 dotenv.config({ path: path.resolve(process.cwd(), "src/server/.env") });
 
 import cepConfig from "./cep.config";
@@ -20,7 +18,7 @@ const root = path.resolve(src, "js");
 const devDist = "dist";
 const cepDist = "cep";
 const resolveDist = "resolve";
-const sharedDist = "shared"; // Shared UI build output
+const sharedDist = "shared";
 const outDir = path.resolve(__dirname, devDist, cepDist);
 const sharedOutDir = path.resolve(__dirname, devDist, sharedDist);
 const resolveOutDir = path.resolve(__dirname, devDist, resolveDist);
@@ -49,14 +47,12 @@ const config = {
 
 if (action) runAction(config, action);
 
-// Build Resolve plugin (file copying and installation)
 let resolvePluginWatcher: any = null;
 
 async function buildResolvePlugin() {
   const resolveSrc = path.join(__dirname, 'src', 'resolve');
   const resolveDest = resolveOutDir;
   
-  // Compile TypeScript files to JavaScript using esbuild
   const tsFiles = [
     { src: 'backend.ts', dest: 'backend.js' },
     { src: 'preload.ts', dest: 'preload.js' },
@@ -67,7 +63,6 @@ async function buildResolvePlugin() {
   if (tsFiles.length > 0) {
     console.log(`\n🔨 Building Resolve plugin TypeScript files...`);
     try {
-      // Use dynamic import for esbuild in ESM context
       console.log('   Loading esbuild...');
       const esbuildModule = await import('esbuild');
       const esbuild = esbuildModule.default || esbuildModule;
@@ -80,7 +75,6 @@ async function buildResolvePlugin() {
         if (fs.existsSync(srcFile)) {
           try {
             fs.mkdirSync(path.dirname(destFile), { recursive: true });
-            // Always rebuild - remove old file first to ensure fresh build
             if (fs.existsSync(destFile)) {
               fs.unlinkSync(destFile);
             }
@@ -91,11 +85,8 @@ async function buildResolvePlugin() {
               target: 'es2020',
               format: 'cjs',
               outfile: destFile,
-              // Note: external only works with bundle: true, but we're not bundling
-              // Electron imports will be resolved at runtime by Node.js
             });
             
-            // Verify file was created
             if (!fs.existsSync(destFile)) {
               throw new Error(`Compilation succeeded but output file not found: ${destFile}`);
             }
@@ -105,8 +96,6 @@ async function buildResolvePlugin() {
             console.error(`❌ Failed to compile ${src}:`, error?.message || error);
             console.error(`   Source: ${srcFile}`);
             console.error(`   Dest: ${destFile}`);
-            // Don't fallback to .ts - Electron can't execute TypeScript
-            // Throw error to make build fail visibly
             throw new Error(`Failed to compile ${src} to ${dest}: ${error?.message || error}`);
           }
         }
@@ -114,14 +103,12 @@ async function buildResolvePlugin() {
     } catch (error: any) {
       console.error('❌ CRITICAL: esbuild compilation failed:', error?.message || error);
       console.error('   Stack:', error?.stack);
-      // Don't fallback - throw error to fail build visibly
       throw new Error(`Failed to compile Resolve plugin TypeScript files: ${error?.message || error}`);
     }
   } else {
     console.log('⚠️  No TypeScript files to compile for Resolve plugin');
   }
   
-  // Copy Resolve-specific files (backend.js is compiled from backend.ts above)
   const filesToCopy = ['manifest.json', 'package.json', 'launch-electron.sh'];
   filesToCopy.forEach(file => {
     const srcFile = path.join(resolveSrc, file);
@@ -133,7 +120,6 @@ async function buildResolvePlugin() {
     }
   });
   
-  // Copy Python API
   const pythonSrc = path.join(resolveSrc, 'python');
   const pythonDest = path.join(resolveDest, 'python');
   if (fs.existsSync(pythonSrc)) {
@@ -142,12 +128,10 @@ async function buildResolvePlugin() {
     console.log(`Copied Python API to ${pythonDest}`);
   }
   
-  // Static scripts are now compiled above, but also copy any remaining .js files
   const staticSrc = path.join(resolveSrc, 'static');
   const staticDest = path.join(resolveDest, 'static');
   if (fs.existsSync(staticSrc)) {
     fs.mkdirSync(staticDest, { recursive: true });
-    // Copy any other files in static directory
     const staticFiles = fs.readdirSync(staticSrc);
     staticFiles.forEach(file => {
       if (file.endsWith('.js') && !file.includes('resolve')) {
@@ -159,7 +143,6 @@ async function buildResolvePlugin() {
     });
   }
   
-  // Copy bin folder
   const binSource = path.join(__dirname, 'bin');
   const binDest = path.join(resolveDest, 'static', 'bin');
   if (fs.existsSync(binSource)) {
@@ -168,19 +151,13 @@ async function buildResolvePlugin() {
     console.log(`Copied bin folder to ${binDest}`);
   }
   
-  // Copy server folder (exclude node_modules, dereference symlinks)
-  // Optimized: only copy if source is newer or destination doesn't exist
-  // In production, always do a clean copy to ensure consistency
   const serverSource = path.join(__dirname, 'src', 'server');
   const serverDest = path.join(resolveDest, 'static', 'server');
   if (fs.existsSync(serverSource)) {
-    // In production, always copy to ensure clean builds
-    // In dev, use mtime check for faster iteration
     const needsCopy = isProduction || !fs.existsSync(serverDest) || 
       fs.statSync(serverSource).mtime > fs.statSync(serverDest).mtime;
     
     if (needsCopy) {
-      // Remove existing destination for clean copy
       if (fs.existsSync(serverDest)) {
         fs.rmSync(serverDest, { recursive: true, force: true });
       }
@@ -191,10 +168,8 @@ async function buildResolvePlugin() {
         const srcPath = path.join(serverSource, item.name);
         const destPath = path.join(serverDest, item.name);
         if (item.isDirectory()) {
-          // Use dereference to copy actual files, not symlinks
           fs.cpSync(srcPath, destPath, { recursive: true, dereference: true });
         } else {
-          // For files, check if it's a symlink and dereference
           const stat = fs.lstatSync(srcPath);
           if (stat.isSymbolicLink()) {
             const realPath = fs.readlinkSync(srcPath);
@@ -215,25 +190,20 @@ async function buildResolvePlugin() {
     }
   }
   
-  // Copy UI from CEP build
   const cepMainDir = path.join(outDir, 'main');
   const cepAssetsDir = path.join(outDir, 'assets');
   const resolveStaticDir = path.join(resolveDest, 'static');
   const sharedMainDir = path.join(sharedOutDir, 'main');
   const sharedAssetsDir = path.join(sharedOutDir, 'assets');
   
-  // Ensure we use the most up-to-date build (shared takes precedence, then CEP)
-  // Wait for CEP build to complete if needed
   let sourceMainDir = fs.existsSync(sharedMainDir) ? sharedMainDir : cepMainDir;
   let sourceAssetsDir = fs.existsSync(sharedAssetsDir) ? sharedAssetsDir : cepAssetsDir;
   
-  // Wait for CEP build to complete if it's still building (for parallel builds)
   if (!fs.existsSync(sourceMainDir) && !fs.existsSync(cepMainDir)) {
     if (isProduction) {
-      // In production, wait up to 30 seconds for CEP build to complete
       console.log('Waiting for CEP build to complete...');
-      const maxWait = 30000; // 30 seconds
-      const checkInterval = 500; // Check every 500ms
+      const maxWait = 30000;
+      const checkInterval = 500;
       let waited = 0;
       while (waited < maxWait && !fs.existsSync(sourceMainDir) && !fs.existsSync(cepMainDir)) {
         await new Promise(resolve => setTimeout(resolve, checkInterval));
@@ -248,36 +218,30 @@ async function buildResolvePlugin() {
     }
   }
   
-  // Ensure source directories are from the same build
-  // If using shared build, verify it exists; otherwise use CEP build directly
   if (sourceMainDir === sharedMainDir && !fs.existsSync(sharedMainDir)) {
     console.log('Shared build not found, using CEP build directly');
     sourceMainDir = cepMainDir;
     sourceAssetsDir = cepAssetsDir;
   }
   
-  // Verify HTML and assets are from the same build by checking file timestamps
   const sourceHtml = path.join(sourceMainDir, 'index.html');
   if (fs.existsSync(sourceHtml) && fs.existsSync(sourceAssetsDir)) {
     const htmlStat = fs.statSync(sourceHtml);
     const assetsStat = fs.statSync(sourceAssetsDir);
     const timeDiff = Math.abs(htmlStat.mtimeMs - assetsStat.mtimeMs);
-    if (timeDiff > 5000) { // More than 5 seconds difference suggests different builds
+    if (timeDiff > 5000) {
       console.warn(`Warning: HTML and assets timestamps differ by ${Math.round(timeDiff / 1000)}s - may be from different builds`);
     }
   }
   
-  // Copy index.html and fix asset paths (sourceHtml already defined above)
   const resolveHtml = path.join(resolveStaticDir, 'index.html');
   if (fs.existsSync(sourceHtml)) {
     fs.mkdirSync(path.dirname(resolveHtml), { recursive: true });
     let htmlContent = fs.readFileSync(sourceHtml, 'utf-8');
     
-    // Verify referenced assets exist before fixing paths
     const assetMatches = htmlContent.matchAll(/(href|src)=["']([^"']*assets\/[^"']*)["']/g);
     for (const match of assetMatches) {
       const assetPath = match[2];
-      // Extract filename from path (e.g., "../assets/main-C-8lw79q.css" -> "main-C-8lw79q.css")
       const filename = assetPath.split('/').pop();
       if (filename && fs.existsSync(sourceAssetsDir)) {
         const assetFiles = fs.readdirSync(sourceAssetsDir);
@@ -288,11 +252,10 @@ async function buildResolvePlugin() {
       }
     }
     
-    // Fix asset paths: ../assets/ -> ./assets/ (assets are in same directory as index.html)
     htmlContent = htmlContent.replace(/href=["']\.\.\/assets\//g, 'href="./assets/');
     htmlContent = htmlContent.replace(/src=["']\.\.\/assets\//g, 'src="./assets/');
     fs.writeFileSync(resolveHtml, htmlContent, 'utf-8');
-    console.log(`✓ Copied UI index.html to ${resolveHtml} (fixed asset paths)`);
+    console.log(`✓ Copied UI index.html to ${resolveHtml}`);
   } else if (!isProduction) {
     const devHtml = `<!DOCTYPE html>
 <html>
@@ -312,10 +275,8 @@ async function buildResolvePlugin() {
     console.log(`✓ Created dev proxy HTML at ${resolveHtml}`);
   }
   
-  // Copy assets
   if (fs.existsSync(sourceAssetsDir)) {
     const resolveAssetsDir = path.join(resolveStaticDir, 'assets');
-    // Remove existing assets directory if it exists to avoid conflicts
     if (fs.existsSync(resolveAssetsDir)) {
       fs.rmSync(resolveAssetsDir, { recursive: true, force: true });
     }
@@ -324,7 +285,6 @@ async function buildResolvePlugin() {
     console.log(`✓ Copied UI assets to ${resolveAssetsDir}`);
   }
   
-  // Copy js/lib, js/assets
   const cepJsLib = path.join(outDir, 'js', 'lib');
   const cepJsAssets = path.join(outDir, 'js', 'assets');
   const resolveJsDir = path.join(resolveStaticDir, 'js');
@@ -342,7 +302,6 @@ async function buildResolvePlugin() {
     fs.cpSync(cepJsAssets, resolveJsAssets, { recursive: true });
     console.log(`✓ Copied js/assets to ${resolveJsAssets}`);
     
-    // Copy icons
     const resolveIconsDir = path.join(resolveStaticDir, 'icons');
     fs.mkdirSync(resolveIconsDir, { recursive: true });
     const cepIconsDir = path.join(cepJsAssets, 'icons');
@@ -352,7 +311,6 @@ async function buildResolvePlugin() {
     }
   }
   
-  // Create manifest.xml (Resolve requires XML for plugin discovery)
   const manifestXmlPath = path.join(resolveDest, 'manifest.xml');
   const manifestXml = `<?xml version="1.0" encoding="UTF-8"?>
 <BlackmagicDesign>
@@ -365,24 +323,19 @@ async function buildResolvePlugin() {
     </Plugin>
 </BlackmagicDesign>`;
   fs.writeFileSync(manifestXmlPath, manifestXml);
-  console.log('✓ Created manifest.xml (required for Resolve plugin discovery)');
+  console.log('✓ Created manifest.xml');
   
-  // Install dependencies in dist/resolve (production only)
   if (isProduction) {
-    // Install server dependencies first (required for server to run)
     const serverDest = path.join(resolveDest, 'static', 'server');
     const serverPackageJson = path.join(serverDest, 'package.json');
     
     if (fs.existsSync(serverDest) && fs.existsSync(serverPackageJson)) {
       try {
-        // Read server package.json to get production dependencies (now in workspace)
         const serverSrcPackageJson = path.join(__dirname, 'src', 'server', 'package.json');
         const serverSrcPackage = JSON.parse(fs.readFileSync(serverSrcPackageJson, 'utf-8'));
         const serverPackage = JSON.parse(fs.readFileSync(serverPackageJson, 'utf-8'));
         
-        // Copy production dependencies from src/server/package.json to dist server package.json
         const newDependencies = serverSrcPackage.dependencies || {};
-        // Use deterministic comparison: sort keys and compare JSON
         const sortKeys = (obj: Record<string, string>) => 
           Object.keys(obj).sort().reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
         const dependenciesChanged = 
@@ -391,8 +344,6 @@ async function buildResolvePlugin() {
         
         serverPackage.dependencies = newDependencies;
         
-        // Check if we need to reinstall dependencies
-        // Also check package-lock.json if it exists for more reliable change detection
         const nodeModulesPath = path.join(serverDest, 'node_modules');
         const packageLockPath = path.join(serverDest, 'package-lock.json');
         const rootPackageLockPath = path.join(__dirname, 'package-lock.json');
@@ -402,10 +353,8 @@ async function buildResolvePlugin() {
           try {
             const existingLock = fs.readFileSync(packageLockPath, 'utf-8');
             const rootLock = fs.readFileSync(rootPackageLockPath, 'utf-8');
-            // Compare lock file content (more reliable than package.json)
             lockFileChanged = existingLock !== rootLock;
           } catch (err) {
-            // If we can't read lock files, fall back to dependency comparison
             console.warn('Could not compare package-lock.json, using dependency comparison');
           }
         }
@@ -413,30 +362,23 @@ async function buildResolvePlugin() {
         const needsInstall = !fs.existsSync(nodeModulesPath) || dependenciesChanged || lockFileChanged;
         
         if (needsInstall) {
-          // Write updated package.json
           fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
-          // Ensure package-lock.json exists for npm ci
           const packageLockPath = path.join(serverDest, 'package-lock.json');
           if (!fs.existsSync(packageLockPath) && fs.existsSync(rootPackageLockPath)) {
             fs.copyFileSync(rootPackageLockPath, packageLockPath);
           }
           
-          // Install server production dependencies with retry logic
-          // Note: dist/resolve/server is NOT a workspace, so we use npm install directly
-          // npm ci requires an exact package-lock.json match, which we don't have in standalone dir
           console.log('Installing server dependencies for Resolve...');
           let installSuccess = false;
           let retries = 2;
           
           while (!installSuccess && retries >= 0) {
             try {
-              // Use npm install (not npm ci) since this is a standalone directory, not a workspace
-              // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
               execSync('npm install --omit=dev --no-audit --no-fund --prefer-offline --silent --package-lock', {
                 cwd: serverDest,
                 stdio: 'inherit',
                 env: { ...process.env, npm_config_progress: 'false' },
-                timeout: 300000 // 5 minute timeout
+                timeout: 300000
               });
               installSuccess = true;
               console.log('✓ Server dependencies installed');
@@ -451,7 +393,6 @@ async function buildResolvePlugin() {
             }
           }
         } else {
-          // Update package.json but skip install if dependencies haven't changed
           fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
           console.log('✓ Resolve server dependencies up to date, skipping install');
         }
@@ -461,7 +402,6 @@ async function buildResolvePlugin() {
       }
     }
     
-    // Install Electron dependencies (check if already installed)
     const resolveNodeModules = path.join(resolveDest, 'node_modules');
     const resolvePackageJson = path.join(resolveDest, 'package.json');
     const needsElectronInstall = !fs.existsSync(resolveNodeModules) || 
@@ -475,14 +415,12 @@ async function buildResolvePlugin() {
       
       while (!installSuccess && retries >= 0) {
         try {
-          // Use npm install (not npm ci) since this is a standalone directory, not a workspace
-          // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
           const installCmd = 'npm install --omit=dev --no-audit --no-fund --prefer-offline --silent --package-lock';
           execSync(installCmd, {
             cwd: resolveDest,
             stdio: 'inherit',
             env: { ...process.env, npm_config_progress: 'false' },
-            timeout: 300000 // 5 minute timeout
+            timeout: 300000
           });
           installSuccess = true;
           console.log('✓ Electron dependencies installed');
@@ -501,18 +439,15 @@ async function buildResolvePlugin() {
       console.log('✓ Electron dependencies up to date, skipping install');
     }
     
-    // Update manifest.json with Electron path (use actual Electron binary, not symlink)
     const manifestPath = path.join(resolveDest, 'manifest.json');
     if (fs.existsSync(manifestPath)) {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      // Try to find the actual Electron binary (not the symlink)
       const electronAppPath = path.join(resolveDest, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
       const electronBinSymlink = path.join(resolveDest, 'node_modules', '.bin', 'electron');
       
-      let electronPath = './node_modules/.bin/electron'; // Default to symlink
+      let electronPath = './node_modules/.bin/electron';
       
       if (fs.existsSync(electronAppPath)) {
-        // Use the actual Electron binary
         electronPath = './node_modules/electron/dist/Electron.app/Contents/MacOS/Electron';
         console.log('Using actual Electron binary instead of symlink');
       } else if (fs.existsSync(electronBinSymlink)) {
@@ -526,7 +461,6 @@ async function buildResolvePlugin() {
     }
   }
   
-  // Set executable permissions
   try {
     const nodeBinaries = path.join(resolveDest, 'static', 'bin');
     if (fs.existsSync(nodeBinaries)) {
@@ -563,19 +497,16 @@ async function buildResolvePlugin() {
     console.warn('Warning: Could not set executable permissions:', err);
   }
   
-  // Package as ZIP for distribution (if RESOLVE_PACKAGE is set)
   if (isResolvePackage) {
     const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
     const zipPath = path.join(__dirname, devDist, `sync-resolve-plugin-v${version}.zip`);
     
-    // Remove existing zip if it exists
     if (fs.existsSync(zipPath)) {
       fs.unlinkSync(zipPath);
     }
     
     console.log(`\nCreating Resolve plugin ZIP package...`);
     
-    // Create installation instructions file
     const instructionsPath = path.join(resolveDest, 'INSTALLATION_INSTRUCTIONS.txt');
     const instructions = `INSTALLATION INSTRUCTIONS FOR DAVINCI RESOLVE PLUGIN
 ================================================
@@ -632,17 +563,14 @@ For more help, visit: https://sync.so
     fs.writeFileSync(instructionsPath, instructions, 'utf-8');
     console.log(`✓ Created installation instructions file`);
     
-    // Use native zip command (works on macOS/Linux, Windows needs PowerShell)
     try {
       if (process.platform === 'win32') {
-        // Windows: Use PowerShell Compress-Archive
         const resolveDirName = path.basename(resolveDest);
         const parentDir = path.dirname(resolveDest);
         execSync(
           `powershell -Command "Compress-Archive -Path '${resolveDirName}' -DestinationPath '${path.basename(zipPath)}' -Force"`,
           { cwd: parentDir, stdio: 'inherit' }
         );
-        // Move to final location if needed
         const tempZip = path.join(parentDir, path.basename(zipPath));
         if (fs.existsSync(tempZip) && tempZip !== zipPath) {
           fs.renameSync(tempZip, zipPath);
@@ -660,8 +588,6 @@ For more help, visit: https://sync.so
       throw err;
     }
   } else {
-    // Install to Resolve plugin directory (system-wide, not user-specific)
-    // Resolve looks for plugins in /Library (system) not ~/Library (user)
     const pluginDir = path.join(
       '/Library',
       'Application Support',
@@ -678,7 +604,6 @@ For more help, visit: https://sync.so
     }
     fs.mkdirSync(pluginDir, { recursive: true });
     
-    // Copy with dereference to resolve symlinks (DaVinci Resolve can't follow symlinks)
     fs.cpSync(resolveDest, pluginDir, { recursive: true, force: true, dereference: true });
     
     console.log(`✓ Installed to: ${pluginDir}`);
@@ -687,7 +612,6 @@ For more help, visit: https://sync.so
   }
 }
 
-// Helper to fix redirect path in built HTML (vite-cep-plugin injects /main/index.html but Vite serves /main/)
 const fixRedirectPath = () => {
   if (!isProduction && !isPackage) {
     cepConfig.panels.forEach(panel => {
@@ -695,7 +619,6 @@ const fixRedirectPath = () => {
       if (fs.existsSync(htmlPath)) {
         let content = fs.readFileSync(htmlPath, 'utf-8');
         const originalContent = content;
-        // Fix redirect: /main/index.html -> /main/ (Bolt CEP standard)
         content = content.replace(
           /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
           "window.location.href = 'http://localhost:3001/main/'"
@@ -714,25 +637,26 @@ export default defineConfig({
     cep(config),
     {
       name: 'bolt-cep-fix-redirect',
-      enforce: 'post', // Run AFTER vite-cep-plugin to fix its redirect
+      enforce: 'post',
       transformIndexHtml(html, context) {
-        // Handle case where html might be undefined due to symlink errors
-        if (!html || typeof html !== 'string') {
-          console.warn('[bolt-cep-fix-redirect] transformIndexHtml received invalid html, returning empty string');
-          return '';
+        if (isProduction || isPackage) {
+          return html;
         }
         
-        // Fix redirect path during dev server transformation
-        // This runs AFTER vite-cep-plugin transforms the HTML
-        // Also add debugging to help diagnose issues
+        if (!html || typeof html !== 'string') {
+          return html;
+        }
+        
+        if (!context) {
+          return html;
+        }
+        
         let fixed = html.replace(
           /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
           `window.location.href = 'http://localhost:3001/main/'`
         );
         
-        // If we found and fixed a redirect, add debugging
         if (fixed !== html) {
-          // Add debug logging before redirect
           fixed = fixed.replace(
             /(<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/['"])/g,
             `$1; console.log('[CEP] Redirecting to dev server:', 'http://localhost:3001/main/');`
@@ -742,10 +666,8 @@ export default defineConfig({
         return fixed;
       },
       async buildEnd() {
-        // Fix redirect path after build (vite-cep-plugin runs before this)
         fixRedirectPath();
         
-        // Verify critical build artifacts exist
         if (isProduction || isPackage) {
           const criticalPaths = [
             path.join(outDir, 'main', 'index.html'),
@@ -756,96 +678,11 @@ export default defineConfig({
           for (const criticalPath of criticalPaths) {
             if (!fs.existsSync(criticalPath)) {
               console.warn(`Warning: Critical build artifact missing: ${criticalPath}`);
-              // Don't fail the build, but warn - some artifacts might be optional
             }
           }
         }
         
-        // Copy top-level server TypeScript files to dist/cep/server/
-        // Server runs with tsx, so it can execute TypeScript directly - no compilation needed
-        if (isProduction || isPackage) {
-          const serverSrc = path.join(__dirname, 'src', 'server');
-          const serverDest = path.join(outDir, 'server');
-          
-          // Copy top-level server files that aren't in folders
-          if (fs.existsSync(serverSrc) && fs.existsSync(serverDest)) {
-            const topLevelFiles = ['server.ts', 'serverConfig.ts', 'telemetry.ts'];
-            topLevelFiles.forEach((file) => {
-              const srcFile = path.join(serverSrc, file);
-              const destFile = path.join(serverDest, file);
-              if (fs.existsSync(srcFile)) {
-                fs.copyFileSync(srcFile, destFile);
-              }
-            });
-          }
-        }
-        
-        // Copy shared folder to dist/shared/ (required for server imports)
-        // Server code imports from ../../shared/host, which from dist/cep/server resolves to dist/shared/
-        const sharedSrc = path.join(__dirname, 'src', 'shared');
-        const sharedDest = path.join(__dirname, devDist, 'shared'); // dist/shared (not dist/cep/shared)
-        if (fs.existsSync(sharedSrc)) {
-          try {
-            if (fs.existsSync(sharedDest)) {
-              fs.rmSync(sharedDest, { recursive: true, force: true });
-            }
-            fs.mkdirSync(sharedDest, { recursive: true });
-            fs.cpSync(sharedSrc, sharedDest, { recursive: true });
-            console.log('✓ Copied shared folder to dist/shared');
-          } catch (err: any) {
-            console.warn('Warning: Failed to copy shared folder:', err.message);
-          }
-        }
-        
-        // Also copy to dist/cep/shared/ for completeness (in case imports change)
-        const sharedDestCep = path.join(outDir, 'shared');
-        if (fs.existsSync(sharedSrc)) {
-          try {
-            if (fs.existsSync(sharedDestCep)) {
-              fs.rmSync(sharedDestCep, { recursive: true, force: true });
-            }
-            fs.mkdirSync(sharedDestCep, { recursive: true });
-            fs.cpSync(sharedSrc, sharedDestCep, { recursive: true });
-          } catch (err: any) {
-            // Non-fatal
-          }
-        }
-        
-        // Sync posthog-node files (also runs in buildEnd as fallback after vite-cep-plugin copies files)
-        // This ensures files are synced even if buildStart runs before server folder exists
-        const serverDestEnd = path.join(outDir, 'server');
-        const distPosthogPathEnd = path.join(serverDestEnd, 'node_modules', 'posthog-node', 'dist');
-        const srcPosthogPathEnd = path.join(__dirname, 'node_modules', 'posthog-node', 'dist');
-        if (fs.existsSync(srcPosthogPathEnd) && fs.existsSync(serverDestEnd)) {
-          if (!fs.existsSync(distPosthogPathEnd)) {
-            fs.mkdirSync(distPosthogPathEnd, { recursive: true });
-          }
-          try {
-            const srcFiles = fs.readdirSync(srcPosthogPathEnd, { recursive: true });
-            let copiedCount = 0;
-            for (const file of srcFiles) {
-              const srcFile = path.join(srcPosthogPathEnd, file);
-              const distFile = path.join(distPosthogPathEnd, file);
-              if (fs.statSync(srcFile).isFile()) {
-                if (!fs.existsSync(distFile) || fs.statSync(srcFile).size !== fs.statSync(distFile).size) {
-                  fs.mkdirSync(path.dirname(distFile), { recursive: true });
-                  fs.copyFileSync(srcFile, distFile);
-                  copiedCount++;
-                }
-              }
-            }
-            if (copiedCount > 0) {
-              console.log(`✓ Synced ${copiedCount} posthog-node file(s) in buildEnd`);
-            }
-          } catch (err: any) {
-            console.warn('Warning: Could not sync posthog-node files in buildEnd:', err.message);
-          }
-        }
-        
-        // After CEP build completes, create shared UI reference for Resolve
-        // This is optional and non-blocking - CEP build is unaffected
         if (process.env.RESOLVE_BUILD !== 'true') {
-          // Only create shared build if not already building Resolve (avoids duplicate work)
           const cepMainDir = path.join(outDir, 'main');
           const cepAssetsDir = path.join(outDir, 'assets');
           
@@ -854,7 +691,6 @@ export default defineConfig({
               const sharedMainDir = path.join(sharedOutDir, 'main');
               const sharedAssetsDir = path.join(sharedOutDir, 'assets');
               
-              // Always update shared build to keep it in sync
               if (fs.existsSync(sharedMainDir)) {
                 fs.rmSync(sharedMainDir, { recursive: true, force: true });
               }
@@ -871,89 +707,36 @@ export default defineConfig({
               
               console.log('✓ Created shared UI build from CEP output');
             } catch (err) {
-              // Non-fatal - CEP build succeeded, shared build is just for Resolve
               console.warn('Warning: Failed to create shared UI build (non-fatal):', err.message);
             }
           }
         }
         
-        // CRITICAL: Ensure bin folder with bundled Node binaries is copied to dist/cep
-        // This is required for the extension to work without system Node.js
-        const binSource = path.join(__dirname, 'bin');
         const binDest = path.join(outDir, 'bin');
-        if (fs.existsSync(binSource)) {
-          try {
-            // Remove existing bin folder if it exists
-            if (fs.existsSync(binDest)) {
-              fs.rmSync(binDest, { recursive: true, force: true });
-            }
-            // Copy bin folder recursively, but exclude build scripts
-            fs.mkdirSync(binDest, { recursive: true });
-            const walkDir = (srcDir: string, destDir: string) => {
-              const entries = fs.readdirSync(srcDir, { withFileTypes: true });
-              for (const entry of entries) {
-                const srcPath = path.join(srcDir, entry.name);
-                const destPath = path.join(destDir, entry.name);
-                
-                // Skip build scripts that shouldn't be in the extension package
-                if (entry.name === 'release.sh' || entry.name === 'uninstall.sh' || entry.name === 'uninstall.bat') {
-                  continue;
-                }
-                
-                if (entry.isDirectory()) {
-                  fs.mkdirSync(destPath, { recursive: true });
-                  walkDir(srcPath, destPath);
-                } else {
-                  fs.copyFileSync(srcPath, destPath);
-                }
+        if (fs.existsSync(binDest)) {
+          const buildScripts = ['release.sh', 'uninstall.sh', 'uninstall.bat'];
+          for (const script of buildScripts) {
+            const scriptPath = path.join(binDest, script);
+            if (fs.existsSync(scriptPath)) {
+              try {
+                fs.unlinkSync(scriptPath);
+              } catch (err) {
+                console.warn(`Warning: Failed to remove ${script} from bin folder:`, err);
               }
-            };
-            walkDir(binSource, binDest);
-            console.log('Copied bin folder with bundled Node binaries to dist/cep/bin');
-          } catch (err) {
-            console.error('CRITICAL: Failed to copy bin folder:', err);
-            throw err; // Fail the build if bin folder cannot be copied
-          }
-        } else {
-          console.error('CRITICAL: bin folder not found at:', binSource);
-          throw new Error('bin folder with Node binaries is required but not found');
-        }
-        
-        // CRITICAL: Copy EPR preset files to extension root /epr folder (matches main branch)
-        // vite-cep-plugin copies them to js/panels/ppro/epr, but code expects them at /epr
-        const eprSource = path.join(__dirname, 'src', 'js', 'panels', 'ppro', 'epr');
-        const eprDest = path.join(outDir, 'epr');
-        if (fs.existsSync(eprSource)) {
-          try {
-            // Remove existing epr folder if it exists
-            if (fs.existsSync(eprDest)) {
-              fs.rmSync(eprDest, { recursive: true, force: true });
             }
-            // Copy epr folder recursively to extension root
-            fs.mkdirSync(eprDest, { recursive: true });
-            fs.cpSync(eprSource, eprDest, { recursive: true });
-            console.log('Copied EPR preset files to dist/cep/epr');
-          } catch (err) {
-            console.error('CRITICAL: Failed to copy EPR presets:', err);
-            throw err; // Fail the build if EPR presets cannot be copied
           }
-        } else {
-          console.warn('Warning: EPR presets folder not found at:', eprSource);
         }
         
-        // Remove .debug file from dist/cep if it exists (CEP debug config, not user logging flag)
-        // This should not be created for ZXP packages (symlink is disabled), but remove it as a safety measure
         if (isPackage) {
           const debugFile = path.join(outDir, '.debug');
           if (fs.existsSync(debugFile)) {
             try {
               fs.unlinkSync(debugFile);
-              console.log('Removed .debug file from build output (CEP debug config, not user logging flag)');
+              console.log('Removed .debug file from build output');
             } catch (err) {
               console.warn('Failed to remove .debug file:', err);
             }
           }
-          // Also check for nested .debug file
           const nestedDebugFile = path.join(outDir, cepDist, '.debug');
           if (fs.existsSync(nestedDebugFile)) {
             try {
@@ -965,28 +748,22 @@ export default defineConfig({
           }
         }
         
-        // Remove META-INF directory from dist/cep in dev mode to prevent signature verification errors
-        // META-INF is only needed for signed ZXP packages, not for dev mode
         if (!isPackage && !isProduction) {
           const metaInfDir = path.join(outDir, 'META-INF');
           if (fs.existsSync(metaInfDir)) {
             try {
               fs.rmSync(metaInfDir, { recursive: true, force: true });
-              console.log('Removed META-INF directory from dev build (not needed for unsigned extensions)');
+              console.log('Removed META-INF directory from dev build');
             } catch (err) {
               console.warn('Failed to remove META-INF directory:', err);
             }
           }
         }
         
-        // Note: Server dependencies are now installed in buildStart() hook
-        // to ensure they're included in the ZXP package (vite-cep-plugin runs after buildStart)
-        // This code is kept as a fallback but should not run if buildStart succeeded
         if (isProduction || isPackage) {
           const serverDest = path.join(outDir, 'server');
           const nodeModulesPath = path.join(serverDest, 'node_modules');
           
-          // Verify node_modules exist (should have been installed in buildStart)
           if (!fs.existsSync(nodeModulesPath)) {
             console.warn('WARNING: server/node_modules not found - dependencies may not be included in ZXP');
             console.warn('This should have been installed in buildStart hook. Check build logs.');
@@ -995,11 +772,9 @@ export default defineConfig({
           }
         }
         
-        // Build Resolve plugin if RESOLVE_BUILD is set
         if (isResolveBuild) {
           await buildResolvePlugin();
           
-          // Set up watch mode for Resolve plugin files in development
           if (!isProduction && !resolvePluginWatcher) {
             try {
               const chokidar = require('chokidar');
@@ -1014,14 +789,13 @@ export default defineConfig({
               ], {
                 ignored: /node_modules/,
                 persistent: true,
-                ignoreInitial: true, // Don't trigger on initial scan
+                ignoreInitial: true,
               });
               
               let rebuildTimeout: NodeJS.Timeout | null = null;
               resolvePluginWatcher.on('change', (filePath: string) => {
                 console.log(`\n📝 Resolve plugin file changed: ${path.relative(__dirname, filePath)}`);
                 
-                // Debounce rebuilds
                 if (rebuildTimeout) {
                   clearTimeout(rebuildTimeout);
                 }
@@ -1052,34 +826,42 @@ export default defineConfig({
         }
       },
       async buildStart() {
-        // Install server dependencies BEFORE vite-cep-plugin packages the ZXP
-        // This ensures node_modules are included in the ZXP package
-        // Note: vite-cep-plugin copies server files via copyAssets, so server folder should exist
-        // But we ensure it exists and install node_modules before vite-cep-plugin packages the ZXP
         if (isProduction || isPackage) {
           const serverDest = path.join(outDir, 'server');
           const serverPackageJson = path.join(serverDest, 'package.json');
           const serverSrc = path.join(__dirname, 'src', 'server');
           
-          // Ensure server folder exists (vite-cep-plugin should copy it, but ensure it's there)
+          // Ensure server folder exists before vite-cep-plugin copies files
           if (!fs.existsSync(serverDest) && fs.existsSync(serverSrc)) {
-            console.log('Server folder not found in dist, ensuring it exists...');
+            console.log('Server folder not found in dist, creating it...');
             fs.mkdirSync(serverDest, { recursive: true });
-            // Copy package.json first so we can install dependencies
+          }
+          
+          // Copy server files manually if they don't exist (vite-cep-plugin will copy them later, but we need them now for npm install)
+          if (fs.existsSync(serverSrc) && !fs.existsSync(serverPackageJson)) {
             const srcPackageJson = path.join(serverSrc, 'package.json');
             if (fs.existsSync(srcPackageJson)) {
               fs.copyFileSync(srcPackageJson, serverPackageJson);
+              console.log('✓ Copied server/package.json for dependency installation');
+            }
+            
+            // Copy other server files that npm install might need
+            const serverFiles = ['server.ts', 'serverConfig.ts', 'telemetry.ts'];
+            for (const file of serverFiles) {
+              const srcFile = path.join(serverSrc, file);
+              const destFile = path.join(serverDest, file);
+              if (fs.existsSync(srcFile) && !fs.existsSync(destFile)) {
+                fs.copyFileSync(srcFile, destFile);
+              }
             }
           }
           
           if (fs.existsSync(serverDest) && fs.existsSync(serverPackageJson)) {
             try {
-              // Read server package.json to get production dependencies (now in workspace)
               const serverSrcPackageJson = path.join(__dirname, 'src', 'server', 'package.json');
               const serverSrcPackage = JSON.parse(fs.readFileSync(serverSrcPackageJson, 'utf-8'));
               const serverPackage = JSON.parse(fs.readFileSync(serverPackageJson, 'utf-8'));
               
-              // Copy production dependencies from src/server/package.json to dist server package.json
               const newDependencies = serverSrcPackage.dependencies || {};
               const sortKeys = (obj: Record<string, string>) => 
                 Object.keys(obj).sort().reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
@@ -1089,7 +871,6 @@ export default defineConfig({
               
               serverPackage.dependencies = newDependencies;
               
-              // Check if we need to reinstall dependencies
               const nodeModulesPath = path.join(serverDest, 'node_modules');
               const packageLockPath = path.join(serverDest, 'package-lock.json');
               const rootPackageLockPath = path.join(__dirname, 'package-lock.json');
@@ -1108,30 +889,23 @@ export default defineConfig({
               const needsInstall = !fs.existsSync(nodeModulesPath) || dependenciesChanged || lockFileChanged;
               
               if (needsInstall) {
-                // Write updated package.json
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
                 
-                // Install production dependencies with retry logic
-                // Note: dist/cep/server is NOT a workspace, so we use npm install directly
-                // npm ci requires an exact package-lock.json match, which we don't have in standalone dir
                 console.log('Installing server dependencies BEFORE ZXP packaging...');
                 let installSuccess = false;
                 let retries = 2;
                 
                 while (!installSuccess && retries >= 0) {
                   try {
-                    // Use npm install (not npm ci) since this is a standalone directory, not a workspace
-                    // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
                     execSync('npm install --omit=dev --no-audit --no-fund --prefer-offline --silent --package-lock', {
                       cwd: serverDest,
                       stdio: 'inherit',
                       env: { ...process.env, npm_config_progress: 'false' },
-                      timeout: 300000 // 5 minute timeout
+                      timeout: 300000
                     });
                     installSuccess = true;
                     console.log('✓ Server dependencies installed (will be included in ZXP)');
                     
-                    // Verify node_modules were actually created
                     const nodeModulesPath = path.join(serverDest, 'node_modules');
                     if (!fs.existsSync(nodeModulesPath)) {
                       throw new Error('npm install completed but node_modules directory not found');
@@ -1140,31 +914,33 @@ export default defineConfig({
                     if (fileCount === 0) {
                       throw new Error('npm install completed but node_modules is empty');
                     }
+                    
+                    const requiredPackages = ['tsx', 'express'];
+                    const missingPackages = requiredPackages.filter(pkg => !fs.existsSync(path.join(nodeModulesPath, pkg)));
+                    if (missingPackages.length > 0) {
+                      throw new Error(`Critical packages missing from node_modules: ${missingPackages.join(', ')}`);
+                    }
+                    
                     console.log(`✓ Verified: node_modules contains ${fileCount} packages`);
                   } catch (err: any) {
                     if (retries > 0) {
                       console.warn(`Install failed, retrying... (${retries} attempts remaining)`);
                       retries--;
-                      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+                      await new Promise(resolve => setTimeout(resolve, 2000));
                     } else {
                       console.error('CRITICAL: Failed to install server dependencies:', err);
-                      throw err; // Fail the build if server dependencies cannot be installed
+                      throw err;
                     }
                   }
                 }
               } else {
-                // Update package.json but skip install if dependencies haven't changed
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
                 console.log('✓ Server dependencies up to date (will be included in ZXP)');
                 
-                // Verify node_modules still exist
                 const nodeModulesPath = path.join(serverDest, 'node_modules');
                 if (!fs.existsSync(nodeModulesPath)) {
                   console.warn('WARNING: node_modules not found even though install was skipped');
                   console.warn('This might indicate the folder was deleted. Reinstalling...');
-                  // Force reinstall
-                  // Use npm install (not npm ci) since this is a standalone directory, not a workspace
-                  // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
                   const installCmd = 'npm install --production --no-audit --no-fund --prefer-offline --silent --package-lock';
                   execSync(installCmd, {
                     cwd: serverDest,
@@ -1185,48 +961,11 @@ export default defineConfig({
           }
         }
         
-        // Sync posthog-node files (runs for ALL builds including dev/watch mode)
-        // This ensures missing files like types.mjs are copied even if npm install skips them
-        const serverDest = path.join(outDir, 'server');
-        const distPosthogPath = path.join(serverDest, 'node_modules', 'posthog-node', 'dist');
-        const srcPosthogPath = path.join(__dirname, 'node_modules', 'posthog-node', 'dist');
-        if (fs.existsSync(srcPosthogPath) && fs.existsSync(serverDest)) {
-          // Ensure dist directory exists
-          if (!fs.existsSync(distPosthogPath)) {
-            fs.mkdirSync(distPosthogPath, { recursive: true });
-          }
-          try {
-            // Copy all files from source to dist (including empty files like types.mjs)
-            const srcFiles = fs.readdirSync(srcPosthogPath, { recursive: true });
-            let copiedCount = 0;
-            for (const file of srcFiles) {
-              const srcFile = path.join(srcPosthogPath, file);
-              const distFile = path.join(distPosthogPath, file);
-              if (fs.statSync(srcFile).isFile()) {
-                // Only copy if file doesn't exist or source is newer/different size
-                if (!fs.existsSync(distFile) || fs.statSync(srcFile).size !== fs.statSync(distFile).size) {
-                  fs.mkdirSync(path.dirname(distFile), { recursive: true });
-                  fs.copyFileSync(srcFile, distFile);
-                  copiedCount++;
-                }
-              }
-            }
-            if (copiedCount > 0) {
-              console.log(`✓ Synced ${copiedCount} posthog-node file(s) to dist`);
-            }
-          } catch (err: any) {
-            console.warn('Warning: Could not sync posthog-node files:', err.message);
-          }
-        }
-        
-        // Fix redirect path in watch mode - use polling to catch vite-cep-plugin updates
         if (!isProduction && !isPackage) {
-          // Poll every 500ms to fix redirect whenever vite-cep-plugin updates the HTML
           const pollInterval = setInterval(() => {
             fixRedirectPath();
           }, 500);
           
-          // Clean up on process exit
           process.on('exit', () => clearInterval(pollInterval));
           process.on('SIGINT', () => {
             clearInterval(pollInterval);
@@ -1236,7 +975,6 @@ export default defineConfig({
         
       },
       configureServer(server) {
-        // Serve /main/index.html at /main/ (Bolt CEP standard)
         server.middlewares.use((req, res, next) => {
           if (req.url === '/main/index.html') {
             req.url = '/main/';
@@ -1253,13 +991,13 @@ export default defineConfig({
   css: {
     preprocessorOptions: {
       scss: {
-        api: 'modern-compiler', // Use modern Sass API to avoid deprecation warnings
-        silenceDeprecations: ['legacy-js-api'], // Fallback: silence if modern API not fully supported
+        api: 'modern-compiler',
+        silenceDeprecations: ['legacy-js-api'],
       },
     },
   },
   root,
-  base: isPackage ? "./" : "/", // Use relative paths for ZXP packages, absolute for dev
+  base: isPackage ? "./" : "/",
   clearScreen: false,
   server: {
     port: cepConfig.port || 3001,
@@ -1295,7 +1033,6 @@ export default defineConfig({
   },
 });
 
-// rollup es3 build
 const outPathExtendscript = path.join("dist", cepDist, "jsx", "index.js");
 extendscriptConfig(
   `src/jsx/index.ts`,

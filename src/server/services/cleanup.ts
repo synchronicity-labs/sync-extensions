@@ -50,8 +50,8 @@ export async function cleanupOldFiles(dirPath: string, maxAgeMs = 24 * 60 * 60 *
             if (ageMs > maxAgeMs) {
               // Calculate age BEFORE deletion (bug fix)
               const ageMinutes = Math.round(ageMs / 1000 / 60);
-              await fs.promises.unlink(filePath);
-              cleanedCount++;
+            await fs.promises.unlink(filePath);
+            cleanedCount++;
               await tlog('cleanup:removed', filePath, 'age=', ageMinutes, 'min');
             }
           }
@@ -60,7 +60,7 @@ export async function cleanupOldFiles(dirPath: string, maxAgeMs = 24 * 60 * 60 *
           const error = e as NodeJS.ErrnoException;
           // Skip errors for files that were deleted between stat and unlink
           if (error.code !== 'ENOENT') {
-            await tlog('cleanup:error', filePath, error && error.message ? error.message : String(error));
+          await tlog('cleanup:error', filePath, error && error.message ? error.message : String(error));
           }
         }
       }));
@@ -90,7 +90,7 @@ export function scheduleCleanup(): void {
   // Schedule periodic cleanup for uploads directory (24 hours)
   uploadsInterval = setInterval(async () => {
     try {
-      await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000);
+    await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000);
     } catch (e) {
       const error = e as Error;
       await tlog('cleanup:interval:error', 'uploads', error && error.message ? error.message : String(error));
@@ -100,7 +100,7 @@ export function scheduleCleanup(): void {
   // Schedule periodic cleanup for cache directory (6 hours)
   cacheInterval = setInterval(async () => {
     try {
-      await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000);
+    await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000);
     } catch (e) {
       const error = e as Error;
       await tlog('cleanup:interval:error', 'cache', error && error.message ? error.message : String(error));
@@ -110,8 +110,8 @@ export function scheduleCleanup(): void {
   // Initial cleanup after 1 minute (runs once)
   initialTimeout = setTimeout(async () => {
     try {
-      await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000);
-      await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000);
+    await cleanupOldFiles(DIRS.uploads, 24 * 60 * 60 * 1000);
+    await cleanupOldFiles(DIRS.cache, 6 * 60 * 60 * 1000);
     } catch (e) {
       const error = e as Error;
       await tlog('cleanup:initial:error', error && error.message ? error.message : String(error));
