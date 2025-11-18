@@ -1,6 +1,6 @@
 {
   "name": "sync-extensions",
-  "version": "0.9.50",
+  "version": "0.9.52",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -24,6 +24,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "electron": "39.2.1",
     "lucide-react": "^0.553.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -58,7 +59,7 @@
     "rollup": "^4.52.5",
     "sass": "^1.69.5",
     "typescript": "^5.2.2",
-    "vite": "^5.0.8",
+    "vite": "^7.2.2",
     "vite-cep-plugin": "^1.2.9"
   }
 }
