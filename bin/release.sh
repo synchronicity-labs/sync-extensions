@@ -56,6 +56,16 @@ ZXP_PATH="$REPO_DIR/dist/zxp/com.sync.extension.zxp"
 ZXPSIGN_CMD="$REPO_DIR/node_modules/vite-cep-plugin/lib/bin/ZXPSignCmd"
 
 echo ""
+echo "0. Checking for .debug file (should not be in production ZXP)"
+if unzip -l "$ZXP_PATH" 2>/dev/null | grep -q "\.debug"; then
+  echo "❌ WARNING: .debug file found in ZXP - this may cause issues!"
+  echo "   The extension may not appear correctly in ZXP Installer"
+  echo "   Consider rebuilding without debug mode"
+else
+  echo "✅ No .debug file found in ZXP"
+fi
+
+echo ""
 echo "1. File Existence Check"
 if [ ! -f "$ZXP_PATH" ]; then
   echo "❌ ZXP file not found: $ZXP_PATH"
@@ -574,17 +584,33 @@ echo "✅ Created DaVinci Resolve package: davinci-sync-extension-v${VERSION}.zi
 rm -rf "$TEMP_DIR"
 
 echo ""
-echo "Creating GitHub release and uploading files..."
-gh release create "v$VERSION" \
-  "$PREM_AE_ZIP" \
-  "$DAVINCI_ZIP" \
-  --title "Release v${VERSION}" \
-  --notes "$MESSAGE" \
-  2>&1 || {
-    echo "⚠️  Release creation failed or already exists"
-    echo "You may need to upload files manually:"
-    echo "  gh release upload v${VERSION} $PREM_AE_ZIP $DAVINCI_ZIP --clobber"
-  }
+echo "Creating or updating GitHub release..."
+
+# Check if release already exists
+if gh release view "v$VERSION" >/dev/null 2>&1; then
+  echo "Release v${VERSION} already exists, uploading new packages..."
+  gh release upload "v$VERSION" \
+    "$PREM_AE_ZIP" \
+    "$DAVINCI_ZIP" \
+    --clobber \
+    2>&1 || {
+      echo "❌ Failed to upload files to existing release"
+      exit 1
+    }
+  echo "✅ Updated existing release with new packages"
+else
+  echo "Creating new release v${VERSION}..."
+  gh release create "v$VERSION" \
+    "$PREM_AE_ZIP" \
+    "$DAVINCI_ZIP" \
+    --title "Release v${VERSION}" \
+    --notes "$MESSAGE" \
+    2>&1 || {
+      echo "❌ Failed to create release"
+      exit 1
+    }
+  echo "✅ Created new release"
+fi
 
 echo ""
 echo "============================================================"

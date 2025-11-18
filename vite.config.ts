@@ -635,6 +635,26 @@ export default defineConfig({
   plugins: [
     react(),
     cep(config),
+    // Remove .debug file from bundle after vite-cep-plugin adds it
+    // vite-cep-plugin creates .debug file unconditionally via emitFile - we remove it for production builds
+    {
+      name: 'remove-debug-file',
+      enforce: 'post',
+      generateBundle(options, bundle) {
+        if (isPackage || isProduction) {
+          // Find and remove .debug file from bundle before it's written to disk
+          const debugFileKey = Object.keys(bundle).find(key => {
+            const file = bundle[key];
+            return file.type === 'asset' && 
+                   (file.fileName === '.debug' || file.fileName?.endsWith('/.debug') || file.name === 'CEP Debug File');
+          });
+          if (debugFileKey) {
+            delete bundle[debugFileKey];
+            console.log('✓ Removed .debug file from bundle (prevented from being written)');
+          }
+        }
+      },
+    },
     {
       name: 'bolt-cep-fix-redirect',
       enforce: 'post',

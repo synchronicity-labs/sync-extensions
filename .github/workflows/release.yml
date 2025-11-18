@@ -21,25 +21,38 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
           
-      - name: Check if release files exist
+      - name: Check release status
+        id: release_check
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
+          # Check if release already exists and has the required files
+          # If release was created locally via release.sh, it will already have files
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            ASSETS=$(gh release view "v${VERSION}" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+            if echo "$ASSETS" | grep -q "premiere-ae-sync-extension-v${VERSION}.zip" && \
+               echo "$ASSETS" | grep -q "davinci-sync-extension-v${VERSION}.zip"; then
+              echo "✅ Release already has required packages (created locally)"
+              echo "skip_upload=true" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️  Release exists but missing packages"
+              echo "skip_upload=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Release doesn't exist yet"
+            echo "skip_upload=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check if packages exist in repo (they're gitignored, so usually won't exist)
           PREM_AE_ZIP="dist/premiere-ae-sync-extension-v${VERSION}.zip"
           DAVINCI_ZIP="dist/davinci-sync-extension-v${VERSION}.zip"
           
-          if [ ! -f "$PREM_AE_ZIP" ]; then
-            echo "Error: Premiere/AE ZIP file not found at $PREM_AE_ZIP"
-            echo "Please run ./bin/release.sh locally to build and sign packages first"
-            exit 1
+          if [ -f "$PREM_AE_ZIP" ] && [ -f "$DAVINCI_ZIP" ]; then
+            echo "✅ Found packages in repo"
+            echo "has_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Packages not in repo (expected - created locally by release.sh)"
+            echo "has_files=false" >> $GITHUB_OUTPUT
           fi
-          echo "✅ Premiere/AE ZIP file found"
-          
-          if [ ! -f "$DAVINCI_ZIP" ]; then
-            echo "Error: DaVinci Resolve ZIP file not found at $DAVINCI_ZIP"
-            echo "Please run ./bin/release.sh locally to build packages first"
-            exit 1
-          fi
-          echo "✅ DaVinci Resolve ZIP file found"
 
       - name: Get tag message
         id: tag_message
@@ -51,6 +64,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload to GitHub Release
+        if: steps.release_check.outputs.skip_upload != 'true' && steps.release_check.outputs.has_files == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
