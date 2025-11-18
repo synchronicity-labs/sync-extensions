@@ -372,16 +372,218 @@ git push origin HEAD || true
 git push origin "v$VERSION" || true
 
 echo ""
+echo "Creating release packages with installation instructions..."
+
+# Create temporary directories for packaging
+TEMP_DIR="$REPO_DIR/dist/.release-packages"
+rm -rf "$TEMP_DIR"
+mkdir -p "$TEMP_DIR"
+
+# Create Premiere/AE package
+echo "Creating Premiere/AE package..."
+PREM_AE_DIR="$TEMP_DIR/premiere-ae"
+mkdir -p "$PREM_AE_DIR"
+
+# Copy ZXP file
+cp "$REPO_DIR/dist/zxp/com.sync.extension.zxp" "$PREM_AE_DIR/"
+
+# Create installation instructions for Premiere/AE
+cat > "$PREM_AE_DIR/instructions.txt" << 'EOF'
+INSTALLATION INSTRUCTIONS FOR PREMIERE PRO & AFTER EFFECTS
+===========================================================
+
+Follow these simple steps to install the sync. extension for Adobe Premiere Pro and After Effects:
+
+STEP 1: INSTALL ZXP INSTALLER
+------------------------------
+If you don't already have it, download and install ZXP Installer:
+https://aescripts.com/learn/zxp-installer/
+
+This tool is required to install ZXP extension files.
+
+
+STEP 2: INSTALL THE EXTENSION
+------------------------------
+1. Open ZXP Installer
+
+2. Drag and drop the "com.sync.extension.zxp" file into ZXP Installer
+   OR
+   Click "File > Open" and select "com.sync.extension.zxp"
+
+3. The extension will be installed automatically
+
+
+STEP 3: RESTART ADOBE APPLICATIONS
+-----------------------------------
+1. Close Premiere Pro and/or After Effects completely
+
+2. Reopen the application(s)
+
+3. Find the extension in: Window > Extensions > sync.
+
+
+TROUBLESHOOTING:
+----------------
+- If the extension doesn't appear, ensure you're using Premiere Pro 2024+ or After Effects 2024+
+- Make sure you completely closed and reopened the Adobe application
+- Check that the extension appears in Window > Extensions menu
+- On macOS, you may need to allow the extension in System Preferences > Security & Privacy
+- Enable debugging in Adobe applications: Help > Enable Debugging (then check the console for errors)
+
+
+For more help, visit: https://sync.so
+EOF
+
+# Create Premiere/AE zip
+PREM_AE_ZIP="$REPO_DIR/dist/premiere-ae-sync-extension-v${VERSION}.zip"
+if [ -f "$PREM_AE_ZIP" ]; then
+  rm -f "$PREM_AE_ZIP"
+fi
+
+if [ "$(uname)" = "Darwin" ]; then
+  # macOS
+  cd "$PREM_AE_DIR"
+  zip -r "$PREM_AE_ZIP" . > /dev/null
+  cd "$REPO_DIR"
+else
+  # Windows/Linux
+  cd "$PREM_AE_DIR"
+  zip -r "$PREM_AE_ZIP" . > /dev/null 2>&1 || {
+    # Fallback for systems without zip command
+    if command -v powershell >/dev/null 2>&1; then
+      powershell -Command "Compress-Archive -Path * -DestinationPath '$PREM_AE_ZIP' -Force"
+    else
+      echo "Error: zip command not found. Please install zip utility."
+      exit 1
+    fi
+  }
+  cd "$REPO_DIR"
+fi
+
+echo "✅ Created Premiere/AE package: premiere-ae-sync-extension-v${VERSION}.zip"
+
+# Create DaVinci Resolve package
+echo "Creating DaVinci Resolve package..."
+DAVINCI_DIR="$TEMP_DIR/davinci"
+mkdir -p "$DAVINCI_DIR"
+
+# Extract the resolve zip to get the resolve folder
+RESOLVE_EXTRACT_DIR="$TEMP_DIR/resolve-extract"
+rm -rf "$RESOLVE_EXTRACT_DIR"
+mkdir -p "$RESOLVE_EXTRACT_DIR"
+unzip -q -o "$REPO_DIR/dist/sync-resolve-plugin-v${VERSION}.zip" -d "$RESOLVE_EXTRACT_DIR" || {
+  echo "Error: Failed to extract Resolve ZIP for repackaging"
+  exit 1
+}
+
+# Find the resolve folder (it might be named "resolve" or the root)
+if [ -d "$RESOLVE_EXTRACT_DIR/resolve" ]; then
+  RESOLVE_SOURCE="$RESOLVE_EXTRACT_DIR/resolve"
+else
+  # If no resolve folder, the contents are at the root
+  RESOLVE_SOURCE="$RESOLVE_EXTRACT_DIR"
+fi
+
+# Copy resolve folder as sync.resolve
+cp -r "$RESOLVE_SOURCE" "$DAVINCI_DIR/sync.resolve"
+
+# Create installation instructions for DaVinci
+cat > "$DAVINCI_DIR/instructions.txt" << 'EOF'
+INSTALLATION INSTRUCTIONS FOR DAVINCI RESOLVE PLUGIN
+=====================================================
+
+Follow these simple steps to install the sync. plugin for DaVinci Resolve:
+
+MACOS:
+------
+1. Extract this ZIP file (double-click it or right-click and choose "Extract")
+
+2. Open Finder and press Cmd+Shift+G (or go to Go > Go to Folder...)
+
+3. Copy and paste this path into the dialog:
+   /Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/
+
+4. Press Enter or click Go
+
+5. Copy the "sync.resolve" folder from the extracted ZIP into this folder
+
+6. Restart DaVinci Resolve
+
+7. Find the plugin in: Workspace > Workflow Integration > sync.
+
+
+WINDOWS:
+--------
+1. Extract this ZIP file (right-click and choose "Extract All...")
+
+2. Open File Explorer and navigate to:
+   C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\
+
+   Note: If you can't see ProgramData, it's hidden by default:
+   - In File Explorer, click View > Show > Hidden items
+   - Or type the path directly in the address bar
+
+3. Copy the "sync.resolve" folder from the extracted ZIP into this folder
+
+4. Restart DaVinci Resolve
+
+5. Find the plugin in: Workspace > Workflow Integration > sync.
+
+
+TROUBLESHOOTING:
+----------------
+- If the plugin doesn't appear, make sure you copied the entire "sync.resolve" folder
+- Ensure DaVinci Resolve is completely closed before copying files
+- You may need administrator/sudo permissions to copy to these system folders
+- After installation, restart DaVinci Resolve completely
+- On macOS, ensure the plugin is in /Library (system) not ~/Library (user)
+
+
+For more help, visit: https://sync.so
+EOF
+
+# Create DaVinci zip
+DAVINCI_ZIP="$REPO_DIR/dist/davinci-sync-extension-v${VERSION}.zip"
+if [ -f "$DAVINCI_ZIP" ]; then
+  rm -f "$DAVINCI_ZIP"
+fi
+
+if [ "$(uname)" = "Darwin" ]; then
+  # macOS
+  cd "$DAVINCI_DIR"
+  zip -r "$DAVINCI_ZIP" . > /dev/null
+  cd "$REPO_DIR"
+else
+  # Windows/Linux
+  cd "$DAVINCI_DIR"
+  zip -r "$DAVINCI_ZIP" . > /dev/null 2>&1 || {
+    # Fallback for systems without zip command
+    if command -v powershell >/dev/null 2>&1; then
+      powershell -Command "Compress-Archive -Path * -DestinationPath '$DAVINCI_ZIP' -Force"
+    else
+      echo "Error: zip command not found. Please install zip utility."
+      exit 1
+    fi
+  }
+  cd "$REPO_DIR"
+fi
+
+echo "✅ Created DaVinci Resolve package: davinci-sync-extension-v${VERSION}.zip"
+
+# Clean up temporary directory
+rm -rf "$TEMP_DIR"
+
+echo ""
 echo "Creating GitHub release and uploading files..."
 gh release create "v$VERSION" \
-  dist/zxp/com.sync.extension.zxp \
-  "dist/sync-resolve-plugin-v${VERSION}.zip" \
+  "$PREM_AE_ZIP" \
+  "$DAVINCI_ZIP" \
   --title "Release v${VERSION}" \
   --notes "$MESSAGE" \
   2>&1 || {
     echo "⚠️  Release creation failed or already exists"
     echo "You may need to upload files manually:"
-    echo "  gh release upload v${VERSION} dist/zxp/com.sync.extension.zxp dist/sync-resolve-plugin-v${VERSION}.zip --clobber"
+    echo "  gh release upload v${VERSION} $PREM_AE_ZIP $DAVINCI_ZIP --clobber"
   }
 
 echo ""
@@ -389,9 +591,9 @@ echo "============================================================"
 echo "✅ Release $VERSION completed!"
 echo ""
 echo "📦 Built packages:"
-ZXP_SIZE=$(du -h dist/zxp/com.sync.extension.zxp 2>/dev/null | cut -f1 || echo "~154MB")
-ZIP_SIZE=$(du -h "dist/sync-resolve-plugin-v${VERSION}.zip" 2>/dev/null | cut -f1 || echo "~448MB")
-echo "   - ZXP: dist/zxp/com.sync.extension.zxp ($ZXP_SIZE)"
-echo "   - ZIP: dist/sync-resolve-plugin-v${VERSION}.zip ($ZIP_SIZE)"
+PREM_AE_SIZE=$(du -h "$PREM_AE_ZIP" 2>/dev/null | cut -f1 || echo "~154MB")
+DAVINCI_SIZE=$(du -h "$DAVINCI_ZIP" 2>/dev/null | cut -f1 || echo "~448MB")
+echo "   - Premiere/AE: premiere-ae-sync-extension-v${VERSION}.zip ($PREM_AE_SIZE)"
+echo "   - DaVinci Resolve: davinci-sync-extension-v${VERSION}.zip ($DAVINCI_SIZE)"
 echo ""
 echo "🔗 View release: https://github.com/mhadifilms/sync-extensions/releases/tag/v${VERSION}"

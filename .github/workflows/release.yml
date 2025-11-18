@@ -24,22 +24,22 @@ jobs:
       - name: Check if release files exist
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          ZXP_PATH="dist/zxp/com.sync.extension.zxp"
-          ZIP_PATH="dist/sync-resolve-plugin-v${VERSION}.zip"
+          PREM_AE_ZIP="dist/premiere-ae-sync-extension-v${VERSION}.zip"
+          DAVINCI_ZIP="dist/davinci-sync-extension-v${VERSION}.zip"
           
-          if [ ! -f "$ZXP_PATH" ]; then
-            echo "Error: ZXP file not found at $ZXP_PATH"
+          if [ ! -f "$PREM_AE_ZIP" ]; then
+            echo "Error: Premiere/AE ZIP file not found at $PREM_AE_ZIP"
             echo "Please run ./bin/release.sh locally to build and sign packages first"
             exit 1
           fi
-          echo "✅ ZXP file found"
+          echo "✅ Premiere/AE ZIP file found"
           
-          if [ ! -f "$ZIP_PATH" ]; then
-            echo "Error: Resolve ZIP file not found at $ZIP_PATH"
+          if [ ! -f "$DAVINCI_ZIP" ]; then
+            echo "Error: DaVinci Resolve ZIP file not found at $DAVINCI_ZIP"
             echo "Please run ./bin/release.sh locally to build packages first"
             exit 1
           fi
-          echo "✅ Resolve ZIP file found"
+          echo "✅ DaVinci Resolve ZIP file found"
 
       - name: Get tag message
         id: tag_message
@@ -59,15 +59,19 @@ jobs:
             ${{ steps.tag_message.outputs.message }}
             
             **Downloads:**
-            - `com.sync.extension.zxp` - Unified extension for After Effects and Premiere Pro (works on Windows and macOS)
-            - `sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip` - DaVinci Resolve plugin
+            
+            After Effects & Premiere Pro: `premiere-ae-sync-extension-v${{ steps.version.outputs.version }}.zip`
+            
+            DaVinci Resolve: `davinci-sync-extension-v${{ steps.version.outputs.version }}.zip`
+            
+            Choose the appropriate package for your platform and application.
             
             **Security & Trust:**
             - ZXP package is digitally signed and verified (signed locally before upload)
             - Verify signature using ZXP Installer or ZXPSignCmd
           files: |
-            dist/zxp/com.sync.extension.zxp
-            dist/sync-resolve-plugin-v${{ steps.version.outputs.version }}.zip
+            dist/premiere-ae-sync-extension-v${{ steps.version.outputs.version }}.zip
+            dist/davinci-sync-extension-v${{ steps.version.outputs.version }}.zip
           draft: false
           prerelease: false
           generate_release_notes: true
