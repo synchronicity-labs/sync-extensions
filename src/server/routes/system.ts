@@ -26,33 +26,59 @@ function logCriticalError(...args) {
   const timestamp = new Date().toISOString();
   const message = `[${timestamp}] [CRITICAL ERROR] ` + args.map(a => String(a)).join(' ') + '\n';
   
+  let logged = false;
+  
   try {
     const errorLogPath = path.join(DIRS.logs, 'posthog-errors.log');
     fs.appendFileSync(errorLogPath, message);
+    logged = true;
   } catch (e) {
     // If that fails, try temp directory
     try {
       const tempLogPath = path.join(os.tmpdir(), 'posthog-errors.log');
       fs.appendFileSync(tempLogPath, message);
-    } catch (e2) {}
+      logged = true;
+    } catch (e2) {
+      // Fall through to console.error
+    }
   }
   
   if (isDebugEnabled()) {
     try {
       rotateLogIfNeeded(DEBUG_LOG);
       fs.appendFileSync(DEBUG_LOG, message);
-    } catch (e) {}
+      logged = true;
+    } catch (e) {
+      // Fall through to console.error
+    }
   }
   
   try {
     tlog(...args);
-  } catch (e) {}
+    logged = true;
+  } catch (e) {
+    // Fall through to console.error
+  }
   
+  // Always try console.error as last resort - this should never fail
   try {
-    if (process.stdout.isTTY !== false) {
       console.error(message.trim());
+    logged = true;
+  } catch (e) {
+    // If even console.error fails, we're in a very bad state
+    // Try to write to stderr directly as absolute last resort
+    try {
+      process.stderr.write(message);
+    } catch (_) {
+      // If this fails, we've truly lost all logging capability
     }
-  } catch (e) {}
+  }
+  
+  // If nothing logged successfully, at least we tried
+  if (!logged) {
+    // This is a very bad state - all logging failed
+    // We can't do anything more here without risking infinite loops
+  }
 }
 
 // Custom middleware to capture raw body for session-replay endpoint
@@ -500,7 +526,9 @@ router.post('/telemetry/session-replay', async (req, res) => {
       // Also try tlog for consistency
       try {
         tlog(`PostHog 400 error: ${data.substring(0, 200)}`);
-      } catch (e) {}
+      } catch (e) {
+        // If tlog fails, at least logCriticalError already logged to console.error
+      }
     }
     
     res.status(response.status).send(data);
@@ -512,7 +540,9 @@ router.post('/telemetry/session-replay', async (req, res) => {
     // Also try tlog for consistency
     try {
       tlog('Session replay proxy error:', error.message, error.stack);
-    } catch (_) {}
+    } catch (_) {
+      // If tlog fails, at least logCriticalError already logged to console.error
+    }
     
     res.status(500).json({ 
       ok: false, 
@@ -577,7 +607,7 @@ router.post('/update/apply', async (req, res) => {
     // Only exit if not spawned by UI (standalone mode)
     if (!isSpawnedByUI) {
       setTimeout(() => { 
-        try { tlog('update:post:exit'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} } 
+        try { tlog('update:post:exit'); } catch (_) {} 
         if (isDebugEnabled()) try { tlog('Exiting server after successful update - panel should reload to use new version'); } catch (_) {} 
         process.exit(0); 
       }, 2000); // Give time for response to be sent

@@ -106,7 +106,7 @@ export async function applyUpdate(isSpawnedByUI) {
     try { tlog(`Starting update process: ${current} -> ${latestVersion}`); } catch (_) {}
     try { tlog(`Platform: ${process.platform}, Architecture: ${process.arch}`); } catch (_) {}
   }
-  try { tlog('update:start', `${current} -> ${latestVersion}`, 'platform=', process.platform, 'arch=', process.arch); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:start', `${current} -> ${latestVersion}`, 'platform=', process.platform, 'arch=', process.arch); } catch (_) {}
   
   const tempDir = path.join(DIRS.updates, 'sync_extension_update_' + Date.now());
   try { fs.mkdirSync(tempDir, { recursive: true }); } catch (_) {}
@@ -117,34 +117,34 @@ export async function applyUpdate(isSpawnedByUI) {
   
   const zipBuffer = await zipResp.arrayBuffer();
   fs.writeFileSync(zipPath, Buffer.from(zipBuffer));
-  try { tlog('update:downloaded', zipPath, 'bytes=', String(zipBuffer && zipBuffer.byteLength || 0)); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:downloaded', zipPath, 'bytes=', String(zipBuffer && zipBuffer.byteLength || 0)); } catch (_) {}
   
   const isWindows = process.platform === 'win32';
   const isZxp = latest.is_zxp;
   
   if (isWindows) {
     const extractCmd = `Expand-Archive -Path "${zipPath}" -DestinationPath "${tempDir}" -Force`;
-    try { tlog('update:extract:win', extractCmd); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:extract:win', extractCmd); } catch (_) {}
     if (!isSpawnedByUI) try { tlog('Windows extract command:', extractCmd); } catch (_) {}
     try {
       await execPowerShell(extractCmd);
-      try { tlog('update:extract:win:ok'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+      try { tlog('update:extract:win:ok'); } catch (_) {}
       if (!isSpawnedByUI) try { tlog('PowerShell extraction completed'); } catch (_) {}
     } catch (e) {
-      try { tlog('update:extract:win:fail', e.message); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+      try { tlog('update:extract:win:fail', e.message); } catch (_) {}
       if (!isSpawnedByUI) try { tlog('PowerShell extraction failed:', e.message); } catch (_) {}
       throw new Error('Failed to extract zip/zxp with PowerShell: ' + e.message);
     }
   } else {
     const extractCmd = `cd "${tempDir}" && unzip -q "${zipPath}"`;
-    try { tlog('update:extract:unix', extractCmd); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:extract:unix', extractCmd); } catch (_) {}
     if (!isSpawnedByUI) try { tlog('Unix extract command:', extractCmd); } catch (_) {}
     try {
       await exec(extractCmd);
-      try { tlog('update:extract:unix:ok'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+      try { tlog('update:extract:unix:ok'); } catch (_) {}
       if (!isSpawnedByUI) try { tlog('Unix extraction completed'); } catch (_) {}
     } catch (e) {
-      try { tlog('update:extract:unix:fail', e.message); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+      try { tlog('update:extract:unix:fail', e.message); } catch (_) {}
       if (!isSpawnedByUI) try { tlog('Unix extraction failed:', e.message); } catch (_) {}
       throw new Error('Failed to extract zip/zxp with unzip: ' + e.message);
     }
@@ -156,7 +156,7 @@ export async function applyUpdate(isSpawnedByUI) {
   } catch (e) {
     throw new Error('Failed to read extracted directory: ' + e.message);
   }
-  try { tlog('update:extracted:items', JSON.stringify(allItems || [])); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:extracted:items', JSON.stringify(allItems || [])); } catch (_) {}
   if (!isSpawnedByUI) try { tlog('Extracted items:', allItems); } catch (_) {}
   
   const extractedDirs = allItems.filter(name => {
@@ -164,28 +164,28 @@ export async function applyUpdate(isSpawnedByUI) {
     try {
       return fs.statSync(fullPath).isDirectory();
     } catch (e) {
-      try { tlog('update:extracted:check:error', name, e.message); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+      try { tlog('update:extracted:check:error', name, e.message); } catch (_) {}
       if (!isSpawnedByUI) try { tlog('Error checking item:', name, e.message); } catch (_) {}
       return false;
     }
   });
   
-  try { tlog('update:extracted:dirs', JSON.stringify(extractedDirs || [])); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:extracted:dirs', JSON.stringify(extractedDirs || [])); } catch (_) {}
   if (!isSpawnedByUI) try { tlog('Extracted directories:', extractedDirs); } catch (_) {}
   
   let extractedDir;
   
   if (isZxp) {
     extractedDir = tempDir;
-    try { tlog('update:format:zxp'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:format:zxp'); } catch (_) {}
     if (!isSpawnedByUI) try { tlog('Using ZXP format - extension folders directly in temp dir'); } catch (_) {}
   } else if (extractedDirs.includes('sync-extensions')) {
     extractedDir = path.join(tempDir, 'sync-extensions');
-    try { tlog('update:format:zip:sync-extensions'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:format:zip:sync-extensions'); } catch (_) {}
     if (!isSpawnedByUI) try { tlog('Using sync-extensions directory from ZIP release asset'); } catch (_) {}
   } else if (extractedDirs.length > 0) {
     extractedDir = path.join(tempDir, extractedDirs[0]);
-    try { tlog('update:format:zipball', extractedDirs[0]); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:format:zipball', extractedDirs[0]); } catch (_) {}
     if (!isSpawnedByUI) try { tlog('Using GitHub zipball directory:', extractedDirs[0]); } catch (_) {}
   } else {
     const possibleDirs = allItems.filter(name => {
@@ -209,10 +209,10 @@ export async function applyUpdate(isSpawnedByUI) {
     }
     
     extractedDir = path.join(tempDir, possibleDirs[0]);
-    try { tlog('update:format:guess:chosen', possibleDirs[0]); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:format:guess:chosen', possibleDirs[0]); } catch (_) {}
     if (!isSpawnedByUI) try { tlog('Using fallback directory:', possibleDirs[0]); } catch (_) {}
   }
-  try { tlog('update:extracted:dir', extractedDir); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:extracted:dir', extractedDir); } catch (_) {}
   if (!isSpawnedByUI) try { tlog('Using extracted directory:', extractedDir); } catch (_) {}
   
   // Verify EXT_ROOT exists and is writable
@@ -233,10 +233,10 @@ export async function applyUpdate(isSpawnedByUI) {
     throw e;
   }
 
-  try { tlog('update:manual:copy:start', 'target=', EXT_ROOT); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:manual:copy:start', 'target=', EXT_ROOT); } catch (_) {}
   
   if (isZxp) {
-    try { tlog('update:copy:zxp:target', 'dest=', EXT_ROOT); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:copy:zxp:target', 'dest=', EXT_ROOT); } catch (_) {}
     let items;
     try {
       items = fs.readdirSync(extractedDir).filter(name => name !== 'META-INF' && name !== 'update.zip');
@@ -295,7 +295,7 @@ export async function applyUpdate(isSpawnedByUI) {
         if (!isSpawnedByUI) try { tlog(`Failed to copy ${name} after retries: ${lastError.message}`); } catch (_) {}
       }
     }
-    try { tlog('update:copy:zxp:ok', 'items=', String(items.length)); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+    try { tlog('update:copy:zxp:ok', 'items=', String(items.length)); } catch (_) {}
   } else {
     const aeSrcDir = path.join(extractedDir, 'extensions', 'ae-extension');
     const pproSrcDir = path.join(extractedDir, 'extensions', 'premiere-extension');
@@ -376,7 +376,7 @@ export async function applyUpdate(isSpawnedByUI) {
     }
   }
   
-  try { tlog('update:manual:copy:complete'); } catch (e) { try { tlog("silent catch:", e.message); } catch (_) {} }
+  try { tlog('update:manual:copy:complete'); } catch (_) {}
   
   // Verify key files were updated
   const manifestPath = path.join(EXT_ROOT, 'CSXS', 'manifest.xml');

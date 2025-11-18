@@ -66,7 +66,7 @@ router.get('/wav/file', async (req, res) => {
         if (wasTemp && real.indexOf(path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/copy')) === 0) {
           fs.unlink(real, () => { });
         }
-      } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+      } catch (_) {}
     });
   } catch (e) {
     const error = e as Error;
@@ -133,7 +133,7 @@ router.get('/mp3/file', async (req, res) => {
         if (wasTemp && real.indexOf(path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/copy')) === 0) {
           fs.unlink(real, () => { });
         }
-      } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+      } catch (_) {}
     });
   } catch (e) {
     const error = e as Error;
@@ -164,7 +164,7 @@ router.get('/waveform/file', async (req, res) => {
         if (wasTemp && real.indexOf(path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/copy')) === 0) {
           fs.unlink(real, () => { });
         }
-      } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+      } catch (_) {}
     });
   } catch (e) {
     const error = e as Error;
@@ -225,7 +225,7 @@ router.get('/video/file', async (req, res) => {
         if (wasTemp && real.indexOf(path.join(process.env.HOME || '', 'Library/Application Support/sync. extensions/copy')) === 0) {
           fs.unlink(real, () => { });
         }
-      } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+      } catch (_) {}
     });
   } catch (e) {
     const error = e as Error;

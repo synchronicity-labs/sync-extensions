@@ -1308,7 +1308,7 @@ const SourcesTab: React.FC = () => {
         const target = e.target as HTMLElement;
         
         // Debug: Log ALL clicks to see what's happening
-        console.log('[SourcesTab] Click handler called', {
+        debugLog('[SourcesTab] Click handler called', {
           targetTag: target.tagName,
           targetClass: target.className,
           targetId: target.id,
@@ -1894,8 +1894,8 @@ const SourcesTab: React.FC = () => {
                     const MEDIA_ERR_DECODE = error?.MEDIA_ERR_DECODE;
                     const MEDIA_ERR_SRC_NOT_SUPPORTED = error?.MEDIA_ERR_SRC_NOT_SUPPORTED;
                     
-                    // Log to console FIRST with full details
-                    console.error('[SourcesTab] Video onError - FULL DETAILS:', {
+                    // Log error with full details
+                    debugError('[SourcesTab] Video onError - FULL DETAILS:', {
                       error,
                       errorCode,
                       errorMessage,

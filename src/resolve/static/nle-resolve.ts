@@ -60,7 +60,10 @@ declare global {
           timestamp: new Date().toISOString(),
           hostConfig: { hostId: 'RESOLVE' }
         })
-      }).catch(() => {});
+      }).catch((fetchError) => {
+        // If fetch fails, at least we already logged to console above
+        // Don't log fetch errors to avoid infinite loops
+      });
     } catch (_) {}
   }
   
@@ -79,7 +82,10 @@ declare global {
           timestamp: new Date().toISOString(),
           hostConfig: { hostId: 'RESOLVE' }
         })
-      }).catch(() => {});
+      }).catch((fetchError) => {
+        // If fetch fails, at least we already logged to console above
+        // Don't log fetch errors to avoid infinite loops
+      });
     } catch (_) {}
   }
   

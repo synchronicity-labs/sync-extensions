@@ -59,7 +59,7 @@ import { safeStat, safeStatSync, safeExists, safeText, pipeToFile } from './util
 import { toReadableLocalPath, resolveSafeLocalPath, normalizePaths, normalizeOutputDir, guessMime } from './utils/paths';
 import { parseBundleVersion, normalizeVersion, compareSemver, getCurrentVersion } from './utils/serverVersion';
 import { exec, execPowerShell, runRobocopy } from './utils/exec';
-import { scheduleCleanup } from './services/cleanup';
+import { scheduleCleanup, stopCleanup } from './services/cleanup';
 import { r2Upload, r2Client } from './services/r2';
 import { extractAudioFromVideo } from './services/video';
 import { convertAudio } from './services/audio';
@@ -166,7 +166,6 @@ app.get('/health', (req, res) => {
 });
 
 let jobs = [];
-// jobCounter removed - using Sync API IDs directly
 const STATE_DIR = DIRS.state;
 if (!fs.existsSync(STATE_DIR)) {
   try {
@@ -281,7 +280,6 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 app.use((req, res, next) => {
   req.authToken = AUTH_TOKEN;
   req.jobs = jobs;
-  // req.jobCounter removed - using Sync API IDs directly
   req.saveJobs = saveJobs;
   next();
 });
@@ -650,6 +648,9 @@ async function startServer() {
       try { tlogSync(`${signal} received - shutting down gracefully...`); } catch (_) {}
       try { tlog(`${signal} received - shutting down`); } catch (_) {}
       
+      // Stop cleanup intervals
+      try { stopCleanup(); } catch (_) {}
+      
       if (serverInstance) {
         serverInstance.close(() => {
           try { tlogSync('Server closed'); } catch (_) {}
@@ -694,7 +695,10 @@ async function startServer() {
             await fetch(`http://${HOST}:${PORT}/admin/exit`, { 
               method:'POST',
               timeout: 2000
-            }).catch(()=>{});
+            }).catch((err) => {
+              // If shutdown request fails, that's ok - we'll try to start anyway
+              try { tlogSync(`Shutdown request failed (expected if server not running): ${err}`); } catch (_) {}
+            });
             
             // Wait for port to be released
           await new Promise(r2=>setTimeout(r2, 2000));

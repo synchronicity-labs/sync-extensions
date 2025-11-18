@@ -141,24 +141,3 @@ export function validateJobRequest(body: unknown): { isValid: boolean; errors: s
   };
 }
 
-/**
- * Validates file upload request
- */
-export function validateUploadRequest(body: unknown): { isValid: boolean; errors: string[] } {
-  const errors: string[] = [];
-
-  if (!body || typeof body !== 'object') {
-    return { isValid: false, errors: ['Request body is required'] };
-  }
-
-  const uploadBody = body as { path?: string };
-
-  const pathError = validateRequiredString(uploadBody.path, 'path');
-  if (pathError) errors.push(pathError);
-
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-}
-

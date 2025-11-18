@@ -7,6 +7,7 @@ import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
 import { getStorageItem, getSettings } from "../utils/storage";
 import { STORAGE_KEYS } from "../utils/constants";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface JobStatus {
   id: string;
@@ -150,7 +151,7 @@ export const useJobs = () => {
         body: JSON.stringify(body),
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await parseJsonResponse<any>(response);
       
       if (response.ok && data?.id) {
         const jobId = data.id;
@@ -185,9 +186,9 @@ export const useJobs = () => {
                 });
                 
                 if (checkResponse.ok) {
-                  const jobsData = await checkResponse.json().catch(() => null);
+                  const jobsData = await parseJsonResponse<any>(checkResponse);
                   const jobsArray = Array.isArray(jobsData) ? jobsData : [];
-                  const jobFound = jobsArray.some((j: any) => String(j.id) === String(jobId));
+                  const jobFound = jobsArray.some((j: any) => j?.id === jobId);
                   
                   if (jobFound) {
                     // Show toast notification
@@ -255,7 +256,7 @@ export const useJobs = () => {
         headers: authHeaders(),
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await parseJsonResponse<any>(response);
       if (response.ok && data?.ok) {
         setCurrentJob({
           id: jobId,

@@ -9,7 +9,7 @@ import { useTabs } from "../hooks/useTabs";
 import { useCore } from "../hooks/useCore";
 import { useHistory } from "../hooks/useHistory";
 import { HOST_IDS } from "../../../shared/host";
-import { formatTime } from "./formatTime";
+import { formatTime } from "./stringUtils";
 import { showToast } from "./toast";
 
 export const setupWindowGlobals = (

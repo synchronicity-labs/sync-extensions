@@ -3,6 +3,7 @@ import { getApiUrl } from "../utils/serverConfig";
 import { debugLog, debugError } from "../utils/debugLog";
 import { showToast, ToastMessages } from "../utils/toast";
 import { getSettings } from "../utils/storage";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 export const useRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -146,7 +147,7 @@ export const useRecording = () => {
             body: formData,
           });
 
-          const data = await response.json().catch(() => null);
+          const data = await parseJsonResponse<any>(response);
           if (response.ok && data?.ok && data?.path) {
             debugLog('[useRecording] Recording saved successfully', { path: data.path, type });
             
@@ -193,7 +194,7 @@ export const useRecording = () => {
                 return;
               }
               
-              const uploadData = await uploadResponse.json().catch(() => null);
+              const uploadData = await parseJsonResponse<any>(uploadResponse);
               if (uploadResponse.ok && uploadData?.ok && uploadData?.url) {
                 // Check again if upload was aborted before updating state
                 if (controller.signal.aborted) {

@@ -422,18 +422,17 @@ async function buildResolvePlugin() {
           }
           
           // Install server production dependencies with retry logic
+          // Note: dist/resolve/server is NOT a workspace, so we use npm install directly
+          // npm ci requires an exact package-lock.json match, which we don't have in standalone dir
           console.log('Installing server dependencies for Resolve...');
           let installSuccess = false;
           let retries = 2;
           
           while (!installSuccess && retries >= 0) {
             try {
-              // Use npm ci for faster installs (requires package-lock.json)
-              const hasLockFile = fs.existsSync(path.join(serverDest, 'package-lock.json'));
-              const installCmd = hasLockFile 
-                ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
-                : 'npm install --omit=dev --no-audit --no-fund --prefer-offline --silent';
-              execSync(installCmd, {
+              // Use npm install (not npm ci) since this is a standalone directory, not a workspace
+              // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
+              execSync('npm install --omit=dev --no-audit --no-fund --prefer-offline --silent --package-lock', {
                 cwd: serverDest,
                 stdio: 'inherit',
                 env: { ...process.env, npm_config_progress: 'false' },
@@ -476,12 +475,9 @@ async function buildResolvePlugin() {
       
       while (!installSuccess && retries >= 0) {
         try {
-          // Use npm ci for faster installs
-          const resolveLockFile = path.join(resolveDest, 'package-lock.json');
-          const hasLockFile = fs.existsSync(resolveLockFile);
-          const installCmd = hasLockFile 
-            ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
-            : 'npm install --omit=dev --no-audit --no-fund --prefer-offline --silent';
+          // Use npm install (not npm ci) since this is a standalone directory, not a workspace
+          // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
+          const installCmd = 'npm install --omit=dev --no-audit --no-fund --prefer-offline --silent --package-lock';
           execSync(installCmd, {
             cwd: resolveDest,
             stdio: 'inherit',
@@ -1114,27 +1110,19 @@ export default defineConfig({
               if (needsInstall) {
                 // Write updated package.json
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
-                // Ensure package-lock.json exists for npm ci
-                const packageLockPath = path.join(serverDest, 'package-lock.json');
-                if (!fs.existsSync(packageLockPath) && fs.existsSync(rootPackageLockPath)) {
-                  fs.copyFileSync(rootPackageLockPath, packageLockPath);
-                }
                 
                 // Install production dependencies with retry logic
+                // Note: dist/cep/server is NOT a workspace, so we use npm install directly
+                // npm ci requires an exact package-lock.json match, which we don't have in standalone dir
                 console.log('Installing server dependencies BEFORE ZXP packaging...');
                 let installSuccess = false;
                 let retries = 2;
                 
                 while (!installSuccess && retries >= 0) {
                   try {
-                    // Use npm ci for faster, more reliable installs (requires package-lock.json)
-                    // Fall back to npm install if package-lock.json doesn't exist
-                    const hasLockFile = fs.existsSync(path.join(serverDest, 'package-lock.json'));
-                    const installCmd = hasLockFile 
-                      ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
-                      : 'npm install --production --no-audit --no-fund --prefer-offline --silent';
-                    
-                    execSync(installCmd, {
+                    // Use npm install (not npm ci) since this is a standalone directory, not a workspace
+                    // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
+                    execSync('npm install --omit=dev --no-audit --no-fund --prefer-offline --silent --package-lock', {
                       cwd: serverDest,
                       stdio: 'inherit',
                       env: { ...process.env, npm_config_progress: 'false' },
@@ -1175,11 +1163,9 @@ export default defineConfig({
                   console.warn('WARNING: node_modules not found even though install was skipped');
                   console.warn('This might indicate the folder was deleted. Reinstalling...');
                   // Force reinstall
-                  // Use npm ci for faster installs
-                  const hasLockFile = fs.existsSync(path.join(serverDest, 'package-lock.json'));
-                  const installCmd = hasLockFile 
-                    ? 'npm ci --omit=dev --no-audit --no-fund --prefer-offline --silent'
-                    : 'npm install --production --no-audit --no-fund --prefer-offline --silent';
+                  // Use npm install (not npm ci) since this is a standalone directory, not a workspace
+                  // npm ci would require a matching package-lock.json, but workspaces don't have individual lock files
+                  const installCmd = 'npm install --production --no-audit --no-fund --prefer-offline --silent --package-lock';
                   execSync(installCmd, {
                     cwd: serverDest,
                     stdio: 'inherit',

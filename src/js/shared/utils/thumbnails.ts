@@ -544,7 +544,7 @@ export async function generateThumbnailsForJobs(jobs: any[]): Promise<void> {
   // Process only COMPLETED jobs from Sync API (all jobs in history are from Sync API)
   // The Sync API returns "COMPLETED" (uppercase)
   const completedJobs = jobsWithVideo.filter(j => {
-    return j.status === 'COMPLETED';
+    return String(j.status || '').toLowerCase() === 'completed';
   });
   
   // Only process completed jobs from Sync API

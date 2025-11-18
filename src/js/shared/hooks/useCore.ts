@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useNLE } from "./useNLE";
 import { getApiUrl } from "../utils/serverConfig";
 import { getSettings } from "../utils/storage";
+import { parseJsonResponse } from "../utils/fetchUtils";
 
 interface AuthState {
   token: string;
@@ -69,7 +70,9 @@ export const useCore = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(logData),
-        }).catch(() => {});
+        }).catch((fetchError) => {
+          // If fetch fails, at least we tried - don't log to avoid infinite loops
+        });
       }
     } catch (_) {}
   }, []);
@@ -172,7 +175,7 @@ export const useCore = () => {
         },
         5000
       );
-      const j = await r.json().catch(() => null);
+      const j = await parseJsonResponse<any>(r);
       if (r.ok && j && j.token) {
         setAuthState({ token: j.token, isAuthenticated: true });
         return j.token;

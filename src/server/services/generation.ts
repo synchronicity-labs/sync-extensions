@@ -66,7 +66,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit) {
     if (overLimit) {
       const videoUrl = await r2Upload(await resolveSafeLocalPath(job.videoPath));
       const audioUrl = await r2Upload(await resolveSafeLocalPath(job.audioPath));
-      try { if (job.isTempVideo && job.videoPath && await safeExists(job.videoPath)) { await fs.promises.unlink(job.videoPath); job.videoPath = ''; } } catch (e) { await tlog("silent catch:", e.message); }
+      try { if (job.isTempVideo && job.videoPath && await safeExists(job.videoPath)) { await fs.promises.unlink(job.videoPath); job.videoPath = ''; } } catch (_) {}
       try { if (job.isTempAudio && job.audioPath && await safeExists(job.audioPath)) { await fs.promises.unlink(job.audioPath); job.audioPath = ''; } } catch (_) {}
       const body = {
         model: job.model,
@@ -90,7 +90,7 @@ async function createGenerationInternal(job, vStat, aStat, overLimit) {
   
   const videoUrl = await r2Upload(await resolveSafeLocalPath(job.videoPath));
   const audioUrl = await r2Upload(await resolveSafeLocalPath(job.audioPath));
-  try { if (job.isTempVideo && job.videoPath && await safeExists(job.videoPath)) { await fs.promises.unlink(job.videoPath); job.videoPath = ''; } } catch (e) { await tlog("silent catch:", e.message); }
+  try { if (job.isTempVideo && job.videoPath && await safeExists(job.videoPath)) { await fs.promises.unlink(job.videoPath); job.videoPath = ''; } } catch (_) {}
   try { if (job.isTempAudio && job.audioPath && await safeExists(job.audioPath)) { await fs.promises.unlink(job.audioPath); job.audioPath = ''; } } catch (_) {}
   const body = {
     model: job.model,

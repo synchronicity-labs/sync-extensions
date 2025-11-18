@@ -55,13 +55,13 @@ export function execPowerShell(command: string, options: { cwd?: string } = {}):
 
 export async function runRobocopy(src: string, dest: string, filePattern?: string): Promise<void> {
   if (process.platform !== 'win32') { throw new Error('runRobocopy is Windows-only'); }
-  try { if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true }); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+  try { if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true }); } catch (_) {}
   const args = [`"${src}"`, `"${dest}"`];
   if (filePattern) args.push(`"${filePattern}"`);
   const baseCmd = `robocopy ${args.join(' ')} /E /NFL /NDL /NJH /NJS`;
   const psCmd = `$ErrorActionPreference='Stop'; ${baseCmd}; if ($LASTEXITCODE -lt 8) { exit 0 } else { exit $LASTEXITCODE }`;
-  try { tlog('robocopy start', baseCmd); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+  try { tlog('robocopy start', baseCmd); } catch (_) {}
   await execPowerShell(psCmd);
-  try { tlog('robocopy ok', baseCmd); } catch (e) { try { tlog("silent catch:", (e as Error).message); } catch (_) { } }
+  try { tlog('robocopy ok', baseCmd); } catch (_) {}
 }
 
