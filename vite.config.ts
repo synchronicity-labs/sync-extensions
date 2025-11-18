@@ -20,15 +20,19 @@ const root = path.resolve(src, "js");
 const devDist = "dist";
 const cepDist = "cep";
 const resolveDist = "resolve";
+const fcpxDist = "fcpx";
 const sharedDist = "shared"; // Shared UI build output
 const outDir = path.resolve(__dirname, devDist, cepDist);
 const sharedOutDir = path.resolve(__dirname, devDist, sharedDist);
 const resolveOutDir = path.resolve(__dirname, devDist, resolveDist);
+const fcpxOutDir = path.resolve(__dirname, devDist, fcpxDist);
 
 const isProduction = process.env.NODE_ENV === "production";
 const isPackage = process.env.ZXP_PACKAGE === "true";
 const isResolveBuild = process.env.RESOLVE_BUILD === "true";
 const isResolvePackage = process.env.RESOLVE_PACKAGE === "true";
+const isFCPXBuild = process.env.FCPX_BUILD === "true";
+const isFCPXPackage = process.env.FCPX_PACKAGE === "true";
 const action = process.env.BOLT_ACTION;
 
 let input = {};
@@ -48,6 +52,159 @@ const config = {
 };
 
 if (action) runAction(config, action);
+
+// Build FCPX plugin (file copying and compilation)
+async function buildFCPXPlugin() {
+  const fcpxSrc = path.join(__dirname, 'src', 'fcpx');
+  const fcpxDest = fcpxOutDir;
+  
+  // Compile TypeScript files to JavaScript using esbuild
+  const tsFiles = [
+    { src: 'backend.ts', dest: 'backend.js' },
+    { src: 'preload.ts', dest: 'preload.js' },
+    { src: 'static/host-detection.fcpx.ts', dest: 'static/host-detection.fcpx.js' },
+    { src: 'static/nle-fcpx.ts', dest: 'static/nle-fcpx.js' },
+    { src: 'static/fcpx_api.ts', dest: 'static/fcpx_api.js' }
+  ];
+  
+  if (tsFiles.length > 0) {
+    console.log(`\n🔨 Building FCPX plugin TypeScript files...`);
+    try {
+      const esbuildModule = await import('esbuild');
+      const esbuild = esbuildModule.default || esbuildModule;
+      
+      for (const { src, dest } of tsFiles) {
+        const srcFile = path.join(fcpxSrc, src);
+        const destFile = path.join(fcpxDest, dest);
+        if (fs.existsSync(srcFile)) {
+          try {
+            fs.mkdirSync(path.dirname(destFile), { recursive: true });
+            if (fs.existsSync(destFile)) {
+              fs.unlinkSync(destFile);
+            }
+            esbuild.buildSync({
+              entryPoints: [srcFile],
+              bundle: false,
+              platform: (src.includes('preload') || src.includes('backend')) ? 'node' : 'browser',
+              target: 'es2020',
+              format: 'cjs',
+              outfile: destFile,
+            });
+            
+            if (!fs.existsSync(destFile)) {
+              throw new Error(`Compilation succeeded but output file not found: ${destFile}`);
+            }
+            
+            console.log(`✓ Compiled ${src} to ${dest} (${fs.statSync(destFile).size} bytes)`);
+          } catch (error: any) {
+            console.error(`❌ Failed to compile ${src}:`, error?.message || error);
+            throw new Error(`Failed to compile ${src} to ${dest}: ${error?.message || error}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ CRITICAL: esbuild compilation failed:', error?.message || error);
+      throw new Error(`Failed to compile FCPX plugin TypeScript files: ${error?.message || error}`);
+    }
+  }
+  
+  // Copy FCPX-specific files
+  const filesToCopy = ['package.json', 'Info.plist'];
+  filesToCopy.forEach(file => {
+    const srcFile = path.join(fcpxSrc, file);
+    const destFile = path.join(fcpxDest, file);
+    if (fs.existsSync(srcFile)) {
+      fs.mkdirSync(path.dirname(destFile), { recursive: true });
+      fs.copyFileSync(srcFile, destFile);
+      console.log(`Copied ${file} to ${destFile}`);
+    }
+  });
+  
+  // Copy UI from CEP build (same as Resolve)
+  const cepMainDir = path.join(outDir, 'main');
+  const cepAssetsDir = path.join(outDir, 'assets');
+  const fcpxStaticDir = path.join(fcpxDest, 'static');
+  const sharedMainDir = path.join(sharedOutDir, 'main');
+  const sharedAssetsDir = path.join(sharedOutDir, 'assets');
+  
+  let sourceMainDir = fs.existsSync(sharedMainDir) ? sharedMainDir : cepMainDir;
+  let sourceAssetsDir = fs.existsSync(sharedAssetsDir) ? sharedAssetsDir : cepAssetsDir;
+  
+  // Copy index.html
+  const fcpxHtml = path.join(fcpxStaticDir, 'index.html');
+  const sourceHtml = path.join(sourceMainDir, 'index.html');
+  if (fs.existsSync(sourceHtml)) {
+    fs.mkdirSync(path.dirname(fcpxHtml), { recursive: true });
+    let htmlContent = fs.readFileSync(sourceHtml, 'utf-8');
+    htmlContent = htmlContent.replace(/href=["']\.\.\/assets\//g, 'href="./assets/');
+    htmlContent = htmlContent.replace(/src=["']\.\.\/assets\//g, 'src="./assets/');
+    fs.writeFileSync(fcpxHtml, htmlContent, 'utf-8');
+    console.log(`✓ Copied UI index.html to ${fcpxHtml}`);
+  }
+  
+  // Copy assets
+  if (fs.existsSync(sourceAssetsDir)) {
+    const fcpxAssetsDir = path.join(fcpxStaticDir, 'assets');
+    if (fs.existsSync(fcpxAssetsDir)) {
+      fs.rmSync(fcpxAssetsDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(fcpxAssetsDir, { recursive: true });
+    fs.cpSync(sourceAssetsDir, fcpxAssetsDir, { recursive: true, force: true });
+    console.log(`✓ Copied UI assets to ${fcpxAssetsDir}`);
+  }
+  
+  // Copy js/lib and js/assets
+  const cepJsLib = path.join(outDir, 'js', 'lib');
+  const cepJsAssets = path.join(outDir, 'js', 'assets');
+  const fcpxJsDir = path.join(fcpxStaticDir, 'js');
+  
+  if (fs.existsSync(cepJsLib)) {
+    const fcpxJsLib = path.join(fcpxJsDir, 'lib');
+    fs.mkdirSync(fcpxJsLib, { recursive: true });
+    fs.cpSync(cepJsLib, fcpxJsLib, { recursive: true });
+    console.log(`✓ Copied js/lib to ${fcpxJsLib}`);
+  }
+  
+  if (fs.existsSync(cepJsAssets)) {
+    const fcpxJsAssets = path.join(fcpxJsDir, 'assets');
+    fs.mkdirSync(fcpxJsAssets, { recursive: true });
+    fs.cpSync(cepJsAssets, fcpxJsAssets, { recursive: true });
+    console.log(`✓ Copied js/assets to ${fcpxJsAssets}`);
+  }
+  
+  // Copy bin folder (for Node.js server)
+  const binSource = path.join(__dirname, 'bin');
+  const binDest = path.join(fcpxDest, 'static', 'bin');
+  if (fs.existsSync(binSource)) {
+    fs.mkdirSync(binDest, { recursive: true });
+    fs.cpSync(binSource, binDest, { recursive: true });
+    console.log(`✓ Copied bin folder to ${binDest}`);
+  }
+  
+  // Copy server folder
+  const serverSource = path.join(__dirname, 'src', 'server');
+  const serverDest = path.join(fcpxDest, 'static', 'server');
+  if (fs.existsSync(serverSource)) {
+    if (fs.existsSync(serverDest)) {
+      fs.rmSync(serverDest, { recursive: true, force: true });
+    }
+    fs.mkdirSync(serverDest, { recursive: true });
+    const items = fs.readdirSync(serverSource, { withFileTypes: true });
+    for (const item of items) {
+      if (item.name === 'node_modules') continue;
+      const srcPath = path.join(serverSource, item.name);
+      const destPath = path.join(serverDest, item.name);
+      if (item.isDirectory()) {
+        fs.cpSync(srcPath, destPath, { recursive: true, dereference: true });
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+    console.log(`✓ Copied server folder to ${serverDest}`);
+  }
+  
+  console.log('✓ FCPX plugin build complete');
+}
 
 // Build Resolve plugin (file copying and installation)
 let resolvePluginWatcher: any = null;
@@ -997,6 +1154,11 @@ export default defineConfig({
           } else {
             console.log('✓ Server node_modules verified (installed in buildStart, included in ZXP)');
           }
+        }
+        
+        // Build FCPX plugin if FCPX_BUILD is set
+        if (isFCPXBuild) {
+          await buildFCPXPlugin();
         }
         
         // Build Resolve plugin if RESOLVE_BUILD is set

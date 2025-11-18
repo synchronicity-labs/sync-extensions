@@ -29,7 +29,7 @@ export function detectAppId(): HostId {
       const err = error as Error;
       throw new Error(
         `Invalid HOST_APP environment variable: "${hostApp}". ` +
-        `Expected: PPRO, PREMIERE, AEFT, AE, AFTEREFFECTS, RESOLVE, or DAVINCI. ` +
+        `Expected: PPRO, PREMIERE, AEFT, AE, AFTEREFFECTS, RESOLVE, DAVINCI, FCPX, FINALCUT, or FCP. ` +
         `Error: ${err.message}`
       );
     }
@@ -40,7 +40,7 @@ export function detectAppId(): HostId {
   throw new Error(
     `Cannot determine host application (APP_ID). ` +
     `HOST_APP environment variable not set. ` +
-    `Set HOST_APP environment variable (PPRO, AEFT, or RESOLVE) when starting the server.`
+    `Set HOST_APP environment variable (PPRO, AEFT, RESOLVE, or FCPX) when starting the server.`
   );
 }
 

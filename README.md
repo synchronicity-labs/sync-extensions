@@ -1,6 +1,6 @@
 # sync. extensions
 
-Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with React, TypeScript, and Vite using the `bolt-cep` boilerplate.
+Extensions for After Effects, Premiere Pro, DaVinci Resolve, and Final Cut Pro. Built with React, TypeScript, and Vite using the `bolt-cep` boilerplate.
 
 ## Installation
 
@@ -21,6 +21,13 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 4. Restart DaVinci Resolve
 5. Find the plugin in **Workspace > Workflow Integration > sync.**
 
+### Final Cut Pro
+
+1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+2. Install the workflow extension (installation instructions TBD)
+3. Restart Final Cut Pro
+4. Find the extension in **Window > Extensions > sync.**
+
 ## Features
 
 - **Video and audio upload** - Upload files directly or use URLs
@@ -36,7 +43,8 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 - **After Effects** 2024 or later
 - **Premiere Pro** 2024 or later
 - **DaVinci Resolve** (all versions with Workflow Integration support)
-- Works on both **Windows** and **macOS**
+- **Final Cut Pro** (Workflow Extension support - macOS only)
+- Works on both **Windows** and **macOS** (FCPX macOS only)
 
 ## Documentation
 

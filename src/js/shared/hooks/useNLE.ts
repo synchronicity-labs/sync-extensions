@@ -46,6 +46,22 @@ export const useNLE = () => {
       return () => clearInterval(checkInterval);
     }
 
+    // Check if FCPX (window.nle already set by nle-fcpx.js)
+    if (hostConfig?.hostId === HOST_IDS.FCPX) {
+      if (window.nle) {
+        setNLE(window.nle);
+        return;
+      }
+      // Wait for nle-fcpx.js to load
+      const checkInterval = setInterval(() => {
+        if (window.nle) {
+          setNLE(window.nle);
+          clearInterval(checkInterval);
+        }
+      }, 100);
+      return () => clearInterval(checkInterval);
+    }
+
     // CEP hosts require CSInterface
     // But wait a bit for it to be available (it might load asynchronously)
     if (!window.CSInterface) {

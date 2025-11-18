@@ -31,14 +31,14 @@ interface Window {
   };
   debugLog?: (message: string, data?: unknown) => void;
   HOST_CONFIG?: {
-    hostId: "AEFT" | "PPRO" | "RESOLVE";
+    hostId: "AEFT" | "PPRO" | "RESOLVE" | "FCPX";
     hostName: string;
     isAE: boolean;
   };
   lucide?: {
     createIcons?: (options?: { root?: HTMLElement }) => void;
   };
-  __forceHostId?: "AEFT" | "PPRO" | "RESOLVE";
+  __forceHostId?: "AEFT" | "PPRO" | "RESOLVE" | "FCPX";
   nle?: {
     getHostId: () => string;
     loadHostScript: () => Promise<void>;
@@ -55,6 +55,11 @@ interface Window {
     showOpenDialog: (options: { properties?: string[]; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<{ canceled: boolean; filePaths: string[] }>;
     getApiKey: () => Promise<string>;
     setApiKey: (key: string) => Promise<boolean>;
+  };
+  fcpxAPI?: {
+    showOpenDialog: (options: { properties?: string[]; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<{ canceled: boolean; filePaths: string[] }>;
+    getApiKey: () => Promise<string>;
+    setApiKey: (key: string) => Promise<void>;
   };
   evalExtendScript?: (fn: string, payload?: unknown) => Promise<unknown>;
   generateThumbnailsForJobs?: (jobs: Array<Record<string, unknown>>) => Promise<void>;

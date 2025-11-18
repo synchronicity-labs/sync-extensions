@@ -153,6 +153,32 @@ export function detectHost(): HostConfig | null {
       }
     }
 
+    // Method 3.5: Check for FCPX (explicit FCPX markers or web view context)
+    if (typeof window !== "undefined") {
+      // Check if already set by FCPX host detection script
+      if (window.HOST_CONFIG && window.HOST_CONFIG.hostId === HOST_IDS.FCPX) {
+        return window.HOST_CONFIG;
+      }
+      
+      // Check for FCPX web view context (FCPX extensions run in web view)
+      // FCPX extensions don't have CSInterface or Electron, but may have FCPX-specific APIs
+      if (!window.CSInterface && !window.__adobe_cep__ && typeof process === "undefined") {
+        // Check if we're in a web view context that might be FCPX
+        // This is a heuristic - actual detection should be done by host-detection.fcpx.ts
+        // But we can check for FCPX-specific markers if they exist
+        const userAgent = navigator.userAgent || "";
+        if (userAgent.includes("Final Cut Pro") || userAgent.includes("FCPX")) {
+          const config: HostConfig = {
+            hostId: HOST_IDS.FCPX,
+            hostName: HOST_NAMES.FCPX,
+            isAE: false,
+          };
+          window.HOST_CONFIG = config;
+          return config;
+        }
+      }
+    }
+
     // Method 4: Check URL (fallback for development)
     if (typeof window !== "undefined" && window.location) {
       const url = window.location.href || "";
@@ -178,6 +204,15 @@ export function detectHost(): HostConfig | null {
         const config: HostConfig = {
           hostId: HOST_IDS.RESOLVE,
           hostName: HOST_NAMES.RESOLVE,
+          isAE: false,
+        };
+        window.HOST_CONFIG = config;
+        return config;
+      }
+      if (url.includes("fcpx") || url.includes("finalcut") || url.includes("final-cut")) {
+        const config: HostConfig = {
+          hostId: HOST_IDS.FCPX,
+          hostName: HOST_NAMES.FCPX,
           isAE: false,
         };
         window.HOST_CONFIG = config;
@@ -220,7 +255,7 @@ export function getHostConfig(): HostConfig | null {
 export function getHostId(): string {
   const config = getHostConfig();
   if (!config) {
-    throw new Error("Cannot determine host application (AEFT, PPRO, or RESOLVE) - all detection methods failed");
+    throw new Error("Cannot determine host application (AEFT, PPRO, RESOLVE, or FCPX) - all detection methods failed");
   }
   return config.hostId;
 }

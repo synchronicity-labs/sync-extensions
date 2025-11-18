@@ -1,0 +1,15 @@
+{
+  "name": "sync-fcpx",
+  "version": "0.1.0",
+  "main": "backend.js",
+  "scripts": {
+    "start": "node backend.js",
+    "dev": "tsx backend.ts"
+  },
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
+

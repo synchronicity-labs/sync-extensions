@@ -16,6 +16,7 @@ export const HOST_IDS = {
   AEFT: "AEFT",
   PPRO: "PPRO",
   RESOLVE: "RESOLVE",
+  FCPX: "FCPX",
 } as const;
 
 export type HostId = typeof HOST_IDS[keyof typeof HOST_IDS];
@@ -25,6 +26,7 @@ export const HOST_NAMES = {
   AEFT: "After Effects",
   PPRO: "Premiere Pro",
   RESOLVE: "DaVinci Resolve",
+  FCPX: "Final Cut Pro",
 } as const;
 
 // Host metadata
@@ -49,7 +51,8 @@ export function isKnownHostId(value: string): value is HostId {
   return (
     upper === HOST_IDS.AEFT ||
     upper === HOST_IDS.PPRO ||
-    upper === HOST_IDS.RESOLVE
+    upper === HOST_IDS.RESOLVE ||
+    upper === HOST_IDS.FCPX
   );
 }
 
@@ -66,6 +69,9 @@ export function normalizeToHostId(value: string): HostId {
   }
   if (upper === HOST_IDS.RESOLVE || upper === "RESOLVE" || upper === "DAVINCI" || upper === "DAVINCIRESOLVE") {
     return HOST_IDS.RESOLVE;
+  }
+  if (upper === HOST_IDS.FCPX || upper === "FCPX" || upper === "FINALCUT" || upper === "FINALCUTPRO" || upper === "FCP") {
+    return HOST_IDS.FCPX;
   }
   throw new Error(`Cannot normalize host identifier: ${value}`);
 }
