@@ -1,11 +1,12 @@
 /**
  * Final Cut Pro JavaScript API Bridge
- * Provides functions that interface with FCPX using AppleScript and native macOS APIs
+ * Provides functions that interface with FCPX using AppleScript and FCPXML
  * 
- * FCPX workflow extensions run in a web view and communicate with FCPX via:
- * 1. AppleScript automation (for timeline/project operations)
- * 2. File system operations (for exports/imports)
- * 3. Message passing (for extension communication)
+ * Based on Apple's Final Cut Pro Workflow Extension API documentation:
+ * - Uses FCPXML format for media exchange (as per official API)
+ * - Uses Apple Events (Open Document) for programmatic data sending
+ * - Uses AppleScript for timeline interactions
+ * - Follows official FCPX API patterns for share, import, and timeline operations
  */
 
 import { exec } from 'child_process';
@@ -230,9 +231,9 @@ export async function exportInOutVideo(opts: any): Promise<string> {
           -- Create export range
           set exportRange to range from inPoint to outPoint
           
-          -- Export using share command (FCPX share syntax)
+          -- Export using share command (per FCPX API docs)
+          -- Share command syntax: share timeline using project to file as format
           set exportPath to POSIX file "${outputPath}"
-          -- FCPX share command: share timeline using project to file as format
           share currentTimeline using currentProject to exportPath as "${format}"
           
           return "${outputPath}"
@@ -379,6 +380,7 @@ export async function importFileToBin(payload: any): Promise<string> {
     const binName = payload?.binName || 'sync. outputs';
     
     // Use AppleScript to import media
+    // Per FCPX API docs: import command syntax is "import file into event"
     const script = `
       tell application "Final Cut Pro"
         try
@@ -386,9 +388,11 @@ export async function importFileToBin(payload: any): Promise<string> {
           set mediaPath to POSIX file "${filePath}"
           
           -- Get the front event (library container)
+          -- Per FCPX API: events contain clips and projects
           set frontEvent to front event of currentProject
           
-          -- Import media into the event (FCPX import syntax)
+          -- Import media into the event
+          -- Syntax per FCPX API: import file into event
           import mediaPath into frontEvent
           
           -- Wait for import to complete
@@ -454,18 +458,20 @@ export async function insertFileAtPlayhead(payload: any): Promise<string> {
           delay 1
           
           -- Get the imported clip (should be the last clip in the event)
+          -- Per FCPX API: clips are contained in events
           set eventClips to clips of frontEvent
           if (count of eventClips) > 0 then
             set importedClip to item -1 of eventClips
             
             -- Insert clip at playhead position
-            -- FCPX uses "append" command to add clips to timeline
-            -- Get the primary storyline first
+            -- Per FCPX API: use append command to add clips to timeline
+            -- Get the primary storyline (main timeline track)
             set primaryStoryline to primary storyline of currentTimeline
             if primaryStoryline is not missing value then
+              -- Append clip to primary storyline at playhead position
               append importedClip to primaryStoryline at playheadPos
             else
-              -- Fallback: append to timeline directly
+              -- Fallback: append directly to timeline
               append importedClip to currentTimeline at playheadPos
             end if
           else

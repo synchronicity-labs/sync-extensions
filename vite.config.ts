@@ -85,7 +85,7 @@ async function buildFCPXPlugin() {
               bundle: false,
               platform: (src.includes('preload') || src.includes('backend')) ? 'node' : 'browser',
               target: 'es2020',
-              format: 'cjs',
+              format: src.includes('backend') ? 'esm' : 'cjs', // Use ESM for backend to support import.meta.url
               outfile: destFile,
             });
             
@@ -202,6 +202,16 @@ async function buildFCPXPlugin() {
   }
   
   console.log('✓ FCPX plugin build complete');
+  
+  // Copy backend.js to xcode directory for Xcode project
+  const xcodeDir = path.join(__dirname, 'src', 'fcpx', 'xcode');
+  if (fs.existsSync(xcodeDir)) {
+    const xcodeBackend = path.join(xcodeDir, 'backend.js');
+    if (fs.existsSync(path.join(fcpxDest, 'backend.js'))) {
+      fs.copyFileSync(path.join(fcpxDest, 'backend.js'), xcodeBackend);
+      console.log('✓ Copied backend.js to xcode directory');
+    }
+  }
 }
 
 let resolvePluginWatcher: any = null;

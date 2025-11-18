@@ -79,3 +79,6 @@ vite.config.ts.timestamp-*
 .vite/
 
 # Compiled server files are in dist/, not src/ - no need to ignore src/
+
+# FCPX Xcode project build artifacts (copied from dist/fcpx)
+src/fcpx/xcode/sync-fcpx-extension/Resources/static/

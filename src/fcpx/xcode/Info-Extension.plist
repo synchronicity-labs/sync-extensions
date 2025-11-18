@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>sync.</string>
+    <key>CFBundleExecutable</key>
+    <string>sync-fcpx-extension</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.sync.extension.fcpx</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>sync-fcpx-extension</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.FinalCutPro.WorkflowExtension</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).ExtensionViewController</string>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>ContentViewMinimumWidth</key>
+            <integer>480</integer>
+            <key>ContentViewMinimumHeight</key>
+            <integer>700</integer>
+        </dict>
+    </dict>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+</dict>
+</plist>
+

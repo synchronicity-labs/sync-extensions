@@ -7,14 +7,12 @@ import * as path from 'path';
 import * as os from 'os';
 import * as http from 'http';
 import { spawn, ChildProcess, exec } from 'child_process';
-import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-// Create require function for dynamic module loading
-const require = createRequire(import.meta.url);
-
-// Get __dirname equivalent
-declare const __dirname: string;
-declare const __filename: string;
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const pluginDir = __dirname;
 
@@ -97,28 +95,18 @@ async function loadFCPXAPI(): Promise<void> {
   if (fcpxAPI) return;
   
   try {
-    // Try to load the compiled JavaScript module
+    // Use dynamic import for ES modules
     const apiPath = path.join(pluginDir, 'static', 'fcpx_api.js');
-    if (fs.existsSync(apiPath)) {
-      // Clear require cache to allow hot reloading
-      delete require.cache[require.resolve(apiPath)];
-      fcpxAPI = require(apiPath);
-      debugLog('FCPX API module loaded', { path: apiPath });
-    } else {
-      debugLog('FCPX API module not found, using fallback', { path: apiPath });
-      // Fallback: use direct implementation
-      fcpxAPI = await import('./static/fcpx_api.js');
-    }
+    const apiUrl = path.isAbsolute(apiPath) 
+      ? `file://${apiPath}` 
+      : `file://${path.resolve(pluginDir, 'static', 'fcpx_api.js')}`;
+    
+    fcpxAPI = await import(apiUrl);
+    debugLog('FCPX API module loaded', { path: apiPath });
   } catch (error) {
     const err = error as Error;
     debugLog('Error loading FCPX API module', { error: err.message });
-    // Fallback to direct import
-    try {
-      fcpxAPI = await import('./static/fcpx_api.js');
-    } catch (importError) {
-      debugLog('Failed to import FCPX API', { error: (importError as Error).message });
-      throw new Error(`Failed to load FCPX API: ${err.message}`);
-    }
+    throw new Error(`Failed to load FCPX API: ${err.message}`);
   }
 }
 

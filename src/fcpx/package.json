@@ -1,6 +1,7 @@
 {
   "name": "sync-fcpx",
   "version": "0.1.0",
+  "type": "module",
   "main": "backend.js",
   "scripts": {
     "start": "node backend.js",
