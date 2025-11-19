@@ -6,7 +6,74 @@ on:
       - "v*"
 
 jobs:
+  build_and_release:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Build UXP extension
+        run: npm run build:uxp
+        env:
+          NODE_ENV: production
+          UXP_PACKAGE: true
+
+      - name: Build Resolve plugin
+        run: npm run build:davinci
+        env:
+          NODE_ENV: production
+          RESOLVE_BUILD: true
+          RESOLVE_PACKAGE: true
+
+      - name: Package UXP extension
+        run: |
+          cd dist/uxp
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            powershell -Command "Compress-Archive -Path * -DestinationPath ../uxp-sync-extension-v${{ steps.version.outputs.version }}-windows.zip -Force"
+          else
+            zip -r ../uxp-sync-extension-v${{ steps.version.outputs.version }}-${{ runner.os }}.zip .
+          fi
+
+      - name: Package Resolve plugin
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            powershell -Command "Compress-Archive -Path resolve -DestinationPath davinci-sync-extension-v${{ steps.version.outputs.version }}-windows.zip -Force"
+          else
+            zip -r davinci-sync-extension-v${{ steps.version.outputs.version }}-${{ runner.os }}.zip resolve
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ runner.os }}
+          path: |
+            dist/*.zip
+          retention-days: 30
+
   upload_release:
+    needs: build_and_release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,40 +86,11 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-          
-      - name: Check release status
-        id: release_check
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          # Check if release already exists and has the required files
-          # If release was created locally via release.sh, it will already have files
-          if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            ASSETS=$(gh release view "v${VERSION}" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
-            if echo "$ASSETS" | grep -q "premiere-ae-sync-extension-v${VERSION}.zip" && \
-               echo "$ASSETS" | grep -q "davinci-sync-extension-v${VERSION}.zip"; then
-              echo "✅ Release already has required packages (created locally)"
-              echo "skip_upload=true" >> $GITHUB_OUTPUT
-            else
-              echo "⚠️  Release exists but missing packages"
-              echo "skip_upload=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "Release doesn't exist yet"
-            echo "skip_upload=false" >> $GITHUB_OUTPUT
-          fi
-          
-          # Check if packages exist in repo (they're gitignored, so usually won't exist)
-          PREM_AE_ZIP="dist/premiere-ae-sync-extension-v${VERSION}.zip"
-          DAVINCI_ZIP="dist/davinci-sync-extension-v${VERSION}.zip"
-          
-          if [ -f "$PREM_AE_ZIP" ] && [ -f "$DAVINCI_ZIP" ]; then
-            echo "✅ Found packages in repo"
-            echo "has_files=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️  Packages not in repo (expected - created locally by release.sh)"
-            echo "has_files=false" >> $GITHUB_OUTPUT
-          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Get tag message
         id: tag_message
@@ -63,8 +101,7 @@ jobs:
           echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Upload to GitHub Release
-        if: steps.release_check.outputs.skip_upload != 'true' && steps.release_check.outputs.has_files == 'true'
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -74,19 +111,24 @@ jobs:
             
             **Downloads:**
             
-            After Effects & Premiere Pro: `premiere-ae-sync-extension-v${{ steps.version.outputs.version }}.zip`
+            **UXP Extension (After Effects & Premiere Pro):**
+            - macOS: `uxp-sync-extension-v${{ steps.version.outputs.version }}-macos.zip`
+            - Windows: `uxp-sync-extension-v${{ steps.version.outputs.version }}-windows.zip`
+            - Linux: `uxp-sync-extension-v${{ steps.version.outputs.version }}-ubuntu-latest.zip`
             
-            DaVinci Resolve: `davinci-sync-extension-v${{ steps.version.outputs.version }}.zip`
+            **DaVinci Resolve Plugin:**
+            - macOS: `davinci-sync-extension-v${{ steps.version.outputs.version }}-macos.zip`
+            - Windows: `davinci-sync-extension-v${{ steps.version.outputs.version }}-windows.zip`
+            - Linux: `davinci-sync-extension-v${{ steps.version.outputs.version }}-ubuntu-latest.zip`
             
             Choose the appropriate package for your platform and application.
             
-            **Security & Trust:**
-            - ZXP package is digitally signed and verified (signed locally before upload)
-            - Verify signature using ZXP Installer or ZXPSignCmd
+            **Installation:**
+            - UXP Extension: Install via Adobe UXP Developer Tool or manually copy to UXP extensions folder
+            - Resolve Plugin: Extract and copy to Resolve Workflow Integration Plugins folder
           files: |
-            dist/premiere-ae-sync-extension-v${{ steps.version.outputs.version }}.zip
-            dist/davinci-sync-extension-v${{ steps.version.outputs.version }}.zip
+            artifacts/packages-*/uxp-sync-extension-*.zip
+            artifacts/packages-*/davinci-sync-extension-*.zip
           draft: false
           prerelease: false
           generate_release_notes: true
-

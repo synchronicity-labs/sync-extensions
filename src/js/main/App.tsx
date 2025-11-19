@@ -94,8 +94,8 @@ const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Initialize app
-    if (typeof window !== "undefined" && window.CSInterface) {
+    // Initialize app (UXP)
+    if (typeof window !== "undefined") {
       // Initialize PostHog interceptors before PostHog loads
       const initPostHogInterceptors = () => {
         try {
@@ -127,7 +127,7 @@ const AppContent: React.FC = () => {
       // Start offline checking
       startOfflineChecking();
       
-      // Load host script
+      // Load host script (UXP host scripts are loaded automatically)
       if (nle) {
         nle.loadHostScript();
       }

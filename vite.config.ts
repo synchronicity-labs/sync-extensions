@@ -1,51 +1,32 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { cep, runAction } from "vite-cep-plugin";
 import path from "path";
 import fs from "fs";
-import os from "os";
 import { execSync } from "child_process";
-import { extendscriptConfig } from "./vite.es.config";
 import dotenv from "dotenv";
-import crypto from "crypto";
 
 dotenv.config({ path: path.resolve(process.cwd(), "src/server/.env") });
 
-import cepConfig from "./cep.config";
+import uxpConfig from "./uxp.config";
 
 const src = path.resolve(__dirname, "src");
 const root = path.resolve(src, "js");
 const devDist = "dist";
-const cepDist = "cep";
+const uxpDist = "uxp";
 const resolveDist = "resolve";
 const sharedDist = "shared";
-const outDir = path.resolve(__dirname, devDist, cepDist);
+const outDir = path.resolve(__dirname, devDist, uxpDist);
 const sharedOutDir = path.resolve(__dirname, devDist, sharedDist);
 const resolveOutDir = path.resolve(__dirname, devDist, resolveDist);
 
 const isProduction = process.env.NODE_ENV === "production";
-const isPackage = process.env.ZXP_PACKAGE === "true";
+const isPackage = process.env.UXP_PACKAGE === "true";
 const isResolveBuild = process.env.RESOLVE_BUILD === "true";
 const isResolvePackage = process.env.RESOLVE_PACKAGE === "true";
-const action = process.env.BOLT_ACTION;
 
-let input = {};
-cepConfig.panels.map((panel) => {
-  input[panel.name] = path.resolve(root, panel.mainPath);
-});
-
-const config = {
-  cepConfig,
-  isProduction,
-  isPackage,
-  dir: `${__dirname}/${devDist}`,
-  cepDist: cepDist,
-  zxpDir: `${__dirname}/${devDist}/zxp`,
-  zipDir: `${__dirname}/${devDist}/zip`,
-  packages: cepConfig.installModules || [],
+let input = {
+  main: path.resolve(root, uxpConfig.panel.mainPath),
 };
-
-if (action) runAction(config, action);
 
 let resolvePluginWatcher: any = null;
 
@@ -190,38 +171,38 @@ async function buildResolvePlugin() {
     }
   }
   
-  const cepMainDir = path.join(outDir, 'main');
-  const cepAssetsDir = path.join(outDir, 'assets');
+  const uxpMainDir = path.join(outDir, 'main');
+  const uxpAssetsDir = path.join(outDir, 'assets');
   const resolveStaticDir = path.join(resolveDest, 'static');
   const sharedMainDir = path.join(sharedOutDir, 'main');
   const sharedAssetsDir = path.join(sharedOutDir, 'assets');
   
-  let sourceMainDir = fs.existsSync(sharedMainDir) ? sharedMainDir : cepMainDir;
-  let sourceAssetsDir = fs.existsSync(sharedAssetsDir) ? sharedAssetsDir : cepAssetsDir;
+  let sourceMainDir = fs.existsSync(sharedMainDir) ? sharedMainDir : uxpMainDir;
+  let sourceAssetsDir = fs.existsSync(sharedAssetsDir) ? sharedAssetsDir : uxpAssetsDir;
   
-  if (!fs.existsSync(sourceMainDir) && !fs.existsSync(cepMainDir)) {
+  if (!fs.existsSync(sourceMainDir) && !fs.existsSync(uxpMainDir)) {
     if (isProduction) {
-      console.log('Waiting for CEP build to complete...');
+      console.log('Waiting for UXP build to complete...');
       const maxWait = 30000;
       const checkInterval = 500;
       let waited = 0;
-      while (waited < maxWait && !fs.existsSync(sourceMainDir) && !fs.existsSync(cepMainDir)) {
+      while (waited < maxWait && !fs.existsSync(sourceMainDir) && !fs.existsSync(uxpMainDir)) {
         await new Promise(resolve => setTimeout(resolve, checkInterval));
         waited += checkInterval;
       }
-      if (!fs.existsSync(sourceMainDir) && !fs.existsSync(cepMainDir)) {
-        throw new Error('CEP UI build not found after waiting. Run "npm run build:adobe" first to build the UI.');
+      if (!fs.existsSync(sourceMainDir) && !fs.existsSync(uxpMainDir)) {
+        throw new Error('UXP UI build not found after waiting. Run "npm run build:uxp" first to build the UI.');
       }
-      console.log('✓ CEP build found, continuing Resolve build');
+      console.log('✓ UXP build found, continuing Resolve build');
     } else {
-      console.warn('Warning: CEP build not found. Make sure CEP dev server is running.');
+      console.warn('Warning: UXP build not found. Make sure UXP dev server is running.');
     }
   }
   
   if (sourceMainDir === sharedMainDir && !fs.existsSync(sharedMainDir)) {
-    console.log('Shared build not found, using CEP build directly');
-    sourceMainDir = cepMainDir;
-    sourceAssetsDir = cepAssetsDir;
+    console.log('Shared build not found, using UXP build directly');
+    sourceMainDir = uxpMainDir;
+    sourceAssetsDir = uxpAssetsDir;
   }
   
   const sourceHtml = path.join(sourceMainDir, 'index.html');
@@ -263,7 +244,7 @@ async function buildResolvePlugin() {
   <meta charset="utf-8">
   <title>sync.</title>
   <script>
-    window.location.href = 'http://localhost:3001/main/';
+    window.location.href = 'http://localhost:${uxpConfig.port}/main/';
   </script>
 </head>
 <body>
@@ -285,28 +266,28 @@ async function buildResolvePlugin() {
     console.log(`✓ Copied UI assets to ${resolveAssetsDir}`);
   }
   
-  const cepJsLib = path.join(outDir, 'js', 'lib');
-  const cepJsAssets = path.join(outDir, 'js', 'assets');
+  const uxpJsLib = path.join(outDir, 'js', 'lib');
+  const uxpJsAssets = path.join(outDir, 'js', 'assets');
   const resolveJsDir = path.join(resolveStaticDir, 'js');
   
-  if (fs.existsSync(cepJsLib)) {
+  if (fs.existsSync(uxpJsLib)) {
     const resolveJsLib = path.join(resolveJsDir, 'lib');
     fs.mkdirSync(resolveJsLib, { recursive: true });
-    fs.cpSync(cepJsLib, resolveJsLib, { recursive: true });
+    fs.cpSync(uxpJsLib, resolveJsLib, { recursive: true });
     console.log(`✓ Copied js/lib to ${resolveJsLib}`);
   }
   
-  if (fs.existsSync(cepJsAssets)) {
+  if (fs.existsSync(uxpJsAssets)) {
     const resolveJsAssets = path.join(resolveJsDir, 'assets');
     fs.mkdirSync(resolveJsAssets, { recursive: true });
-    fs.cpSync(cepJsAssets, resolveJsAssets, { recursive: true });
+    fs.cpSync(uxpJsAssets, resolveJsAssets, { recursive: true });
     console.log(`✓ Copied js/assets to ${resolveJsAssets}`);
     
     const resolveIconsDir = path.join(resolveStaticDir, 'icons');
     fs.mkdirSync(resolveIconsDir, { recursive: true });
-    const cepIconsDir = path.join(cepJsAssets, 'icons');
-    if (fs.existsSync(cepIconsDir)) {
-      fs.cpSync(cepIconsDir, resolveIconsDir, { recursive: true });
+    const uxpIconsDir = path.join(uxpJsAssets, 'icons');
+    if (fs.existsSync(uxpIconsDir)) {
+      fs.cpSync(uxpIconsDir, resolveIconsDir, { recursive: true });
       console.log(`✓ Copied icons to ${resolveIconsDir}`);
     }
   }
@@ -386,7 +367,7 @@ async function buildResolvePlugin() {
               if (retries > 0) {
                 console.warn(`Install failed, retrying... (${retries} attempts remaining)`);
                 retries--;
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+                await new Promise(resolve => setTimeout(resolve, 2000));
               } else {
                 throw err;
               }
@@ -428,7 +409,7 @@ async function buildResolvePlugin() {
           if (retries > 0) {
             console.warn(`Install failed, retrying... (${retries} attempts remaining)`);
             retries--;
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+            await new Promise(resolve => setTimeout(resolve, 2000));
           } else {
             console.error('Failed to install Electron dependencies:', err);
             throw err;
@@ -576,7 +557,6 @@ For more help, visit: https://sync.so
           fs.renameSync(tempZip, zipPath);
         }
       } else {
-        // macOS/Linux: Use zip command
         execSync(
           `cd "${path.dirname(resolveDest)}" && zip -r "${zipPath}" "${path.basename(resolveDest)}"`,
           { stdio: 'inherit' }
@@ -612,192 +592,13 @@ For more help, visit: https://sync.so
   }
 }
 
-const fixRedirectPath = () => {
-  if (!isProduction && !isPackage) {
-    cepConfig.panels.forEach(panel => {
-      const htmlPath = path.join(outDir, panel.name, 'index.html');
-      if (fs.existsSync(htmlPath)) {
-        let content = fs.readFileSync(htmlPath, 'utf-8');
-        const originalContent = content;
-        content = content.replace(
-          /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
-          "window.location.href = 'http://localhost:3001/main/'"
-        );
-        if (content !== originalContent) {
-          fs.writeFileSync(htmlPath, content, 'utf-8');
-        }
-      }
-    });
-  }
-};
-
 export default defineConfig({
   plugins: [
     react(),
-    cep(config),
-    // Remove .debug file from bundle after vite-cep-plugin adds it
-    // vite-cep-plugin creates .debug file unconditionally via emitFile - we remove it for production builds
     {
-      name: 'remove-debug-file',
+      name: 'uxp-build',
       enforce: 'post',
-      generateBundle(options, bundle) {
-        if (isPackage || isProduction) {
-          // Find and remove .debug file from bundle before it's written to disk
-          const debugFileKey = Object.keys(bundle).find(key => {
-            const file = bundle[key];
-            return file.type === 'asset' && 
-                   (file.fileName === '.debug' || file.fileName?.endsWith('/.debug') || file.name === 'CEP Debug File');
-          });
-          if (debugFileKey) {
-            delete bundle[debugFileKey];
-            console.log('✓ Removed .debug file from bundle (prevented from being written)');
-          }
-        }
-      },
-    },
-    {
-      name: 'bolt-cep-fix-redirect',
-      enforce: 'post',
-      transformIndexHtml(html, context) {
-        if (isProduction || isPackage) {
-          // Remove type="module" from script tags - CEP doesn't support ES modules
-          // This is critical for production builds
-          if (html && typeof html === 'string') {
-            html = html.replace(/<script\s+type=["']module["']/gi, '<script');
-            html = html.replace(/<script\s+([^>]*)\s+type=["']module["']/gi, '<script $1');
-          }
-          return html;
-        }
-        
-        if (!html || typeof html !== 'string') {
-          return html;
-        }
-        
-        if (!context) {
-          return html;
-        }
-        
-        let fixed = html.replace(
-          /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
-          `window.location.href = 'http://localhost:3001/main/'`
-        );
-        
-        if (fixed !== html) {
-          fixed = fixed.replace(
-            /(<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/['"])/g,
-            `$1; console.log('[CEP] Redirecting to dev server:', 'http://localhost:3001/main/');`
-          );
-        }
-        
-        return fixed;
-      },
       async buildEnd() {
-        fixRedirectPath();
-        
-        if (isProduction || isPackage) {
-          const criticalPaths = [
-            path.join(outDir, 'main', 'index.html'),
-            path.join(outDir, 'bin'),
-            path.join(outDir, 'jsx', 'index.jsxbin')
-          ];
-          
-          for (const criticalPath of criticalPaths) {
-            if (!fs.existsSync(criticalPath)) {
-              console.warn(`Warning: Critical build artifact missing: ${criticalPath}`);
-            }
-          }
-        }
-        
-        if (process.env.RESOLVE_BUILD !== 'true') {
-          const cepMainDir = path.join(outDir, 'main');
-          const cepAssetsDir = path.join(outDir, 'assets');
-          
-          if (fs.existsSync(cepMainDir)) {
-            try {
-              const sharedMainDir = path.join(sharedOutDir, 'main');
-              const sharedAssetsDir = path.join(sharedOutDir, 'assets');
-              
-              if (fs.existsSync(sharedMainDir)) {
-                fs.rmSync(sharedMainDir, { recursive: true, force: true });
-              }
-              fs.mkdirSync(sharedMainDir, { recursive: true });
-              fs.cpSync(cepMainDir, sharedMainDir, { recursive: true });
-              
-              if (fs.existsSync(cepAssetsDir)) {
-                if (fs.existsSync(sharedAssetsDir)) {
-                  fs.rmSync(sharedAssetsDir, { recursive: true, force: true });
-                }
-                fs.mkdirSync(path.dirname(sharedAssetsDir), { recursive: true });
-                fs.cpSync(cepAssetsDir, sharedAssetsDir, { recursive: true });
-              }
-              
-              console.log('✓ Created shared UI build from CEP output');
-            } catch (err) {
-              console.warn('Warning: Failed to create shared UI build (non-fatal):', err.message);
-            }
-          }
-        }
-        
-        const binDest = path.join(outDir, 'bin');
-        if (fs.existsSync(binDest)) {
-          const buildScripts = ['release.sh', 'uninstall.sh', 'uninstall.bat'];
-          for (const script of buildScripts) {
-            const scriptPath = path.join(binDest, script);
-            if (fs.existsSync(scriptPath)) {
-              try {
-                fs.unlinkSync(scriptPath);
-              } catch (err) {
-                console.warn(`Warning: Failed to remove ${script} from bin folder:`, err);
-              }
-            }
-          }
-        }
-        
-        if (isPackage) {
-          const debugFile = path.join(outDir, '.debug');
-          if (fs.existsSync(debugFile)) {
-            try {
-              fs.unlinkSync(debugFile);
-              console.log('Removed .debug file from build output');
-            } catch (err) {
-              console.warn('Failed to remove .debug file:', err);
-            }
-          }
-          const nestedDebugFile = path.join(outDir, cepDist, '.debug');
-          if (fs.existsSync(nestedDebugFile)) {
-            try {
-              fs.unlinkSync(nestedDebugFile);
-              console.log('Removed nested .debug file from build output');
-            } catch (err) {
-              console.warn('Failed to remove nested .debug file:', err);
-            }
-          }
-        }
-        
-        if (!isPackage && !isProduction) {
-          const metaInfDir = path.join(outDir, 'META-INF');
-          if (fs.existsSync(metaInfDir)) {
-            try {
-              fs.rmSync(metaInfDir, { recursive: true, force: true });
-              console.log('Removed META-INF directory from dev build');
-            } catch (err) {
-              console.warn('Failed to remove META-INF directory:', err);
-            }
-          }
-        }
-        
-        if (isProduction || isPackage) {
-          const serverDest = path.join(outDir, 'server');
-          const nodeModulesPath = path.join(serverDest, 'node_modules');
-          
-          if (!fs.existsSync(nodeModulesPath)) {
-            console.warn('WARNING: server/node_modules not found - dependencies may not be included in ZXP');
-            console.warn('This should have been installed in buildStart hook. Check build logs.');
-          } else {
-            console.log('✓ Server node_modules verified (installed in buildStart, included in ZXP)');
-          }
-        }
-        
         if (isResolveBuild) {
           await buildResolvePlugin();
           
@@ -850,6 +651,48 @@ export default defineConfig({
             }
           }
         }
+        
+        if (isProduction || isPackage) {
+          const serverDest = path.join(outDir, 'server');
+          const nodeModulesPath = path.join(serverDest, 'node_modules');
+          
+          if (!fs.existsSync(nodeModulesPath)) {
+            console.warn('WARNING: server/node_modules not found - dependencies may not be included');
+            console.warn('This should have been installed in buildStart hook. Check build logs.');
+          } else {
+            console.log('✓ Server node_modules verified (installed in buildStart, included in package)');
+          }
+        }
+        
+        if (process.env.RESOLVE_BUILD !== 'true') {
+          const uxpMainDir = path.join(outDir, 'main');
+          const uxpAssetsDir = path.join(outDir, 'assets');
+          
+          if (fs.existsSync(uxpMainDir)) {
+            try {
+              const sharedMainDir = path.join(sharedOutDir, 'main');
+              const sharedAssetsDir = path.join(sharedOutDir, 'assets');
+              
+              if (fs.existsSync(sharedMainDir)) {
+                fs.rmSync(sharedMainDir, { recursive: true, force: true });
+              }
+              fs.mkdirSync(sharedMainDir, { recursive: true });
+              fs.cpSync(uxpMainDir, sharedMainDir, { recursive: true });
+              
+              if (fs.existsSync(uxpAssetsDir)) {
+                if (fs.existsSync(sharedAssetsDir)) {
+                  fs.rmSync(sharedAssetsDir, { recursive: true, force: true });
+                }
+                fs.mkdirSync(path.dirname(sharedAssetsDir), { recursive: true });
+                fs.cpSync(uxpAssetsDir, sharedAssetsDir, { recursive: true });
+              }
+              
+              console.log('✓ Created shared UI build from UXP output');
+            } catch (err) {
+              console.warn('Warning: Failed to create shared UI build (non-fatal):', err);
+            }
+          }
+        }
       },
       async buildStart() {
         if (isProduction || isPackage) {
@@ -857,13 +700,11 @@ export default defineConfig({
           const serverPackageJson = path.join(serverDest, 'package.json');
           const serverSrc = path.join(__dirname, 'src', 'server');
           
-          // Ensure server folder exists before vite-cep-plugin copies files
           if (!fs.existsSync(serverDest) && fs.existsSync(serverSrc)) {
             console.log('Server folder not found in dist, creating it...');
             fs.mkdirSync(serverDest, { recursive: true });
           }
           
-          // Copy server files manually if they don't exist (vite-cep-plugin will copy them later, but we need them now for npm install)
           if (fs.existsSync(serverSrc) && !fs.existsSync(serverPackageJson)) {
             const srcPackageJson = path.join(serverSrc, 'package.json');
             if (fs.existsSync(srcPackageJson)) {
@@ -871,7 +712,6 @@ export default defineConfig({
               console.log('✓ Copied server/package.json for dependency installation');
             }
             
-            // Copy other server files that npm install might need
             const serverFiles = ['server.ts', 'serverConfig.ts', 'telemetry.ts'];
             for (const file of serverFiles) {
               const srcFile = path.join(serverSrc, file);
@@ -917,7 +757,7 @@ export default defineConfig({
               if (needsInstall) {
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
                 
-                console.log('Installing server dependencies BEFORE ZXP packaging...');
+                console.log('Installing server dependencies BEFORE packaging...');
                 let installSuccess = false;
                 let retries = 2;
                 
@@ -930,7 +770,7 @@ export default defineConfig({
                       timeout: 300000
                     });
                     installSuccess = true;
-                    console.log('✓ Server dependencies installed (will be included in ZXP)');
+                    console.log('✓ Server dependencies installed (will be included in package)');
                     
                     const nodeModulesPath = path.join(serverDest, 'node_modules');
                     if (!fs.existsSync(nodeModulesPath)) {
@@ -961,7 +801,7 @@ export default defineConfig({
                 }
               } else {
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
-                console.log('✓ Server dependencies up to date (will be included in ZXP)');
+                console.log('✓ Server dependencies up to date (will be included in package)');
                 
                 const nodeModulesPath = path.join(serverDest, 'node_modules');
                 if (!fs.existsSync(nodeModulesPath)) {
@@ -979,34 +819,84 @@ export default defineConfig({
               }
             } catch (err) {
               console.error('CRITICAL: Failed to install server dependencies:', err);
-              throw err; // Fail the build if server dependencies cannot be installed
+              throw err;
             }
           } else {
             console.warn('WARNING: server folder or package.json not found in buildStart');
-            console.warn('vite-cep-plugin should copy these files, but they are missing');
           }
         }
-        
-        if (!isProduction && !isPackage) {
-          const pollInterval = setInterval(() => {
-            fixRedirectPath();
-          }, 500);
-          
-          process.on('exit', () => clearInterval(pollInterval));
-          process.on('SIGINT', () => {
-            clearInterval(pollInterval);
-            process.exit();
-          });
-        }
-        
       },
-      configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          if (req.url === '/main/index.html') {
-            req.url = '/main/';
+      async generateBundle(options, bundle) {
+        if (isPackage || isProduction) {
+          // Build UXP host scripts
+          try {
+            const esbuildModule = await import('esbuild');
+            const esbuild = esbuildModule.default || esbuildModule;
+            
+            const uxpHostFiles = [
+              { src: 'src/uxp/index.ts', dest: 'index.js' },
+              { src: 'src/uxp/ppro.ts', dest: 'uxp/ppro.js' },
+              { src: 'src/uxp/aeft.ts', dest: 'uxp/aeft.js' },
+            ];
+            
+            for (const { src, dest } of uxpHostFiles) {
+              const srcFile = path.join(__dirname, src);
+              const destFile = path.join(outDir, dest);
+              
+              if (fs.existsSync(srcFile)) {
+                fs.mkdirSync(path.dirname(destFile), { recursive: true });
+                esbuild.buildSync({
+                  entryPoints: [srcFile],
+                  bundle: true,
+                  platform: 'node',
+                  target: 'es2020',
+                  format: 'cjs',
+                  outfile: destFile,
+                  external: ['uxp', 'application'],
+                });
+                console.log(`✓ Built UXP host script: ${dest}`);
+              }
+            }
+          } catch (error: any) {
+            console.error('❌ Failed to build UXP host scripts:', error?.message || error);
           }
-          next();
-        });
+          
+          // Copy manifest.json to output
+          const manifestSrc = path.join(__dirname, 'manifest.json');
+          const manifestDest = path.join(outDir, 'manifest.json');
+          if (fs.existsSync(manifestSrc)) {
+            fs.copyFileSync(manifestSrc, manifestDest);
+            console.log('✓ Copied manifest.json to output');
+          }
+          
+          // Copy assets and folders
+          const copyItems = async (srcPath: string, destPath: string) => {
+            if (!fs.existsSync(srcPath)) return;
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            if (fs.statSync(srcPath).isDirectory()) {
+              if (fs.existsSync(destPath)) {
+                fs.rmSync(destPath, { recursive: true, force: true });
+              }
+              fs.cpSync(srcPath, destPath, { recursive: true });
+            } else {
+              fs.copyFileSync(srcPath, destPath);
+            }
+          };
+          
+          // Copy assets
+          for (const asset of uxpConfig.copyAssets) {
+            const src = path.join(__dirname, 'src', asset);
+            const dest = path.join(outDir, asset);
+            await copyItems(src, dest);
+          }
+          
+          // Copy folders
+          for (const folder of uxpConfig.copyFolders) {
+            const src = path.join(__dirname, folder);
+            const dest = path.join(outDir, folder);
+            await copyItems(src, dest);
+          }
+        }
       },
     },
   ],
@@ -1026,10 +916,10 @@ export default defineConfig({
   base: isPackage ? "./" : "/",
   clearScreen: false,
   server: {
-    port: cepConfig.port || 3001,
+    port: uxpConfig.port || 3001,
     strictPort: true,
     hmr: {
-      port: cepConfig.port || 3001,
+      port: uxpConfig.port || 3001,
       protocol: 'ws',
       host: 'localhost',
     },
@@ -1039,33 +929,20 @@ export default defineConfig({
     },
   },
   preview: {
-    port: cepConfig.servePort || 5000,
+    port: uxpConfig.servePort || 5000,
   },
   build: {
-    sourcemap: isPackage ? cepConfig.zxp.sourceMap : cepConfig.build?.sourceMap,
-    watch: isPackage ? null : {
-      include: "src/jsx/**",
-    },
+    sourcemap: isPackage ? false : true,
+    watch: isPackage ? null : undefined,
     rollupOptions: {
       input,
       output: {
-        format: "cjs",
-        entryFileNames: "assets/[name]-[hash].cjs",
-        chunkFileNames: "assets/[name]-[hash].cjs",
+        format: "es",
+        entryFileNames: "assets/[name]-[hash].js",
+        chunkFileNames: "assets/[name]-[hash].js",
       },
     },
-    target: "chrome74",
+    target: "es2020",
     outDir,
   },
 });
-
-const outPathExtendscript = path.join("dist", cepDist, "jsx", "index.js");
-extendscriptConfig(
-  `src/jsx/index.ts`,
-  outPathExtendscript,
-  cepConfig,
-  [".js", ".ts"],
-  isProduction,
-  isPackage,
-);
-

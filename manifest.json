@@ -1,0 +1,32 @@
+{
+  "id": "com.sync.extension",
+  "name": "sync.",
+  "version": "0.9.53",
+  "manifestVersion": 6,
+  "requiredRuntimeVersion": 12.0,
+  "main": "index.js",
+  "host": [
+    {
+      "app": "AEFT",
+      "minVersion": "24.0.0"
+    },
+    {
+      "app": "PPRO",
+      "minVersion": "24.0.0"
+    }
+  ],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "main",
+      "label": "sync.",
+      "main": "main/index.html"
+    }
+  ],
+  "icons": [
+    {
+      "path": "js/assets/icons/blue_icon.png",
+      "scale": [1, 2]
+    }
+  ]
+}

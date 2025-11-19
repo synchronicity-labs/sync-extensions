@@ -1,15 +1,18 @@
 # sync. extensions
 
-Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with React, TypeScript, and Vite using the `bolt-cep` boilerplate.
+Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with React, TypeScript, and Vite using UXP (Unified Extensibility Platform).
 
 ## Installation
 
 ### Adobe Applications (After Effects & Premiere Pro)
 
 1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
-2. Install the ZXP file using [ZXP Installer](https://aescripts.com/learn/zxp-installer/)
-3. Restart After Effects or Premiere Pro
-4. Find the extension in **Window > Extensions > sync.**
+2. Extract the UXP extension ZIP file
+3. Install using [Adobe UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/devtool/) or manually copy to:
+   - **macOS**: `~/Library/Application Support/Adobe/UXP/Plugins/`
+   - **Windows**: `%APPDATA%\Adobe\UXP\Plugins\`
+4. Restart After Effects or Premiere Pro
+5. Find the extension in **Window > Extensions > sync.**
 
 ### DaVinci Resolve
 
@@ -50,10 +53,11 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 
 ### Extension Not Loading (Adobe Applications)
 
-1. Ensure you're using After Effects 2024+ or Premiere Pro 2024+
-2. Check that the extension is properly installed via ZXP Installer
-3. Restart the Adobe application
-4. Check the Adobe application console for errors (Help > Enable Debugging)
+1. Ensure you're using After Effects 2024+ or Premiere Pro 2024+ (with UXP support)
+2. Check that the extension is properly installed in the UXP Plugins folder
+3. Verify the extension appears in Adobe UXP Developer Tool
+4. Restart the Adobe application
+5. Check the UXP Developer Tool console for errors
 
 ### Plugin Not Loading (DaVinci Resolve)
 
@@ -97,9 +101,9 @@ For detailed instructions, see the [Getting Started Guide](./docs/getting_starte
 
 ## Security & Trust
 
-- Package is digitally signed and verified
+- UXP extensions are verified by Adobe's UXP runtime
 - SHA256 checksums are provided in releases for integrity verification
-- Verify checksums: `sha256sum -c checksums.txt` (Linux/macOS) or `certutil -hashfile com.sync.extension.zxp SHA256` (Windows)
+- Verify checksums: `sha256sum -c checksums.txt` (Linux/macOS) or `certutil -hashfile <file> SHA256` (Windows)
 
 ## License
 
