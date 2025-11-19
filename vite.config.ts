@@ -13,7 +13,6 @@ import { fileURLToPath } from "url";
 dotenv.config({ path: path.resolve(process.cwd(), "src/server/.env") });
 
 import cepConfig from "./cep.config";
-import { version } from "./package.json";
 
 // Define __dirname for ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -317,6 +316,9 @@ async function buildResolvePlugin() {
     }
   }
   
+  // Read version from package.json for Resolve manifest
+  const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+  
   const manifestXmlPath = path.join(resolveDest, 'manifest.xml');
   const manifestXml = `<?xml version="1.0" encoding="UTF-8"?>
 <BlackmagicDesign>
@@ -447,6 +449,9 @@ async function buildResolvePlugin() {
     
     const manifestPath = path.join(resolveDest, 'manifest.json');
     if (fs.existsSync(manifestPath)) {
+      // Read version from package.json for Resolve manifest
+      const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+      
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       const electronAppPath = path.join(resolveDest, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
       const electronBinSymlink = path.join(resolveDest, 'node_modules', '.bin', 'electron');
@@ -505,6 +510,7 @@ async function buildResolvePlugin() {
   }
   
   if (isResolvePackage) {
+    // Read version from package.json for Resolve ZIP filename
     const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
     const zipPath = path.join(__dirname, devDist, `sync-resolve-plugin-v${version}.zip`);
     
@@ -741,6 +747,7 @@ export default defineConfig({
       name: 'bolt-cep-fix-redirect',
       enforce: 'post',
       transformIndexHtml(html, context) {
+        // Skip in production/package builds to avoid conflicts with vite-cep-plugin
         if (isProduction || isPackage) {
           return html;
         }
@@ -749,7 +756,8 @@ export default defineConfig({
           return html;
         }
         
-        if (!context) {
+        // Ensure context exists and has required properties
+        if (!context || !context.bundle || !context.chunk) {
           return html;
         }
         
