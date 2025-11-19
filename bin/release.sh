@@ -461,7 +461,8 @@ mkdir -p "$TEMP_DIR"
 
 # Create Premiere/AE package
 echo "Creating Premiere/AE package..."
-PREM_AE_DIR="$TEMP_DIR/premiere-ae"
+# Create folder with version in name so extracted folder has correct name
+PREM_AE_DIR="$TEMP_DIR/premiere-ae-sync-extension-v${VERSION}"
 mkdir -p "$PREM_AE_DIR"
 
 # Copy ZXP file
@@ -523,17 +524,17 @@ if [ -f "$PREM_AE_ZIP" ]; then
 fi
 
 if [ "$(uname)" = "Darwin" ]; then
-  # macOS
-  cd "$PREM_AE_DIR"
-  zip -r "$PREM_AE_ZIP" . > /dev/null
+  # macOS - create zip with folder structure
+  cd "$TEMP_DIR"
+  zip -r "$PREM_AE_ZIP" "premiere-ae-sync-extension-v${VERSION}" > /dev/null
   cd "$REPO_DIR"
 else
-  # Windows/Linux
-  cd "$PREM_AE_DIR"
-  zip -r "$PREM_AE_ZIP" . > /dev/null 2>&1 || {
+  # Windows/Linux - create zip with folder structure
+  cd "$TEMP_DIR"
+  zip -r "$PREM_AE_ZIP" "premiere-ae-sync-extension-v${VERSION}" > /dev/null 2>&1 || {
     # Fallback for systems without zip command
     if command -v powershell >/dev/null 2>&1; then
-      powershell -Command "Compress-Archive -Path * -DestinationPath '$PREM_AE_ZIP' -Force"
+      powershell -Command "Compress-Archive -Path 'premiere-ae-sync-extension-v${VERSION}' -DestinationPath '$PREM_AE_ZIP' -Force"
     else
       echo "Error: zip command not found. Please install zip utility."
       exit 1
@@ -643,18 +644,29 @@ if [ -f "$DAVINCI_ZIP" ]; then
   rm -f "$DAVINCI_ZIP"
 fi
 
+# Rename davinci directory to include version so extracted folder has correct name
+DAVINCI_VERSIONED_DIR="$TEMP_DIR/davinci-sync-extension-v${VERSION}"
+if [ -d "$DAVINCI_VERSIONED_DIR" ]; then
+  rm -rf "$DAVINCI_VERSIONED_DIR"
+fi
+mv "$DAVINCI_DIR" "$DAVINCI_VERSIONED_DIR" || {
+  # If mv fails (e.g., cross-filesystem), copy instead
+  cp -r "$DAVINCI_DIR" "$DAVINCI_VERSIONED_DIR"
+  rm -rf "$DAVINCI_DIR"
+}
+
 if [ "$(uname)" = "Darwin" ]; then
-  # macOS
-  cd "$DAVINCI_DIR"
-  zip -r "$DAVINCI_ZIP" . > /dev/null
+  # macOS - create zip with folder structure
+  cd "$TEMP_DIR"
+  zip -r "$DAVINCI_ZIP" "davinci-sync-extension-v${VERSION}" > /dev/null
   cd "$REPO_DIR"
 else
-  # Windows/Linux
-  cd "$DAVINCI_DIR"
-  zip -r "$DAVINCI_ZIP" . > /dev/null 2>&1 || {
+  # Windows/Linux - create zip with folder structure
+  cd "$TEMP_DIR"
+  zip -r "$DAVINCI_ZIP" "davinci-sync-extension-v${VERSION}" > /dev/null 2>&1 || {
     # Fallback for systems without zip command
     if command -v powershell >/dev/null 2>&1; then
-      powershell -Command "Compress-Archive -Path * -DestinationPath '$DAVINCI_ZIP' -Force"
+      powershell -Command "Compress-Archive -Path 'davinci-sync-extension-v${VERSION}' -DestinationPath '$DAVINCI_ZIP' -Force"
     else
       echo "Error: zip command not found. Please install zip utility."
       exit 1
