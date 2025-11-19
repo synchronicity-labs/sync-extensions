@@ -66,7 +66,7 @@ async function getCacheDir(): Promise<string | null> {
     }
     
     // Fallback: Try to load CSInterface shim if it exists
-    // The shim at src/js/lib/CSInterface.js should be loaded, but if not, we'll try to construct path
+    // The shim at src/js/lib/CSInterface.ts should be loaded, but if not, we'll try to construct path
     logToFile(`[Thumbnails] CSInterface not available, trying fallback methods`);
     
     // Try to use __adobe_cep__ directly if available (what CSInterface shim uses internally)

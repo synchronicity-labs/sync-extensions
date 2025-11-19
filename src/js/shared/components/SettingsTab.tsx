@@ -2,11 +2,30 @@ import React, { useState, useEffect } from "react";
 import { Info } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import { useTabs } from "../hooks/useTabs";
+import { getApiUrl } from "../utils/serverConfig";
 
 const SettingsTab: React.FC = () => {
   const { settings, setApiKey, setModel, setTemperature, setSyncMode, setRenderVideo, setRenderAudio, setSaveLocation } = useSettings();
   const [activeSettingsTab, setActiveSettingsTab] = useState<"global" | "render">("global");
   const { activeTab } = useTabs();
+  const [debugEnabled, setDebugEnabled] = useState(false);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  // Check debug status on mount
+  useEffect(() => {
+    const checkDebugStatus = async () => {
+      try {
+        const response = await fetch(getApiUrl("/debug/status"));
+        if (response.ok) {
+          const data = await response.json();
+          setDebugEnabled(data.enabled || false);
+        }
+      } catch (error) {
+        // Silently fail
+      }
+    };
+    checkDebugStatus();
+  }, []);
 
   // Re-initialize Lucide icons when component mounts or tab changes
   useEffect(() => {
@@ -17,6 +36,26 @@ const SettingsTab: React.FC = () => {
     }, 100);
     return () => clearTimeout(timer);
   }, [activeSettingsTab]);
+
+  const handleDebugToggle = async () => {
+    if (debugLoading) return;
+    setDebugLoading(true);
+    try {
+      const response = await fetch(getApiUrl("/debug/toggle"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !debugEnabled }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDebugEnabled(data.enabled || false);
+      }
+    } catch (error) {
+      // Silently fail
+    } finally {
+      setDebugLoading(false);
+    }
+  };
 
   const handleInfoClick = (url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -120,6 +159,23 @@ const SettingsTab: React.FC = () => {
                 >
                   <i data-lucide="folder-open-dot" style={{ width: "45px", height: "45px" }}></i>
                   <span>universal folder in ~/documents</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-section debug-section">
+              <h3 className="settings-section-title">debug</h3>
+              <div className="debug-setting-row">
+                <div className="debug-setting-label">
+                  <span>enable debug logging</span>
+                </div>
+                <button
+                  type="button"
+                  className={`model-pill-toggle ${debugEnabled ? "active" : ""}`}
+                  onClick={handleDebugToggle}
+                  disabled={debugLoading}
+                >
+                  <span className="model-pill-toggle-slider"></span>
                 </button>
               </div>
             </div>

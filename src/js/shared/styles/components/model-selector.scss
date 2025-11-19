@@ -504,6 +504,14 @@
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
+.custom-dropdown-menu-up {
+  bottom: calc(100% + 8px);
+  top: auto;
+  background: var(--bg-black);
+  border: 1px solid var(--bg-button);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+}
+
 .custom-dropdown-menu.show {
   display: flex;
   opacity: 1;
@@ -610,3 +618,87 @@
 }
 
 /* Model Toggle Switch */
+.model-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.model-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.model-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-button);
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.model-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-primary);
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.model-toggle input:checked + .model-toggle-slider {
+  background-color: var(--color-primary);
+}
+
+.model-toggle input:checked + .model-toggle-slider:before {
+  transform: translateX(20px);
+}
+
+/* Pill Toggle */
+.model-pill-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  background: var(--bg-button);
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.model-pill-toggle:hover {
+  background: var(--bg-button-hover);
+}
+
+.model-pill-toggle.active {
+  background: var(--color-primary);
+}
+
+.model-pill-toggle-slider {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: var(--text-primary);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  transform: translateX(0);
+}
+
+.model-pill-toggle.active .model-pill-toggle-slider {
+  transform: translateX(20px);
+}

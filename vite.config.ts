@@ -8,10 +8,16 @@ import { execSync } from "child_process";
 import { extendscriptConfig } from "./vite.es.config";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import { fileURLToPath } from "url";
 
 dotenv.config({ path: path.resolve(process.cwd(), "src/server/.env") });
 
 import cepConfig from "./cep.config";
+import { version } from "./package.json";
+
+// Define __dirname for ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const src = path.resolve(__dirname, "src");
 const root = path.resolve(src, "js");
@@ -317,13 +323,13 @@ async function buildResolvePlugin() {
     <Plugin>
         <Id>com.sync.extension.resolve</Id>
         <Name>sync.</Name>
-        <Version>0.1.0</Version>
+        <Version>${version}</Version>
         <Description>sync. Resolve integration</Description>
         <FilePath>backend.js</FilePath>
     </Plugin>
 </BlackmagicDesign>`;
   fs.writeFileSync(manifestXmlPath, manifestXml);
-  console.log('✓ Created manifest.xml');
+  console.log(`✓ Created manifest.xml with version ${version}`);
   
   if (isProduction) {
     const serverDest = path.join(resolveDest, 'static', 'server');
@@ -456,8 +462,9 @@ async function buildResolvePlugin() {
       }
       
       manifest.Process.Executable = electronPath;
+      manifest.Version = version;
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-      console.log(`✓ Updated manifest.json with Electron path: ${electronPath}`);
+      console.log(`✓ Updated manifest.json with Electron path: ${electronPath} and version: ${version}`);
     }
   }
   
@@ -633,8 +640,83 @@ const fixRedirectPath = () => {
 
 export default defineConfig({
   plugins: [
+    // CRITICAL: Create output directories BEFORE vite-cep-plugin runs
+    // vite-cep-plugin tries to write files during configResolved, which is before buildStart
+    {
+      name: 'ensure-output-dirs',
+      enforce: 'pre',
+      configResolved() {
+        const mainDir = path.join(outDir, 'main');
+        const assetsDir = path.join(outDir, 'assets');
+        if (!fs.existsSync(mainDir)) {
+          fs.mkdirSync(mainDir, { recursive: true });
+          console.log('✓ Created main directory:', mainDir);
+        }
+        if (!fs.existsSync(assetsDir)) {
+          fs.mkdirSync(assetsDir, { recursive: true });
+          console.log('✓ Created assets directory:', assetsDir);
+        }
+      },
+    },
     react(),
     cep(config),
+    // Ensure image imports work correctly in dev mode
+    {
+      name: 'dev-image-handler',
+      enforce: 'pre',
+      resolveId(id) {
+        // Handle image imports - let Vite process them normally
+        if (id.match(/\.(png|jpg|jpeg|svg|gif)$/)) {
+          return null; // Let Vite handle it
+        }
+        return null;
+      },
+      load(id) {
+        // Don't interfere with Vite's image handling
+        return null;
+      },
+    },
+    // Fix asset paths - ensure they use relative paths for CEP compatibility
+    {
+      name: 'fix-asset-paths',
+      enforce: 'post',
+      generateBundle(options, bundle) {
+        // Fix asset paths in all builds (dev and production)
+        Object.keys(bundle).forEach(key => {
+          const file = bundle[key];
+          if (file.type === 'chunk' && file.code) {
+            // In CEP, HTML is at main/index.html and assets are at assets/
+            // So we need ../assets/ to reach assets from main/
+            
+            // Fix 1: /assets/white_icon-D5IQTeYv.png -> ../assets/white_icon-D5IQTeYv.png
+            file.code = file.code.replace(
+              /(["'])\/assets\/((white_icon|avatar)[^"']*\.png)(["'])/g,
+              '$1../assets/$2$4'
+            );
+            
+            // Fix 2: /white_icon-D5IQTeYv.png -> ../assets/white_icon-D5IQTeYv.png
+            file.code = file.code.replace(
+              /(["'])\/((white_icon|avatar)[^"']*\.png)(["'])/g,
+              '$1../assets/$2$4'
+            );
+            
+            // Fix 3: "white_icon-D5IQTeYv.png" (no path, just filename) -> "../assets/white_icon-D5IQTeYv.png"
+            // Only match if it's a standalone filename without any slashes
+            file.code = file.code.replace(
+              /(["'])((white_icon|avatar)[^"']*\.png)(["'])/g,
+              (match, quote1, filename, name, quote2) => {
+                // Only fix if it doesn't already have a path prefix (no /, ../, or ./)
+                // And make sure we're not matching something that already has ../assets/
+                if (!match.includes('/') && !match.includes('../assets/')) {
+                  return `${quote1}../assets/${filename}${quote2}`;
+                }
+                return match;
+              }
+            );
+          }
+        });
+      },
+    },
     // Remove .debug file from bundle after vite-cep-plugin adds it
     // vite-cep-plugin creates .debug file unconditionally via emitFile - we remove it for production builds
     {
@@ -660,12 +742,6 @@ export default defineConfig({
       enforce: 'post',
       transformIndexHtml(html, context) {
         if (isProduction || isPackage) {
-          // Remove type="module" from script tags - CEP doesn't support ES modules
-          // This is critical for production builds
-          if (html && typeof html === 'string') {
-            html = html.replace(/<script\s+type=["']module["']/gi, '<script');
-            html = html.replace(/<script\s+([^>]*)\s+type=["']module["']/gi, '<script $1');
-          }
           return html;
         }
         
@@ -803,7 +879,8 @@ export default defineConfig({
           
           if (!isProduction && !resolvePluginWatcher) {
             try {
-              const chokidar = require('chokidar');
+              const chokidarModule = await import('chokidar');
+              const chokidar = chokidarModule.default || chokidarModule;
               const resolveSrc = path.join(__dirname, 'src', 'resolve');
               
               console.log('\n🔍 Setting up file watcher for Resolve plugin...');
@@ -852,6 +929,19 @@ export default defineConfig({
         }
       },
       async buildStart() {
+        // Ensure output directories exist before vite-cep-plugin tries to write files
+        // This must run for ALL builds (dev and production) to prevent ENOENT errors
+        const mainDir = path.join(outDir, 'main');
+        const assetsDir = path.join(outDir, 'assets');
+        if (!fs.existsSync(mainDir)) {
+          fs.mkdirSync(mainDir, { recursive: true });
+          console.log('✓ Created main directory:', mainDir);
+        }
+        if (!fs.existsSync(assetsDir)) {
+          fs.mkdirSync(assetsDir, { recursive: true });
+          console.log('✓ Created assets directory:', assetsDir);
+        }
+        
         if (isProduction || isPackage) {
           const serverDest = path.join(outDir, 'server');
           const serverPackageJson = path.join(serverDest, 'package.json');
@@ -1001,6 +1091,81 @@ export default defineConfig({
         
       },
       configureServer(server) {
+        // Allow browser access in dev mode - add CORS headers
+        server.middlewares.use((req, res, next) => {
+          if (!isProduction && !isPackage) {
+            // Allow browser access for development
+            const origin = req.headers.origin;
+            if (origin) {
+              res.setHeader('Access-Control-Allow-Origin', origin);
+              res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+              res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+              res.setHeader('Access-Control-Allow-Credentials', 'true');
+            }
+            if (req.method === 'OPTIONS') {
+              res.writeHead(200);
+              res.end();
+              return;
+            }
+          }
+          next();
+        });
+        
+        // Serve images from assets/icons when requested directly (for img src attributes)
+        // But let Vite handle ?import requests as modules
+        server.middlewares.use((req, res, next) => {
+          if (!req.url) {
+            next();
+            return;
+          }
+          
+          // Let Vite handle ?import requests - don't interfere
+          if (req.url.includes('?import')) {
+            next();
+            return;
+          }
+          
+          // Serve images directly when requested without ?import (for img src in CEP)
+          // Handle both /assets/icons/ and /assets/ paths
+          const urlWithoutQuery = req.url.split('?')[0];
+          
+          // Pattern 1: /assets/icons/white_icon.png
+          if (urlWithoutQuery.startsWith('/assets/icons/') && urlWithoutQuery.match(/\.(png|jpg|jpeg|svg|gif)$/)) {
+            const imageName = urlWithoutQuery.replace('/assets/icons/', '');
+            const imagePath = path.join(__dirname, 'src/js/assets/icons', imageName);
+            
+            if (fs.existsSync(imagePath)) {
+              const ext = path.extname(imageName).toLowerCase();
+              const contentType = 
+                ext === '.png' ? 'image/png' :
+                ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                ext === '.svg' ? 'image/svg+xml' :
+                ext === '.gif' ? 'image/gif' : 'application/octet-stream';
+              
+              res.setHeader('Content-Type', contentType);
+              res.end(fs.readFileSync(imagePath));
+              return;
+            }
+          }
+          
+          // Pattern 2: /assets/white_icon-D5IQTeYv.png (hashed names from build)
+          if (urlWithoutQuery.startsWith('/assets/') && urlWithoutQuery.match(/(white_icon|avatar)[^/]*\.png$/)) {
+            // Extract the base name (without hash)
+            const filename = urlWithoutQuery.split('/').pop() || '';
+            const baseName = filename.replace(/-[A-Za-z0-9]+\.png$/, '.png');
+            const imagePath = path.join(__dirname, 'src/js/assets/icons', baseName);
+            
+            if (fs.existsSync(imagePath)) {
+              res.setHeader('Content-Type', 'image/png');
+              res.end(fs.readFileSync(imagePath));
+              return;
+            }
+          }
+          
+          next();
+        });
+        
+        // Fix redirect path
         server.middlewares.use((req, res, next) => {
           if (req.url === '/main/index.html') {
             req.url = '/main/';
@@ -1025,9 +1190,12 @@ export default defineConfig({
   root,
   base: isPackage ? "./" : "/",
   clearScreen: false,
+  // Disable publicDir - it interferes with Vite's ?import handling
+  // Vite will serve images through its import system
+  publicDir: false,
   server: {
     port: cepConfig.port || 3001,
-    strictPort: true,
+    strictPort: true, // Always use port 3001 - fail if unavailable
     hmr: {
       port: cepConfig.port || 3001,
       protocol: 'ws',
@@ -1052,10 +1220,12 @@ export default defineConfig({
         format: "cjs",
         entryFileNames: "assets/[name]-[hash].cjs",
         chunkFileNames: "assets/[name]-[hash].cjs",
+        assetFileNames: `assets/[name]-[hash][extname]`,
       },
     },
     target: "chrome74",
     outDir,
+    assetsInlineLimit: 0, // Don't inline assets - always emit as files
   },
 });
 

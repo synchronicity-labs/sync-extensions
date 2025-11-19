@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This file is a template. The actual manifest.xml is generated at build time
+  in vite.config.ts with the version from package.json.
+-->
 <BlackmagicDesign>
     <Plugin>
         <Id>com.sync.extension.resolve</Id>
         <Name>sync.</Name>
-        <Version>0.1.0</Version>
+        <Version>0.0.0</Version>
         <Description>sync. Resolve integration</Description>
         <FilePath>backend.js</FilePath>
     </Plugin>

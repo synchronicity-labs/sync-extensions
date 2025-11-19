@@ -15,6 +15,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
   const [activeSpeakerOnly, setActiveSpeakerOnly] = useState(settings.activeSpeakerOnly);
   const [detectObstructions, setDetectObstructions] = useState(settings.detectObstructions);
   const [syncModeMenuOpen, setSyncModeMenuOpen] = useState(false);
+  const [shouldShow, setShouldShow] = useState(false);
 
   useEffect(() => {
     setTempValue(settings.temperature);
@@ -94,10 +95,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
     };
   }, [syncModeMenuOpen]);
 
+  // Use state to delay adding 'show' class to ensure initial styles render first
+  useEffect(() => {
+    if (isOpen) {
+      // Small delay to ensure initial state is rendered before animation
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setShouldShow(true);
+        });
+      });
+    } else {
+      setShouldShow(false);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
-    <div className={`model-selector-overlay ${isOpen ? "show" : ""}`} onClick={onClose}>
+    <div className={`model-selector-overlay ${shouldShow ? "show" : ""}`} onClick={onClose}>
       <div className="model-selector-panel" onClick={(e) => e.stopPropagation()}>
         <div className="model-panel-handle"></div>
         <div className="model-selector-header">
@@ -185,7 +200,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
             </div>
-            <div className="custom-dropdown-wrapper">
+            <div className="custom-dropdown-wrapper custom-dropdown-up">
               <button
                 type="button"
                 className="custom-dropdown-trigger"
@@ -199,7 +214,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
                 <ChevronUp size={16} style={{ transform: syncModeMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
               </button>
               {syncModeMenuOpen && (
-                <div className="custom-dropdown-menu show" id="syncModeMenu">
+                <div className="custom-dropdown-menu custom-dropdown-menu-up show" id="syncModeMenu">
                   {syncModes.map((mode) => (
                     <div
                       key={mode.id}
@@ -233,15 +248,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
             </div>
-            <label className="model-toggle">
-              <input
-                type="checkbox"
-                id="modelActiveSpeaker"
-                checked={activeSpeakerOnly}
-                onChange={(e) => handleActiveSpeakerToggle(e.target.checked)}
-              />
-              <span className="model-toggle-slider"></span>
-            </label>
+            <button
+              type="button"
+              className={`model-pill-toggle ${activeSpeakerOnly ? "active" : ""}`}
+              onClick={() => handleActiveSpeakerToggle(!activeSpeakerOnly)}
+            >
+              <span className="model-pill-toggle-slider"></span>
+            </button>
           </div>
 
           <div className="model-setting-row model-setting-switch">
@@ -257,15 +270,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
             </div>
-            <label className="model-toggle">
-              <input
-                type="checkbox"
-                id="modelDetectObstructions"
-                checked={detectObstructions}
-                onChange={(e) => handleDetectObstructionsToggle(e.target.checked)}
-              />
-              <span className="model-toggle-slider"></span>
-            </label>
+            <button
+              type="button"
+              className={`model-pill-toggle ${detectObstructions ? "active" : ""}`}
+              onClick={() => handleDetectObstructionsToggle(!detectObstructions)}
+            >
+              <span className="model-pill-toggle-slider"></span>
+            </button>
           </div>
         </div>
       </div>

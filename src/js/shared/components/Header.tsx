@@ -212,9 +212,9 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   return (
     <div className="app-header">
       <div className="header-section header-left">
-        <a href="https://sync.so" className="logo">
+        <div className="logo">
           <img src={whiteIcon} alt="sync." width="32" height="32" />
-        </a>
+        </div>
       </div>
 
       <div className="header-section header-center">

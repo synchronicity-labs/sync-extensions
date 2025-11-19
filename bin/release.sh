@@ -24,8 +24,10 @@ if [ ! -f "$REPO_DIR/src/server/.env" ]; then
   exit 1
 fi
 
-echo "Updating package.json version..."
+echo "Updating package.json versions..."
 cd "$REPO_DIR"
+
+# Update root package.json
 npm version "$VERSION" --no-git-tag-version || {
   CURRENT_VERSION=$(node -p "require('./package.json').version")
   if [ "$CURRENT_VERSION" = "$VERSION" ]; then
@@ -35,6 +37,35 @@ npm version "$VERSION" --no-git-tag-version || {
     exit 1
   fi
 }
+
+# Update all workspace package.json files to match root version
+echo "Updating workspace package.json files..."
+PACKAGE_FILES=(
+  "src/server/package.json"
+  "src/shared/package.json"
+  "src/resolve/package.json"
+)
+
+for pkg_file in "${PACKAGE_FILES[@]}"; do
+  if [ -f "$pkg_file" ]; then
+    # Use Node.js to update version in JSON file
+    node -e "
+      const fs = require('fs');
+      const path = '$pkg_file';
+      const version = '$VERSION';
+      const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+      const oldVersion = pkg.version || 'unknown';
+      pkg.version = version;
+      fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+      console.log('✅ Updated ' + path + ' from ' + oldVersion + ' to ' + version);
+    " || {
+      echo "❌ Failed to update $pkg_file"
+      exit 1
+    }
+  else
+    echo "⚠️  Warning: $pkg_file not found, skipping..."
+  fi
+done
 
 echo "Creating .env file for ZXP (without ZXP_PASSWORD)..."
 mkdir -p "$REPO_DIR/dist/cep/server"
@@ -371,7 +402,7 @@ echo ""
 
 echo ""
 echo "Committing changes..."
-git add package.json package-lock.json
+git add package.json package-lock.json src/server/package.json src/shared/package.json src/resolve/package.json
 git commit -m "Bump version to $VERSION" || echo "No changes to commit"
 
 echo "Creating git tag..."

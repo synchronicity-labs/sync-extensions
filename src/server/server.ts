@@ -601,8 +601,10 @@ async function startServer() {
       timeout: 1000
     }).catch(() => null);
     if (existingCheck && existingCheck.ok) {
-      try { tlogSync('Server already running on port 3000 - both AE and Premiere can share this instance'); } catch (_) {}
+      try { tlogSync('Server already running on port 3000 - keeping this process alive to share the instance'); } catch (_) {}
       startupLock = false;
+      // Keep process alive instead of exiting
+      setInterval(() => {}, 1000);
       return 3000; // Server already running - success!
     }
   } catch (_) {
@@ -620,10 +622,12 @@ async function startServer() {
       });
       if (r && r.ok) {
         // Server is already running - this is fine when both AE and Premiere are running
-        // Exit gracefully so both apps can use the same server instance
-        try { tlogSync(`Server already running on ${HOST}:${PORT} - both AE and Premiere can share this instance`); } catch (_) {}
+        // Keep process alive instead of exiting
+        try { tlogSync(`Server already running on ${HOST}:${PORT} - keeping this process alive to share the instance`); } catch (_) {}
         startupLock = false;
-        return PORT; // Exit successfully - server already running
+        // Keep process alive instead of exiting
+        setInterval(() => {}, 1000);
+        return PORT; // Server already running - success!
       }
     } catch (_) { 
       // Health check failed - server not running, proceed to start

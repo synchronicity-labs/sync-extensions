@@ -48,6 +48,7 @@
   flex-direction: column;
   transition: all var(--transition-base);
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .upload-box.has-media {
@@ -62,33 +63,32 @@
 .audio-upload {
   border: 1px dashed var(--border-tertiary);
   border-radius: var(--radius-lg);
-  max-height: none;
   position: relative;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-/* Video: 2 rows of buttons = 277px */
-.video-upload {
-  background: var(--bg-black);
-  min-height: 277px;
-  flex: 1;
-}
-
-/* Audio: 3 rows of buttons = video height + 1 button row + 1 gap = 325px */
-.audio-upload {
-  background: var(--bg-secondary);
-  flex: 1;
+.video-upload:not(.has-media),
+.audio-upload:not(.has-media) {
+  min-height: 200px;
+  align-items: center;
+  justify-content: center;
 }
 
 .video-upload:not(.has-media) {
-  flex: 3 1 0% !important;
-  min-height: 400px;
+  background: var(--bg-black);
+  flex: 1 1 0%;
+  height: auto;
 }
 
 .audio-upload:not(.has-media) {
-  flex: 1 1 0% !important;
-  min-height: 200px !important;
+  background: var(--bg-secondary);
+  flex: 0 0 auto;
+  height: 200px;
+  max-height: 200px;
 }
 
 .video-upload.has-media,
@@ -187,8 +187,6 @@
 #videoDropzone,
 #audioDropzone {
   width: 100%;
-  height: 100%;
-  flex: 1;
   display: flex;
   transition: background-color 0.2s ease, border-color 0.2s ease;
   min-width: 0;
@@ -207,14 +205,17 @@
   margin: 0;
 }
 
-/* Ensure audio dropzone doesn't clip content */
-#audioDropzone {
-  min-height: calc(var(--spacing-xl) * 5); /* 120px */
-  align-items: center;
+/* Ensure dropzones fill container height when empty */
+.video-upload:not(.has-media) #videoDropzone {
+  min-height: 200px;
+  height: 100%;
+  flex: 1 1 0%;
 }
 
 .audio-upload:not(.has-media) #audioDropzone {
-  min-height: 0;
+  min-height: 200px;
+  height: 100%;
+  flex: 1 1 0%;
 }
 
 /* Dropzone drag state - consolidated for video and audio */
@@ -284,21 +285,6 @@
     overflow-y: auto;
   }
   
-  /* Audio upload interface (when no media selected) */
-  .audio-upload:not(.has-media) {
-    min-height: 325px !important;
-    height: auto !important;
-  }
-  
-  #audioDropzone {
-    min-height: 325px !important;
-    height: auto !important;
-  }
-  
-  .audio-upload .upload-content {
-    min-height: 325px !important;
-    height: auto !important;
-  }
   
   /* Audio container when media is selected */
   .sources-container.has-both .audio-upload.has-media {
@@ -811,15 +797,15 @@
 
 /* Ensure containers maintain height when URL input mode is active */
 .video-upload.url-input-active {
-  height: 277px !important;
-  min-height: 277px !important;
-  flex: 0 0 277px !important;
+  height: 200px;
+  min-height: 200px;
+  flex: 0 0 200px;
 }
 
 .audio-upload.url-input-active {
-  height: 325px !important;
-  min-height: 325px !important;
-  flex: 0 0 325px !important;
+  height: 200px;
+  min-height: 200px;
+  flex: 0 0 200px;
 }
 
 /* Container URL Input Mode */

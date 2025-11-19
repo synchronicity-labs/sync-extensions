@@ -22,6 +22,17 @@ function isDebugEnabled() {
   }
 }
 
+// Ensure logs directory exists
+function ensureLogsDir() {
+  try {
+    if (!fs.existsSync(DIRS.logs)) {
+      fs.mkdirSync(DIRS.logs, { recursive: true });
+    }
+  } catch (e) {
+    // Silently fail
+  }
+}
+
 function logCriticalError(...args) {
   const timestamp = new Date().toISOString();
   const message = `[${timestamp}] [CRITICAL ERROR] ` + args.map(a => String(a)).join(' ') + '\n';
@@ -596,6 +607,38 @@ router.get('/update/check', async (_req, res) => {
     const cmp = compareSemver(latest.version, current);
     res.json({ ok: true, current, latest: latest.version, tag: latest.tag, html_url: latest.html_url, canUpdate: cmp > 0 });
   } catch (e) { if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) }); }
+});
+
+router.get('/debug/status', (req, res) => {
+  try {
+    const enabled = isDebugEnabled();
+    res.json({ enabled });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to check debug status' });
+  }
+});
+
+router.post('/debug/toggle', (req, res) => {
+  try {
+    const { enabled } = req.body;
+    ensureLogsDir();
+    
+    if (enabled) {
+      // Create .debug file
+      if (!fs.existsSync(DEBUG_FLAG_FILE)) {
+        fs.writeFileSync(DEBUG_FLAG_FILE, '');
+      }
+    } else {
+      // Delete .debug file
+      if (fs.existsSync(DEBUG_FLAG_FILE)) {
+        fs.unlinkSync(DEBUG_FLAG_FILE);
+      }
+    }
+    
+    res.json({ enabled: isDebugEnabled() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to toggle debug mode' });
+  }
 });
 
 router.post('/update/apply', async (req, res) => {
