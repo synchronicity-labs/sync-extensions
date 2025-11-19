@@ -13,12 +13,12 @@
     "dev:server": "NODE_ENV=development HOST_APP=PPRO tsx src/server/server.ts",
     "dev:resolve": "concurrently -n vite,server -c blue,green \"vite\" \"NODE_ENV=development HOST_APP=RESOLVE tsx src/server/server.ts\"",
     "dev:resolve-build": "cross-env RESOLVE_BUILD=true NODE_ENV=development vite build --watch",
-    "build": "npm run build:adobe && npm run build:davinci",
-    "build:parallel": "concurrently -n adobe,davinci -c blue,green \"npm run build:adobe\" \"npm run build:davinci\"",
-    "build:adobe": "npm run prezxp && npx dotenv-cli -e src/server/.env -- cross-env ZXP_PACKAGE=true NODE_ENV=production vite build",
+    "build": "npm run build:uxp && npm run build:davinci",
+    "build:parallel": "concurrently -n uxp,davinci -c blue,green \"npm run build:uxp\" \"npm run build:davinci\"",
+    "build:uxp": "npm run preuxp && npx dotenv-cli -e src/server/.env -- cross-env UXP_PACKAGE=true NODE_ENV=production vite build",
     "build:davinci": "cross-env RESOLVE_BUILD=true RESOLVE_PACKAGE=true NODE_ENV=production vite build",
-    "prezxp": "mkdir -p dist/cep/server && (grep -v '^ZXP_PASSWORD=' src/server/.env > dist/cep/server/.env 2>/dev/null || true) && (rm -f dist/cep/.debug dist/cep/cep/.debug dist/.debug 2>/dev/null || true) && (find dist -name '.debug' -type f -delete 2>/dev/null || true)",
-    "zxp": "npx dotenv-cli -e src/server/.env -- cross-env ZXP_PACKAGE=true vite build",
+    "preuxp": "mkdir -p dist/uxp/server && (grep -v '^UXP_PASSWORD=' src/server/.env > dist/uxp/server/.env 2>/dev/null || true)",
+    "uxp": "npx dotenv-cli -e src/server/.env -- cross-env UXP_PACKAGE=true vite build",
     "zip": "cross-env ZIP_PACKAGE=true vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
@@ -55,11 +55,10 @@
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
-    "jsxbin": "^2.1.3",
     "rollup": "^4.52.5",
     "sass": "^1.69.5",
     "typescript": "^5.2.2",
     "vite": "^7.2.2",
-    "vite-cep-plugin": "^1.2.9"
+    "@adobe/bolt-uxp": "^1.0.0"
   }
 }
