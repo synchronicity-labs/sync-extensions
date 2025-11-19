@@ -660,6 +660,12 @@ export default defineConfig({
       enforce: 'post',
       transformIndexHtml(html, context) {
         if (isProduction || isPackage) {
+          // Remove type="module" from script tags - CEP doesn't support ES modules
+          // This is critical for production builds
+          if (html && typeof html === 'string') {
+            html = html.replace(/<script\s+type=["']module["']/gi, '<script');
+            html = html.replace(/<script\s+([^>]*)\s+type=["']module["']/gi, '<script $1');
+          }
           return html;
         }
         
