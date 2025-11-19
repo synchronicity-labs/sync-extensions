@@ -13,16 +13,24 @@ import SourcesTab from "../shared/components/SourcesTab";
 import HistoryTab from "../shared/components/HistoryTab";
 import SettingsTab from "../shared/components/SettingsTab";
 import BottomBar from "../shared/components/BottomBar";
+import { GlobalErrorBoundary } from "../shared/components/GlobalErrorBoundary";
 import "../shared/styles/main.scss";
 
 const AppContent: React.FC = () => {
+  console.log("[App] AppContent rendering...");
   const { activeTab, setActiveTab } = useTabs();
+  console.log("[App] Tabs initialized, activeTab:", activeTab);
   const core = useCore();
+  console.log("[App] Core initialized");
   const { startOfflineChecking, nle } = core;
   const media = useMedia();
+  console.log("[App] Media initialized");
   const jobs = useJobs();
+  console.log("[App] Jobs initialized");
   const history = useHistory();
+  console.log("[App] History initialized");
   useServerAutoStart();
+  console.log("[App] Server auto-start initialized");
 
   // Setup window globals for backward compatibility
   useEffect(() => {
@@ -136,16 +144,24 @@ const AppContent: React.FC = () => {
 
   // Load PostHog scripts
   useEffect(() => {
+    console.log("[App] Loading PostHog scripts...");
     const loadPostHog = () => {
       const scripts = [
         "../../lib/posthog.js",
         "../../lib/posthog-recorder.js",
       ];
       
-      scripts.forEach((src) => {
+      scripts.forEach((src, index) => {
+        console.log(`[App] Loading PostHog script ${index + 1}/${scripts.length}: ${src}`);
         const script = document.createElement("script");
         script.src = src;
         script.async = true;
+        script.onload = () => {
+          console.log(`[App] PostHog script loaded: ${src}`);
+        };
+        script.onerror = (error) => {
+          console.error(`[App] Failed to load PostHog script: ${src}`, error);
+        };
         document.head.appendChild(script);
       });
     };
@@ -298,6 +314,7 @@ const AppContent: React.FC = () => {
     };
   }, [activeTab]);
 
+  console.log("[App] Rendering JSX...");
   return (
     <div className="app-container">
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -312,10 +329,13 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  console.log("[App] App component rendering");
   return (
-    <TabsProvider>
-      <AppContent />
-    </TabsProvider>
+    <GlobalErrorBoundary>
+      <TabsProvider>
+        <AppContent />
+      </TabsProvider>
+    </GlobalErrorBoundary>
   );
 };
 

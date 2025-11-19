@@ -76,8 +76,14 @@ echo "Building ZXP locally..."
 npm run zxp
 
 echo ""
+echo "Cleaning up old ZIP files from dist/..."
+# Remove old zip files (keep only the current version being built)
+find "$REPO_DIR/dist" -maxdepth 1 -type f \( -name "*.zip" -o -name "*.ZIP" \) ! -name "sync-resolve-plugin-v${VERSION}.zip" -delete 2>/dev/null || true
+echo "✅ Cleaned up old ZIP files"
+
+echo ""
 echo "Building DaVinci Resolve plugin ZIP..."
-npm run build:davinci
+VERSION="$VERSION" npm run build:davinci
 
 echo ""
 echo "🔍 ZXP Verification Report"
@@ -158,9 +164,6 @@ else
     "server/server.ts"
     "server/package.json"
     "server/.env"
-  )
-  
-  OPTIONAL_FILES=(
     "bin/darwin-arm64/node"
     "bin/darwin-x64/node"
     "bin/win32-x64/node.exe"
@@ -168,6 +171,7 @@ else
 
   REQUIRED_DIRS=(
     "server/node_modules"
+    "js/panels/ppro/epr"
   )
 
   ALL_PRESENT=true
@@ -177,14 +181,6 @@ else
     else
       echo "❌ Missing: $file"
       ALL_PRESENT=false
-    fi
-  done
-  
-  for file in "${OPTIONAL_FILES[@]}"; do
-    if [ -f "$EXTRACT_DIR/$file" ]; then
-      echo "✅ $file"
-    else
-      echo "⚠️  Optional file missing: $file (extension may use system Node.js)"
     fi
   done
 
@@ -301,11 +297,53 @@ else
     exit 1
   fi
   
-  if unzip -l "$ZXP_PATH" 2>/dev/null | grep -qE "bin/(darwin-arm64|darwin-x64)/node|bin/win32-x64/node\.exe"; then
-    echo "✅ Node.js binaries present"
+  # Extract ZXP again to check for Node.js binaries
+  NODE_CHECK_DIR="$REPO_DIR/dist/.node-check"
+  rm -rf "$NODE_CHECK_DIR"
+  mkdir -p "$NODE_CHECK_DIR"
+  unzip -q -o "$ZXP_PATH" -d "$NODE_CHECK_DIR" || {
+    echo "❌ Failed to extract ZXP for Node.js binary check"
+    rm -rf "$NODE_CHECK_DIR"
+    exit 1
+  }
+  
+  NODE_BINARIES_PRESENT=true
+  # Check using the extracted directory (more reliable than parsing unzip -l output)
+  if [ -f "$NODE_CHECK_DIR/bin/darwin-arm64/node" ]; then
+    echo "✅ Node.js binary present: darwin-arm64"
   else
-    echo "⚠️  Node.js binaries not found - extension will use system Node.js if available"
+    echo "❌ Node.js binary missing: darwin-arm64"
+    NODE_BINARIES_PRESENT=false
   fi
+  if [ -f "$NODE_CHECK_DIR/bin/darwin-x64/node" ]; then
+    echo "✅ Node.js binary present: darwin-x64"
+  else
+    echo "❌ Node.js binary missing: darwin-x64"
+    NODE_BINARIES_PRESENT=false
+  fi
+  if [ -f "$NODE_CHECK_DIR/bin/win32-x64/node.exe" ]; then
+    echo "✅ Node.js binary present: win32-x64"
+  else
+    echo "❌ Node.js binary missing: win32-x64"
+    NODE_BINARIES_PRESENT=false
+  fi
+  
+  if [ "$NODE_BINARIES_PRESENT" = false ]; then
+    echo "❌ Node.js binaries are required - extension will not work without them"
+    echo "   Checking extracted ZXP contents..."
+    if [ -d "$NODE_CHECK_DIR/bin" ]; then
+      echo "   bin directory exists, contents:"
+      find "$NODE_CHECK_DIR/bin" -type f | head -10
+    else
+      echo "   bin directory does not exist in extracted ZXP"
+      echo "   Top-level directories in ZXP:"
+      ls -la "$NODE_CHECK_DIR" | head -10
+    fi
+    rm -rf "$NODE_CHECK_DIR"
+    exit 1
+  fi
+  
+  rm -rf "$NODE_CHECK_DIR"
 fi
 
 echo ""
@@ -477,6 +515,8 @@ EOF
 
 # Create Premiere/AE zip
 PREM_AE_ZIP="$REPO_DIR/dist/premiere-ae-sync-extension-v${VERSION}.zip"
+# Remove old Premiere/AE zip files
+find "$REPO_DIR/dist" -maxdepth 1 -type f -name "premiere-ae-sync-extension-*.zip" ! -name "premiere-ae-sync-extension-v${VERSION}.zip" -delete 2>/dev/null || true
 if [ -f "$PREM_AE_ZIP" ]; then
   rm -f "$PREM_AE_ZIP"
 fi
@@ -585,6 +625,8 @@ EOF
 
 # Create DaVinci zip
 DAVINCI_ZIP="$REPO_DIR/dist/davinci-sync-extension-v${VERSION}.zip"
+# Remove old DaVinci zip files
+find "$REPO_DIR/dist" -maxdepth 1 -type f -name "davinci-sync-extension-*.zip" ! -name "davinci-sync-extension-v${VERSION}.zip" -delete 2>/dev/null || true
 if [ -f "$DAVINCI_ZIP" ]; then
   rm -f "$DAVINCI_ZIP"
 fi
@@ -617,6 +659,33 @@ rm -rf "$TEMP_DIR"
 echo ""
 echo "Creating or updating GitHub release..."
 
+# Generate formatted release notes
+# Get the previous tag (try HEAD~1 first, then fall back to latest tag)
+PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null | head -1 || echo "")
+
+RELEASE_NOTES=$(cat <<EOF
+$MESSAGE
+
+
+
+**Downloads:**
+
+**Premiere Pro & After Effects:** \`premiere-ae-sync-extension-v${VERSION}.zip\`
+
+**DaVinci Resolve:** \`davinci-sync-extension-v${VERSION}.zip\`
+
+Choose the appropriate package for your platform and application.
+EOF
+)
+
+# Add changelog link if previous tag exists
+if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "v$VERSION" ]; then
+  RELEASE_NOTES="${RELEASE_NOTES}
+
+
+**Full Changelog:** ${PREVIOUS_TAG}...v${VERSION}"
+fi
+
 # Check if release already exists
 if gh release view "v$VERSION" >/dev/null 2>&1; then
   echo "Release v${VERSION} already exists, uploading new packages..."
@@ -628,14 +697,18 @@ if gh release view "v$VERSION" >/dev/null 2>&1; then
       echo "❌ Failed to upload files to existing release"
       exit 1
     }
+  # Update release notes
+  echo "$RELEASE_NOTES" | gh release edit "v$VERSION" --notes-file - 2>&1 || {
+    echo "⚠️  Failed to update release notes, but files were uploaded"
+  }
   echo "✅ Updated existing release with new packages"
 else
   echo "Creating new release v${VERSION}..."
-  gh release create "v$VERSION" \
+  echo "$RELEASE_NOTES" | gh release create "v$VERSION" \
     "$PREM_AE_ZIP" \
     "$DAVINCI_ZIP" \
     --title "Release v${VERSION}" \
-    --notes "$MESSAGE" \
+    --notes-file - \
     2>&1 || {
       echo "❌ Failed to create release"
       exit 1

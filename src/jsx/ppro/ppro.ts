@@ -729,8 +729,23 @@ export function PPRO_exportInOutVideo(payloadJson){
     
     var seq=app.project.activeSequence; if(!seq) return _respond({ ok:false, error:'No active sequence' });
     var codec=String(p.codec||'h264');
+    var eprRoot = _eprRoot();
     var presetPath = _pickVideoPresetPath(codec);
-    if(!presetPath) return _respond({ ok:false, error:'Preset not found in /epr for '+codec, eprRoot:_eprRoot() });
+    if(!presetPath) {
+      var debugInfo = { codec: codec, eprRoot: eprRoot, extRoot: _extensionRoot() };
+      try {
+        if(eprRoot) {
+          var testFolder = new Folder(eprRoot);
+          debugInfo.eprRootExists = testFolder.exists;
+          if(testFolder.exists) {
+            var files = _listEprRec(eprRoot, 1);
+            debugInfo.eprFilesFound = files.length;
+            debugInfo.eprFileNames = files.map(function(f){ return f.name; });
+          }
+        }
+      } catch(e) { debugInfo.eprCheckError = String(e); }
+      return _respond({ ok:false, error:'Preset not found in /epr for '+codec, debug: debugInfo });
+    }
     try { var pf = new File(presetPath); if (!pf || !pf.exists) { return _respond({ ok:false, error:'Preset path missing', preset:presetPath }); } } catch(e) { return _respond({ ok:false, error:'Preset path invalid: '+String(e), preset:presetPath }); }
     var ext=''; try{ ext = String(seq.getExportFileExtension(presetPath)||''); }catch(e){ try { var log = _pproDebugLogFile(); log.open("a"); log.writeln("[" + new Date().toString() + "] catch: " + String(e)); log.close(); } catch(_){} }
     if(!ext) ext = (codec==='h264')?'.mp4':'.mov';

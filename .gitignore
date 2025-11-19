@@ -23,6 +23,13 @@ build/
 dist/zxp/
 dist/zip/
 
+# Release ZIP files (keep only current version)
+dist/*-sync-extension-*.zip
+dist/*-resolve-plugin-*.zip
+dist/premiere-ae-sync-extension-*.zip
+dist/davinci-sync-extension-*.zip
+dist/sync-resolve-plugin-*.zip
+
 # CEP build artifacts
 CSXS/
 *.jsxbin

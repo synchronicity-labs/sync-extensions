@@ -4,9 +4,79 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>sync.</title>
+    <style>
+      #error-display {
+        display: none;
+        padding: 20px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #1e1e1e;
+        color: #ff6b6b;
+        border: 2px solid #ff6b6b;
+        margin: 20px;
+        border-radius: 8px;
+      }
+      #error-display.show {
+        display: block;
+      }
+      #error-display h2 {
+        margin-top: 0;
+        color: #ff6b6b;
+      }
+      #error-display pre {
+        background: #2d2d2d;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+        color: #fff;
+        font-size: 12px;
+      }
+    </style>
+    <script>
+      // Global error handler - catches ALL errors before React loads
+      window.addEventListener('error', function(e) {
+        console.error('[CEP] Global error:', e.error, e.message, e.filename, e.lineno);
+        showError('JavaScript Error', e.message + '\n\nFile: ' + e.filename + ':' + e.lineno + '\n\n' + (e.error ? e.error.stack : ''));
+      });
+      
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e.reason;
+        var errorMessage = reason?.message || String(reason);
+        
+        // Ignore WebSocket connection errors - they're non-critical (HMR will retry)
+        if (errorMessage.includes('WebSocket') || 
+            errorMessage.includes('websocket') ||
+            errorMessage.includes('closed without opened')) {
+          console.warn('[CEP] WebSocket error (non-critical, ignoring):', errorMessage);
+          e.preventDefault(); // Prevent error from showing
+          return;
+        }
+        
+        console.error('[CEP] Unhandled promise rejection:', reason);
+        showError('Unhandled Promise Rejection', String(reason));
+      });
+      
+      function showError(title, message) {
+        var errorDiv = document.getElementById('error-display');
+        if (!errorDiv) {
+          errorDiv = document.createElement('div');
+          errorDiv.id = 'error-display';
+          document.body.appendChild(errorDiv);
+        }
+        errorDiv.innerHTML = '<h2>' + title + '</h2><pre>' + String(message).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+        errorDiv.classList.add('show');
+      }
+      
+      // Check if CEP is available
+      setTimeout(function() {
+        if (typeof window.__adobe_cep__ === 'undefined' && typeof window.cep === 'undefined') {
+          console.warn('[CEP] CEP runtime not detected - extension may not be loaded correctly');
+        }
+      }, 1000);
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <div id="error-display"></div>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

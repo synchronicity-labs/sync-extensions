@@ -510,9 +510,41 @@ async function buildResolvePlugin() {
   }
   
   if (isResolvePackage) {
-    // Read version from package.json for Resolve ZIP filename
-    const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    // Read version from environment variable (set by release script) or package.json
+    let version = process.env.VERSION;
+    if (!version) {
+      const packageJsonPath = path.join(__dirname, 'package.json');
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+      version = packageJson.version;
+    }
+    
+    if (!version || version === '0' || version === '0.0.0') {
+      throw new Error(`Invalid version "${version}". Version must be in format X.Y.Z (e.g., 0.9.55). Check package.json or set VERSION environment variable.`);
+    }
+    
+    console.log(`📦 Creating Resolve plugin ZIP with version: ${version}`);
     const zipPath = path.join(__dirname, devDist, `sync-resolve-plugin-v${version}.zip`);
+    
+    // Clean up old Resolve plugin zip files (keep only current version)
+    try {
+      const distDir = path.join(__dirname, devDist);
+      if (fs.existsSync(distDir)) {
+        const files = fs.readdirSync(distDir);
+        files.forEach(file => {
+          if (file.startsWith('sync-resolve-plugin-v') && file.endsWith('.zip') && file !== `sync-resolve-plugin-v${version}.zip`) {
+            const oldZipPath = path.join(distDir, file);
+            try {
+              fs.unlinkSync(oldZipPath);
+              console.log(`✓ Removed old zip file: ${file}`);
+            } catch (err) {
+              console.warn(`⚠️  Could not remove old zip file ${file}:`, err);
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️  Could not clean up old zip files:', err);
+    }
     
     if (fs.existsSync(zipPath)) {
       fs.unlinkSync(zipPath);
@@ -744,36 +776,94 @@ export default defineConfig({
       },
     },
     {
-      name: 'bolt-cep-fix-redirect',
+      name: 'bolt-cep-production-html',
       enforce: 'post',
       transformIndexHtml(html, context) {
-        // Skip in production/package builds to avoid conflicts with vite-cep-plugin
-        if (isProduction || isPackage) {
-          return html;
-        }
-        
         if (!html || typeof html !== 'string') {
           return html;
         }
         
-        // Ensure context exists and has required properties
-        if (!context || !context.bundle || !context.chunk) {
+        // In production/package builds: ensure clean production HTML
+        if (isProduction || isPackage) {
+          // Remove any dev server redirects that vite-cep-plugin might inject
+          html = html.replace(
+            /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
+            ''
+          );
+          
+          // Remove dev redirect divs
+          html = html.replace(
+            /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
+            ''
+          );
+          
+          // Ensure root div exists for React
+          if (!html.includes('id="root"')) {
+            html = html.replace(
+              /(<body[^>]*>)/i,
+              '$1\n    <div id="root"></div>'
+            );
+          }
+          
+          // CRITICAL: Ensure script src points to bundled file, not source .tsx
+          // Vite should transform this, but vite-cep-plugin might interfere
+          // If we see .tsx in the HTML, it means Vite didn't transform it
+          if (html.includes('src="./main.tsx"') || html.includes("src='./main.tsx'")) {
+            console.warn('⚠️  Warning: HTML still contains .tsx reference - Vite transform may have failed');
+            // Don't try to fix here - let Vite handle it, but log the issue
+          }
+          
           return html;
         }
         
-        let fixed = html.replace(
-          /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
-          `window.location.href = 'http://localhost:3001/main/'`
-        );
-        
-        if (fixed !== html) {
-          fixed = fixed.replace(
-            /(<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/['"])/g,
-            `$1; console.log('[CEP] Redirecting to dev server:', 'http://localhost:3001/main/');`
-          );
+        // Dev mode: allow redirects but fix path
+        if (!isProduction && !isPackage) {
+          if (context && context.bundle && context.chunk) {
+            html = html.replace(
+              /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
+              `window.location.href = 'http://localhost:3001/main/'`
+            );
+          }
         }
         
-        return fixed;
+        return html;
+      },
+      async closeBundle() {
+        // Final cleanup: ensure production HTML is correct after vite-cep-plugin finishes
+        if (isProduction || isPackage) {
+          cepConfig.panels.forEach(panel => {
+            const htmlPath = path.join(outDir, panel.name, 'index.html');
+            if (fs.existsSync(htmlPath)) {
+              let content = fs.readFileSync(htmlPath, 'utf-8');
+              const originalContent = content;
+              
+              // Remove any dev redirects that might have been injected
+              content = content.replace(
+                /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
+                ''
+              );
+              
+              // Remove dev redirect divs
+              content = content.replace(
+                /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
+                ''
+              );
+              
+              // Ensure root div exists
+              if (!content.includes('id="root"')) {
+                content = content.replace(
+                  /(<body[^>]*>)/i,
+                  '$1\n    <div id="root"></div>'
+                );
+              }
+              
+              if (content !== originalContent) {
+                fs.writeFileSync(htmlPath, content, 'utf-8');
+                console.log(`✓ Ensured production HTML is clean: ${htmlPath}`);
+              }
+            }
+          });
+        }
       },
       async buildEnd() {
         fixRedirectPath();
@@ -782,12 +872,26 @@ export default defineConfig({
           const criticalPaths = [
             path.join(outDir, 'main', 'index.html'),
             path.join(outDir, 'bin'),
-            path.join(outDir, 'jsx', 'index.jsxbin')
+            path.join(outDir, 'jsx', 'index.jsxbin'),
+            path.join(outDir, 'js', 'panels', 'ppro', 'epr') // EPR presets required for Premiere Pro in/out exports
           ];
           
           for (const criticalPath of criticalPaths) {
             if (!fs.existsSync(criticalPath)) {
               console.warn(`Warning: Critical build artifact missing: ${criticalPath}`);
+            } else if (criticalPath.includes('epr')) {
+              // Verify epr folder contains files
+              try {
+                const eprFiles = fs.readdirSync(criticalPath);
+                const eprFileCount = eprFiles.filter(f => f.endsWith('.epr')).length;
+                if (eprFileCount === 0) {
+                  console.warn(`Warning: EPR folder exists but contains no .epr files: ${criticalPath}`);
+                } else {
+                  console.log(`✓ Verified EPR presets: ${eprFileCount} files found in ${criticalPath}`);
+                }
+              } catch (err) {
+                console.warn(`Warning: Could not verify EPR files: ${err}`);
+              }
             }
           }
         }
@@ -822,7 +926,38 @@ export default defineConfig({
           }
         }
         
+        // Ensure bin folder with Node.js binaries is copied (required, not optional)
+        const binSource = path.join(__dirname, 'bin');
         const binDest = path.join(outDir, 'bin');
+        if (!fs.existsSync(binDest) || isProduction || isPackage) {
+          if (!fs.existsSync(binSource)) {
+            console.error('❌ ERROR: bin folder not found at', binSource);
+            throw new Error('bin folder with Node.js binaries is required but not found');
+          }
+          if (fs.existsSync(binDest)) {
+            fs.rmSync(binDest, { recursive: true, force: true });
+          }
+          fs.mkdirSync(binDest, { recursive: true });
+          fs.cpSync(binSource, binDest, { recursive: true });
+          console.log('✓ Copied bin folder with Node.js binaries to', binDest);
+        }
+        
+        // Ensure epr preset files are copied (required for Premiere Pro in/out exports)
+        const eprSource = path.join(__dirname, 'src', 'js', 'panels', 'ppro', 'epr');
+        const eprDest = path.join(outDir, 'js', 'panels', 'ppro', 'epr');
+        if (!fs.existsSync(eprDest) || isProduction || isPackage) {
+          if (fs.existsSync(eprSource)) {
+            if (fs.existsSync(eprDest)) {
+              fs.rmSync(eprDest, { recursive: true, force: true });
+            }
+            fs.mkdirSync(eprDest, { recursive: true });
+            fs.cpSync(eprSource, eprDest, { recursive: true });
+            console.log('✓ Copied epr preset files to', eprDest);
+          } else {
+            console.warn('⚠️  Warning: epr preset folder not found at', eprSource);
+          }
+        }
+        
         if (fs.existsSync(binDest)) {
           const buildScripts = ['release.sh', 'uninstall.sh', 'uninstall.bat'];
           for (const script of buildScripts) {
@@ -948,6 +1083,26 @@ export default defineConfig({
         if (!fs.existsSync(assetsDir)) {
           fs.mkdirSync(assetsDir, { recursive: true });
           console.log('✓ Created assets directory:', assetsDir);
+        }
+        
+        // Ensure epr preset files are copied early (required for Premiere Pro in/out exports)
+        // This is especially important in dev mode where vite-cep-plugin might not copy folders
+        const eprSource = path.join(__dirname, 'src', 'js', 'panels', 'ppro', 'epr');
+        const eprDest = path.join(outDir, 'js', 'panels', 'ppro', 'epr');
+        if (fs.existsSync(eprSource)) {
+          const needsCopy = !fs.existsSync(eprDest) || 
+            (fs.existsSync(eprDest) && fs.statSync(eprSource).mtime > fs.statSync(eprDest).mtime);
+          
+          if (needsCopy) {
+            if (fs.existsSync(eprDest)) {
+              fs.rmSync(eprDest, { recursive: true, force: true });
+            }
+            fs.mkdirSync(eprDest, { recursive: true });
+            fs.cpSync(eprSource, eprDest, { recursive: true });
+            console.log('✓ Copied epr preset files to', eprDest);
+          }
+        } else {
+          console.warn('⚠️  Warning: epr preset folder not found at', eprSource);
         }
         
         if (isProduction || isPackage) {
