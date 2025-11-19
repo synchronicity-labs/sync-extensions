@@ -993,6 +993,22 @@ export default defineConfig({
               }
             }
           }
+          
+          const nodeBinaries = [
+            path.join(binDest, 'darwin-arm64', 'node'),
+            path.join(binDest, 'darwin-x64', 'node'),
+            path.join(binDest, 'win32-x64', 'node.exe'),
+          ];
+          
+          for (const nodeBin of nodeBinaries) {
+            if (fs.existsSync(nodeBin)) {
+              try {
+                fs.chmodSync(nodeBin, 0o755);
+              } catch (err) {
+                console.warn(`Warning: Failed to set executable permissions on ${nodeBin}:`, err);
+              }
+            }
+          }
         }
         
         if (isPackage) {

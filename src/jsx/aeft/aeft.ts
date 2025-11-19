@@ -1796,7 +1796,6 @@ export function AEFT_startBackend() {
       }
     } catch(e) {}
 
-    // Check if server is already running
     try {
       var url = "http://127.0.0.1:3000/health";
       var cmd;
@@ -1857,20 +1856,23 @@ export function AEFT_startBackend() {
       var serverPath = extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts");
       var serverFile = new File(serverPath);
       if (!serverFile.exists) {
-        // Try dist/server path
         serverPath = extPath + (isWindows ? "\\dist\\server\\server.ts" : "/dist/server/server.ts");
         serverFile = new File(serverPath);
         if (!serverFile.exists) {
-          var errorMsg = "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts") + " and " + serverPath;
-          try {
-            var logFile = _syncDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-              logFile.close();
-            }
-          } catch(e) {}
-          return _respond({ ok: false, error: errorMsg });
+          serverPath = extPath + (isWindows ? "\\cep\\server\\server.ts" : "/cep/server/server.ts");
+          serverFile = new File(serverPath);
+          if (!serverFile.exists) {
+            var errorMsg = "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts") + ", " + extPath + (isWindows ? "\\dist\\server\\server.ts" : "/dist/server/server.ts") + ", and " + serverPath;
+            try {
+              var logFile = _syncDebugLogFile();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+                logFile.close();
+              }
+            } catch(e) {}
+            return _respond({ ok: false, error: errorMsg });
+          }
         }
       }
       
@@ -1883,12 +1885,10 @@ export function AEFT_startBackend() {
         }
       } catch(e) {}
       
-      // Determine bundled Node binary path
       var nodeBin = "";
       if (isWindows) {
         nodeBin = extPath + "\\bin\\win32-x64\\node.exe";
       } else {
-        // macOS: detect architecture (arm64 or x64)
         try {
           var archFile = new File(extPath + "/bin/darwin-arm64/node");
           var isArm64 = archFile.exists;
@@ -1898,7 +1898,6 @@ export function AEFT_startBackend() {
             nodeBin = extPath + "/bin/darwin-x64/node";
           }
         } catch(e) {
-          // Fallback to x64 if detection fails
           nodeBin = extPath + "/bin/darwin-x64/node";
         }
       }
@@ -1926,8 +1925,6 @@ export function AEFT_startBackend() {
         }
       } catch(e) {}
       
-      // Spawn server process in background using bundled Node binary
-      // Redirect stderr to log file so we can see errors
       var serverErrLog = '';
       try {
         var logDir = SYNC_getLogDir();
@@ -1936,33 +1933,40 @@ export function AEFT_startBackend() {
         }
       } catch(_) {}
       
-      var spawnCmd;
-      if (isWindows) {
-        // Windows: use start with /B to run in background, pass HOST_APP environment variable
-        // Use tsx to run TypeScript directly
-        var serverDir = serverPath.replace(/\\server\.ts$/, '').replace(/\/server\.ts$/, '');
-        var tsxBin = serverDir + "\\node_modules\\.bin\\tsx.cmd";
-        spawnCmd = 'cmd.exe /c "set HOST_APP=AEFT && start /B "' + tsxBin.replace(/\\/g, '\\\\') + '" "' + serverPath.replace(/\\/g, '\\\\') + '"';
+      var serverDir = serverPath;
+      if (serverDir.indexOf("/server/server.ts") !== -1) {
+        serverDir = serverDir.replace("/server/server.ts", "/server");
+      } else if (serverDir.indexOf("/dist/server/server.ts") !== -1) {
+        serverDir = serverDir.replace("/dist/server/server.ts", "/dist/server");
+      } else if (serverDir.indexOf("/cep/server/server.ts") !== -1) {
+        serverDir = serverDir.replace("/cep/server/server.ts", "/cep/server");
       } else {
-        // macOS: use nohup to run in background and redirect output
-        // Determine server directory from serverPath
-        var serverDir = serverPath;
-        if (serverDir.indexOf("/server/server.ts") !== -1) {
-          serverDir = serverDir.replace("/server/server.ts", "/server");
-        } else if (serverDir.indexOf("/dist/server/server.ts") !== -1) {
-          serverDir = serverDir.replace("/dist/server/server.ts", "/dist/server");
-        } else {
-          // Fallback: just use extPath + "/server"
-          serverDir = extPath + "/server";
-        }
-        // Use tsx to run TypeScript directly - tsx is in dependencies
-        var tsxBin = serverDir + (isWindows ? "\\node_modules\\.bin\\tsx.cmd" : "/node_modules/.bin/tsx");
-        var serverFile = serverDir + (isWindows ? "\\server.ts" : "/server.ts");
-        // Redirect stderr to log file instead of /dev/null
-        var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
-        // Pass HOST_APP environment variable for macOS, use tsx to run TypeScript
-        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && HOST_APP=AEFT nohup \"" + tsxBin.replace(/"/g, '\\"') + "\" server.ts >/dev/null" + redirectErr + " &'";
+        serverDir = extPath + "/server";
       }
+      
+      var spawnCmd;
+      var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
+      var redirectOut = serverErrLog ? ' >>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' >/dev/null';
+      
+      if (isWindows) {
+        spawnCmd = 'cmd.exe /c "set HOST_APP=AEFT && cd /d "' + serverDir.replace(/\\/g, '\\\\') + '" && start /B "' + nodeBin.replace(/\\/g, '\\\\') + '" -r tsx/cjs server.ts"';
+      } else {
+        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && HOST_APP=AEFT nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" -r tsx/cjs server.ts" + redirectOut + redirectErr + " &'";
+      }
+      
+      try {
+        var logFile = _syncDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
+          logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
+          logFile.writeln('[' + new Date().toString() + '] Server file: ' + serverPath);
+          if (serverErrLog) {
+            logFile.writeln('[' + new Date().toString() + '] Server logs: ' + serverErrLog);
+          }
+          logFile.close();
+        }
+      } catch(e) {}
       
       try {
         var logFile = _syncDebugLogFile();
@@ -1977,6 +1981,13 @@ export function AEFT_startBackend() {
         }
       } catch(e) {}
       
+      if (!isWindows) {
+        try {
+          var chmodCmd = "/bin/bash -c 'chmod +x \"" + nodeBin.replace(/"/g, '\\"') + "\"'";
+          _callSystem(chmodCmd);
+        } catch(e) {}
+      }
+      
       var spawnResult = _callSystem(spawnCmd);
       
       try {
@@ -1988,10 +1999,9 @@ export function AEFT_startBackend() {
         }
       } catch(e) {}
       
-      // Wait a moment for server to start
       var waitStart = new Date().getTime();
       var serverStarted = false;
-      while (new Date().getTime() - waitStart < 2000) {
+      while (new Date().getTime() - waitStart < 3000) {
         try {
           var checkUrl = "http://127.0.0.1:3000/health";
           var checkCmd;
@@ -2013,36 +2023,28 @@ export function AEFT_startBackend() {
             } catch(e) {}
             return _respond({ ok: true, message: "Backend started successfully" });
           }
-        } catch(e) {
-          try {
-            var logFile = _syncDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
-              logFile.close();
-            }
-          } catch(_) {}
-        }
-        // Small delay before checking again
+        } catch(e) {}
         var delayStart = new Date().getTime();
-        while (new Date().getTime() - delayStart < 100) { /* wait 100ms */ }
+        while (new Date().getTime() - delayStart < 200) {}
       }
       
       if (!serverStarted) {
+        var errorMsg = "Server start command executed but server not responding after 3 seconds";
+        if (serverErrLog) {
+          errorMsg += ". Check errors in: " + serverErrLog;
+        }
         try {
           var logFile = _syncDebugLogFile();
           if (logFile && logFile.fsName) {
             logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] WARNING: Server start command executed but server not responding after 2 seconds');
-            if (serverErrLog) {
-              logFile.writeln('[' + new Date().toString() + '] Check server errors in: ' + serverErrLog);
-            }
+            logFile.writeln('[' + new Date().toString() + '] WARNING: ' + errorMsg);
             logFile.close();
           }
         } catch(e) {}
+        return _respond({ ok: false, error: errorMsg });
       }
       
-      return _respond({ ok: true, message: "Backend start command executed (may still be starting)" });
+      return _respond({ ok: true, message: "Backend started successfully" });
     } catch(e) {
       var errorMsg = "Failed to start backend: " + String(e);
       try {
