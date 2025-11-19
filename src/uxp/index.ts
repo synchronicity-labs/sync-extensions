@@ -1,5 +1,6 @@
 // UXP Host Script Entry Point
 // This replaces the ExtendScript JSX files
+// Host scripts in UXP run in the host application context
 
 import * as aeft from "./aeft";
 import * as ppro from "./ppro";
@@ -9,14 +10,14 @@ const ns = "com.sync.extension";
 // Detect host application
 function getAppName(): "AEFT" | "PPRO" | "unknown" {
   try {
-    // UXP provides app information via require
-    const host = require("uxp").host;
-    if (host && host.app) {
-      const appName = host.app.name || "";
-      if (appName.toLowerCase().includes("after effects") || appName.toLowerCase().includes("aftereffects")) {
+    // UXP provides app information
+    const uxp = require("uxp");
+    if (uxp && uxp.host && uxp.host.app) {
+      const appName = (uxp.host.app.name || "").toLowerCase();
+      if (appName.includes("after effects") || appName.includes("aftereffects")) {
         return "AEFT";
       }
-      if (appName.toLowerCase().includes("premiere")) {
+      if (appName.includes("premiere")) {
         return "PPRO";
       }
     }
@@ -46,40 +47,33 @@ function getAppName(): "AEFT" | "PPRO" | "unknown" {
 const appName = getAppName();
 
 // Set up namespace and functions
+// In UXP, host scripts expose functions that can be called from the panel
+const hostModule = appName === "AEFT" ? aeft : ppro;
+
+// Export all functions for UXP communication
+// UXP host scripts expose functions via module exports
+export const getHostFunctions = () => {
+  return hostModule;
+};
+
+// Also expose via namespace for compatibility
 try {
-  const host = typeof global !== "undefined" ? global : window;
+  const host = typeof global !== "undefined" ? global : (typeof window !== "undefined" ? window : {});
+  (host as any)[ns] = hostModule;
   
-  // Default to ppro (Premiere Pro)
-  (host as any)[ns] = ppro;
-  
-  // Override with aeft if we're in After Effects
-  if (appName === "AEFT") {
-    (host as any)[ns] = aeft;
-  }
-  
-  // Also ensure functions are available globally as a fallback
-  try {
-    for (const key in ppro) {
-      if (Object.prototype.hasOwnProperty.call(ppro, key)) {
-        (host as any)[key] = (ppro as any)[key];
-      }
+  // Export individual functions for direct access
+  for (const key in hostModule) {
+    if (Object.prototype.hasOwnProperty.call(hostModule, key)) {
+      (host as any)[key] = (hostModule as any)[key];
     }
-    for (const key in aeft) {
-      if (Object.prototype.hasOwnProperty.call(aeft, key)) {
-        (host as any)[key] = (aeft as any)[key];
-      }
-    }
-  } catch (globalErr) {
-    console.error("[uxp/index] Error setting global functions:", globalErr);
   }
 } catch (e) {
-  // Last resort: try to set at least one
-  try {
-    const host = typeof global !== "undefined" ? global : window;
-    (host as any)[ns] = ppro; // Always default to ppro
-  } catch (e2) {
-    console.error("[uxp/index] CRITICAL: Failed to initialize host[ns]:", e, e2);
-  }
+  console.error("[uxp/index] Error setting up exports:", e);
 }
 
+// Export for module system
+export { aeft, ppro };
+export default hostModule;
+
+// Type exports
 export type Scripts = typeof aeft & typeof ppro;

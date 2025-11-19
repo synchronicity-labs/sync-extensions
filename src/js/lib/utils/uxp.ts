@@ -1,55 +1,72 @@
 // UXP Communication Layer
-// UXP host scripts are JavaScript modules that can be imported
+// UXP host scripts communicate via UXP messaging APIs
 
 /**
  * Call a function in the UXP host script
- * In UXP, host scripts are loaded as modules and can be called directly
+ * In UXP, host scripts are loaded as modules and functions can be called directly
  */
 export async function callUXPFunction<T = any>(
   functionName: string,
   ...args: any[]
 ): Promise<T> {
   try {
-    // UXP host scripts are available via require or import
-    // The host script is loaded as a module with the namespace
-    const ns = "com.sync.extension";
-    
-    // Try to get the host script module
-    let hostModule: any;
+    // UXP host scripts are available via the communication API
+    // First try to get host script via communication API
     try {
-      // In UXP, host scripts are available via the extension's main module
-      hostModule = require("../../uxp/index");
-    } catch (e) {
-      // Fallback: try to access via window/global
-      const host = typeof window !== "undefined" ? (window as any) : (global as any);
-      hostModule = host[ns];
-    }
-    
-    if (!hostModule) {
-      throw new Error(`Host script module not found for namespace: ${ns}`);
-    }
-    
-    // Call the function
-    const fn = hostModule[functionName];
-    if (typeof fn !== "function") {
-      throw new Error(`Function ${functionName} not found in host script`);
-    }
-    
-    const result = await fn(...args);
-    
-    // Parse JSON response if it's a string
-    if (typeof result === "string") {
-      try {
-        return JSON.parse(result) as T;
-      } catch (e) {
-        return result as T;
+      const { communication } = require("uxp");
+      if (communication) {
+        const hostScript = communication.getHostScript?.();
+        if (hostScript && typeof hostScript[functionName] === "function") {
+          const result = await hostScript[functionName](...args);
+          if (typeof result === "string") {
+            try {
+              return JSON.parse(result) as T;
+            } catch (e) {
+              return result as T;
+            }
+          }
+          return result as T;
+        }
       }
+    } catch (e) {
+      // Communication API not available, try next method
     }
     
-    return result as T;
+    // Fallback: Try to access via namespace
+    const ns = "com.sync.extension";
+    const host = typeof window !== "undefined" ? (window as any) : (typeof global !== "undefined" ? (global as any) : {});
+    const hostModule = host[ns];
+    
+    if (hostModule && typeof hostModule[functionName] === "function") {
+      const result = await hostModule[functionName](...args);
+      if (typeof result === "string") {
+        try {
+          return JSON.parse(result) as T;
+        } catch (e) {
+          return result as T;
+        }
+      }
+      return result as T;
+    }
+    
+    // Try direct function access
+    if (typeof host[functionName] === "function") {
+      const result = await host[functionName](...args);
+      if (typeof result === "string") {
+        try {
+          return JSON.parse(result) as T;
+        } catch (e) {
+          return result as T;
+        }
+      }
+      return result as T;
+    }
+    
+    throw new Error(`Function ${functionName} not found in host script`);
   } catch (error) {
     console.error(`[callUXPFunction] Error calling ${functionName}:`, error);
-    throw error;
+    // Return error response instead of throwing
+    return { ok: false, error: String(error) } as T;
   }
 }
 
@@ -58,12 +75,22 @@ export async function callUXPFunction<T = any>(
  */
 export function getHostInfo() {
   try {
-    const uxp = require("uxp");
-    if (uxp && uxp.host && uxp.host.app) {
-      return {
-        app: uxp.host.app.name || "unknown",
-        version: uxp.host.app.version || "unknown",
-      };
+    if (typeof window !== "undefined") {
+      const uxp = (window as any).require?.("uxp");
+      if (uxp && uxp.host && uxp.host.app) {
+        return {
+          app: uxp.host.app.name || "unknown",
+          version: uxp.host.app.version || "unknown",
+        };
+      }
+      
+      // Check HOST_CONFIG
+      if ((window as any).HOST_CONFIG) {
+        return {
+          app: (window as any).HOST_CONFIG.hostName || "unknown",
+          version: "unknown",
+        };
+      }
     }
   } catch (e) {
     // UXP not available
@@ -80,17 +107,21 @@ export function getHostInfo() {
  */
 export async function openLinkInBrowser(url: string) {
   try {
-    const { shell } = require("uxp");
-    if (shell && shell.openExternal) {
-      await shell.openExternal(url);
-      return;
+    if (typeof window !== "undefined") {
+      const { shell } = (window as any).require?.("uxp");
+      if (shell && shell.openExternal) {
+        await shell.openExternal(url);
+        return;
+      }
     }
   } catch (e) {
     // UXP shell API not available
   }
   
   // Fallback to window.open
-  window.open(url, "_blank");
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank");
+  }
 }
 
 /**
@@ -98,11 +129,13 @@ export async function openLinkInBrowser(url: string) {
  */
 export async function getExtensionRoot(): Promise<string> {
   try {
-    const { storage } = require("uxp");
-    if (storage && storage.localFileSystem) {
-      const fs = storage.localFileSystem;
-      const pluginFolder = await fs.getPluginFolder();
-      return pluginFolder.nativePath;
+    if (typeof window !== "undefined") {
+      const { storage } = (window as any).require?.("uxp");
+      if (storage && storage.localFileSystem) {
+        const fs = storage.localFileSystem;
+        const pluginFolder = await fs.getPluginFolder();
+        return pluginFolder.nativePath;
+      }
     }
   } catch (e) {
     console.error("[getExtensionRoot] Error:", e);

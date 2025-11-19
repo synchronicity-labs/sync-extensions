@@ -3,12 +3,13 @@ import { useCore } from "./useCore";
 import { useNLE } from "./useNLE";
 import { getApiUrl } from "../utils/serverConfig";
 
-// Server auto-start functionality
+// Server auto-start functionality (UXP)
 export const useServerAutoStart = () => {
   const { nle } = useNLE();
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.CSInterface) {
+    // UXP doesn't require CSInterface check
+    if (typeof window === "undefined") {
       return;
     }
 
@@ -138,4 +139,3 @@ export const useServerAutoStart = () => {
     };
   }, [nle]);
 };
-

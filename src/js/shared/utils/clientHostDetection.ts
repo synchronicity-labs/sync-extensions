@@ -41,45 +41,48 @@ export function detectHost(): HostConfig | null {
       }
     }
 
-    // Method 1: UXP host API
-    try {
-      const uxp = require("uxp");
-      if (uxp && uxp.host && uxp.host.app) {
-        const appName = (uxp.host.app.name || "").toUpperCase();
-        const appId = (uxp.host.app.id || "").toUpperCase();
-        
-        // Check for After Effects
-        if (
-          appId.indexOf("AEFT") !== -1 ||
-          appName.indexOf("AFTER EFFECTS") !== -1 ||
-          appName.indexOf("AFTEREFFECTS") !== -1
-        ) {
-          const config: HostConfig = {
-            hostId: HOST_IDS.AEFT,
-            hostName: HOST_NAMES.AEFT,
-            isAE: true,
-          };
-          window.HOST_CONFIG = config;
-          return config;
+    // Method 1: UXP host API (only available in UXP context)
+    if (typeof window !== "undefined") {
+      try {
+        // Check if we're in a UXP context
+        const uxp = (window as any).require?.("uxp");
+        if (uxp && uxp.host && uxp.host.app) {
+          const appName = (uxp.host.app.name || "").toUpperCase();
+          const appId = (uxp.host.app.id || "").toUpperCase();
+          
+          // Check for After Effects
+          if (
+            appId.indexOf("AEFT") !== -1 ||
+            appName.indexOf("AFTER EFFECTS") !== -1 ||
+            appName.indexOf("AFTEREFFECTS") !== -1
+          ) {
+            const config: HostConfig = {
+              hostId: HOST_IDS.AEFT,
+              hostName: HOST_NAMES.AEFT,
+              isAE: true,
+            };
+            window.HOST_CONFIG = config;
+            return config;
+          }
+          
+          // Check for Premiere Pro
+          if (
+            appId.indexOf("PPRO") !== -1 ||
+            appName.indexOf("PREMIERE") !== -1 ||
+            appName.indexOf("PREM") !== -1
+          ) {
+            const config: HostConfig = {
+              hostId: HOST_IDS.PPRO,
+              hostName: HOST_NAMES.PPRO,
+              isAE: false,
+            };
+            window.HOST_CONFIG = config;
+            return config;
+          }
         }
-        
-        // Check for Premiere Pro
-        if (
-          appId.indexOf("PPRO") !== -1 ||
-          appName.indexOf("PREMIERE") !== -1 ||
-          appName.indexOf("PREM") !== -1
-        ) {
-          const config: HostConfig = {
-            hostId: HOST_IDS.PPRO,
-            hostName: HOST_NAMES.PPRO,
-            isAE: false,
-          };
-          window.HOST_CONFIG = config;
-          return config;
-        }
+      } catch {
+        // UXP API not available (might be in browser/Resolve context)
       }
-    } catch {
-      // UXP API failed, try next method
     }
 
     // Method 2: Check for Resolve (Electron context)

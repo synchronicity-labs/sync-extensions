@@ -6,78 +6,43 @@ export const APP_VERSION = "0.9.44";
 export { parseBundleVersion } from '../../../shared/version';
 
 /**
- * Get extension version from manifest.xml dynamically
- * Reads CSXS/manifest.xml from the extension root
+ * Get extension version from manifest.json dynamically (UXP)
+ * Reads manifest.json from the extension root
  */
 export async function getExtensionVersion(): Promise<string> {
   try {
-    // Try to get extension path from CSInterface
-    if (typeof window !== 'undefined' && (window as any).CSInterface) {
-      const cs = new (window as any).CSInterface();
-      const extPath = cs.getSystemPath((window as any).CSInterface.SystemPath.EXTENSION);
-      
-      if (extPath) {
-        // Construct manifest path - normalize for Windows/Mac
-        let manifestPath = `${extPath}/CSXS/manifest.xml`;
-        
-        // Try XMLHttpRequest first (better CEP support for file://)
-        try {
-          const xmlText = await new Promise<string>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', `file://${manifestPath}`, true);
-            xhr.onload = () => {
-              if (xhr.status === 0 || xhr.status === 200) {
-                resolve(xhr.responseText);
-              } else {
-                reject(new Error(`HTTP ${xhr.status}`));
-              }
-            };
-            xhr.onerror = () => reject(new Error('Network error'));
-            xhr.send();
-          });
+    // Try to get extension path from UXP
+    if (typeof window !== "undefined") {
+      try {
+        const { storage } = (window as any).require?.("uxp");
+        if (storage && storage.localFileSystem) {
+          const fs = storage.localFileSystem;
+          const pluginFolder = await fs.getPluginFolder();
+          const manifestFile = await fs.getFileForReading(pluginFolder.nativePath + "/manifest.json");
           
-          const version = parseBundleVersion(xmlText);
-          if (version) {
-            return version;
-          }
-        } catch (xhrError) {
-          // Try relative path (manifest might be accessible relative to extension root)
-          try {
-            const relativePath = '../../CSXS/manifest.xml';
-            const xmlText = await new Promise<string>((resolve, reject) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open('GET', relativePath, true);
-              xhr.onload = () => {
-                if (xhr.status === 0 || xhr.status === 200) {
-                  resolve(xhr.responseText);
-                } else {
-                  reject(new Error(`HTTP ${xhr.status}`));
-                }
-              };
-              xhr.onerror = () => reject(new Error('Network error'));
-              xhr.send();
-            });
-            
-            const version = parseBundleVersion(xmlText);
-            if (version) {
-              return version;
-            }
-          } catch (relativeError) {
-            // Fallback: try fetch API (may work in some CEP contexts)
-            try {
-              const response = await fetch(`file://${manifestPath}`);
-              if (response.ok) {
-                const xmlText = await response.text();
-                const version = parseBundleVersion(xmlText);
-                if (version) {
-                  return version;
-                }
-              }
-            } catch (fetchError) {
-              // All methods failed
+          if (await manifestFile.exists()) {
+            const manifestText = await manifestFile.read();
+            const manifest = JSON.parse(manifestText);
+            if (manifest && manifest.version) {
+              return manifest.version;
             }
           }
         }
+      } catch (e) {
+        // UXP API not available, try fallback
+      }
+      
+      // Fallback: try to read manifest.json via fetch
+      try {
+        const response = await fetch("./manifest.json");
+        if (response.ok) {
+          const manifest = await response.json();
+          if (manifest && manifest.version) {
+            return manifest.version;
+          }
+        }
+      } catch (fetchError) {
+        // Ignore fetch errors
       }
     }
   } catch (_) {
@@ -87,4 +52,3 @@ export async function getExtensionVersion(): Promise<string> {
   // Fallback to default version
   return APP_VERSION;
 }
-

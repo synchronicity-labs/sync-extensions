@@ -93,10 +93,42 @@ export const setupWindowGlobals = (
     showToast(message, type);
   };
 
-  // Debug log path function
-  window.getDebugLogPath = () => {
+  // Debug log path function (UXP)
+  window.getDebugLogPath = async () => {
     try {
-      if (typeof window !== "undefined" && window.cep) {
+      if (typeof window !== "undefined") {
+        // Try UXP storage API
+        try {
+          const { storage } = (window as any).require?.("uxp");
+          if (storage && storage.localFileSystem) {
+            const fs = storage.localFileSystem;
+            const dataFolder = await fs.getDataFolder();
+            const baseFolder = await dataFolder.createFolder("sync. extensions", { create: true });
+            const logsFolder = await baseFolder.createFolder("logs", { create: true });
+            
+            // Check if debug is enabled
+            const debugFlag = await fs.getFileForReading(logsFolder.nativePath + "/.debug");
+            if (!(await debugFlag.exists())) {
+              return null; // Debug logging disabled
+            }
+            
+            // Determine host and return appropriate log file
+            const isAE = window.HOST_CONFIG && window.HOST_CONFIG.isAE;
+            const isPPRO = window.HOST_CONFIG && window.HOST_CONFIG.hostId === HOST_IDS.PPRO;
+            
+            if (isAE) {
+              return logsFolder.nativePath + "/sync_ae_debug.log";
+            } else if (isPPRO) {
+              return logsFolder.nativePath + "/sync_ppro_debug.log";
+            } else {
+              return logsFolder.nativePath + "/sync_server_debug.log";
+            }
+          }
+        } catch (_) {
+          // UXP API not available, fallback to Node.js
+        }
+        
+        // Fallback to Node.js (for Resolve plugin)
         const fs = require("fs");
         const path = require("path");
         const os = require("os");
@@ -128,15 +160,24 @@ export const setupWindowGlobals = (
     return null;
   };
 
-  // Open external URL function
-  window.openExternalURL = (url: string) => {
+  // Open external URL function (UXP)
+  window.openExternalURL = async (url: string) => {
     try {
-      if (typeof window !== "undefined" && window.CSInterface) {
-        const cs = new window.CSInterface();
-        cs.openURLInDefaultBrowser(url);
-      } else {
-        window.open(url, "_blank", "noopener,noreferrer");
+      // Try UXP shell API
+      if (typeof window !== "undefined") {
+        try {
+          const { shell } = (window as any).require?.("uxp");
+          if (shell && shell.openExternal) {
+            await shell.openExternal(url);
+            return;
+          }
+        } catch (_) {
+          // UXP API not available
+        }
       }
+      
+      // Fallback to window.open
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (_) {
       window.open(url, "_blank", "noopener,noreferrer");
     }
@@ -442,128 +483,55 @@ export const setupWindowGlobals = (
   };
 
   // Expose evalExtendScript for backward compatibility (host-specific function calls)
-  // Updated to use bolt-cep namespace approach
+  // Updated to use UXP host script approach
   (window as any).evalExtendScript = async (fn: string, payload?: any) => {
     try {
-      if (typeof window === "undefined" || !window.CSInterface) {
-        return { ok: false, error: "CSInterface not available" };
-      }
-
-      const cs = new window.CSInterface();
-      const ns = "com.sync.extension"; // Match the namespace from jsx/index.ts
+      // Use UXP host script communication
+      const { callUXPFunction } = await import("../../lib/utils/uxp");
       
-      // Format arguments - handle both string and object payloads
-      let formattedArg: string;
+      // Format payload - UXP functions expect JSON strings or plain strings
+      let formattedPayload: string;
       if (payload === undefined || payload === null) {
-        formattedArg = "";
+        formattedPayload = "";
       } else if (typeof payload === "string") {
-        // If payload is already a JSON string (starts with { or [), use it directly
-        // Otherwise, stringify it (for plain strings like file paths)
+        // If payload is already a JSON string, use it directly
         const trimmed = payload.trim();
         if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || 
             (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-          // Already a JSON string, use as-is
-          formattedArg = payload;
+          formattedPayload = payload;
         } else {
           // Plain string, stringify it
-          formattedArg = JSON.stringify(payload);
+          formattedPayload = JSON.stringify(payload);
         }
       } else {
-        // If payload is an object, stringify it
-        formattedArg = JSON.stringify(payload);
+        // Object payload, stringify it
+        formattedPayload = JSON.stringify(payload);
       }
       
-      // Build code using namespace approach (like evalTS in bolt.ts)
-      // Try namespace first, then fallback to global
-      const fnName = fn; // Store function name for error message
+      // Call UXP function
+      const result = await callUXPFunction(fn, formattedPayload);
       
-      // Escape the formattedArg for safe insertion into JavaScript code
-      // If it's a JSON string, we need to escape it properly as a string literal
-      let escapedArg: string;
-      if (!formattedArg) {
-        escapedArg = "";
-      } else if (formattedArg.startsWith("{") || formattedArg.startsWith("[")) {
-        // It's a JSON string - escape it as a JavaScript string literal
-        // Replace backslashes, quotes, and newlines
-        escapedArg = formattedArg
-          .replace(/\\/g, "\\\\")  // Escape backslashes first
-          .replace(/"/g, '\\"')     // Escape double quotes
-          .replace(/\n/g, "\\n")    // Escape newlines
-          .replace(/\r/g, "\\r")    // Escape carriage returns
-          .replace(/\t/g, "\\t");    // Escape tabs
-        escapedArg = '"' + escapedArg + '"'; // Wrap in quotes
-      } else {
-        // Plain string - escape it
-        escapedArg = JSON.stringify(formattedArg);
+      // Handle response
+      if (result && typeof result === "object" && "ok" in result) {
+        return result;
       }
       
-      const code = [
-        "(function(){",
-        "  try {",
-        "    var host = typeof $ !== 'undefined' ? $ : window;",
-        "    var fn = host['" + ns + "'] && host['" + ns + "']['" + fnName + "']",
-        "      ? host['" + ns + "']['" + fnName + "']",
-        "      : (typeof " + fnName + " !== 'undefined' ? " + fnName + " : null);",
-        "    if (!fn || typeof fn !== 'function') {",
-        "      return JSON.stringify({ ok: false, error: 'Function not found: " + fnName + "' });",
-        "    }",
-        "    var payload = " + escapedArg + ";",
-        "    var r = fn(payload);",
-        "    return typeof r === 'string' ? r : JSON.stringify(r);",
-        "  } catch(e) {",
-        "    return JSON.stringify({ ok: false, error: String(e) });",
-        "  }",
-        "})()",
-      ].join("\n");
-
-      return new Promise((resolve) => {
-        cs.evalScript(code, (res: string) => {
-          let out = null;
-          try {
-            // Try to parse as JSON first
-            if (res && typeof res === "string") {
-              out = JSON.parse(res);
-            } else {
-              out = res;
-            }
-          } catch (parseErr) {
-            // If parsing fails, try to handle as string response
-            if (res && typeof res === "string") {
-              // Check if it looks like a path
-              if (res.indexOf("/") !== -1 || res.indexOf("\\") !== -1) {
-                resolve({ ok: true, path: res, _local: true });
-                return;
-              }
-              // Otherwise treat as error
-              resolve({ ok: false, error: res, _local: true });
-              return;
-            }
-            resolve({ ok: false, error: String(res || "no response"), _local: true });
-            return;
-          }
-          
-          // Validate response structure
-          if (!out || typeof out !== "object") {
-            resolve({ ok: false, error: String(res || "invalid response"), _local: true });
-            return;
-          }
-          
-          // If response doesn't have 'ok' property, assume it's an error
-          if ((out as any).ok === undefined) {
-            // Check if it's a valid response object that just lacks 'ok'
-            if (typeof (out as any).error === "string") {
-              resolve(out);
-              return;
-            }
-            resolve({ ok: false, error: String(res || "no response"), _local: true });
-            return;
-          }
-          
-          resolve(out);
-        });
-      });
-    } catch (e) {
-      return { ok: false, error: String(e) };
+      // If result is a string that looks like a path, wrap it
+      if (typeof result === "string") {
+        if (result.indexOf("/") !== -1 || result.indexOf("\\") !== -1) {
+          return { ok: true, path: result };
+        }
+        // Try to parse as JSON
+        try {
+          return JSON.parse(result);
+        } catch (_) {
+          return { ok: false, error: result };
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      return { ok: false, error: String(error) };
     }
   };
 };

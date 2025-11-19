@@ -853,12 +853,18 @@ export default defineConfig({
                   format: 'cjs',
                   outfile: destFile,
                   external: ['uxp', 'application'],
+                  define: {
+                    'process.platform': JSON.stringify(process.platform),
+                  },
                 });
                 console.log(`✓ Built UXP host script: ${dest}`);
+              } else {
+                console.warn(`⚠️  UXP host script source not found: ${srcFile}`);
               }
             }
           } catch (error: any) {
             console.error('❌ Failed to build UXP host scripts:', error?.message || error);
+            // Don't fail the build, but log the error
           }
           
           // Copy manifest.json to output

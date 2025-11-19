@@ -47,29 +47,50 @@ jobs:
           RESOLVE_PACKAGE: true
 
       - name: Package UXP extension
+        shell: bash
         run: |
           cd dist/uxp
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            powershell -Command "Compress-Archive -Path * -DestinationPath ../uxp-sync-extension-v${{ steps.version.outputs.version }}-windows.zip -Force"
+          OS_NAME="${{ matrix.os }}"
+          if [ "$OS_NAME" == "macos-latest" ]; then
+            OS_SUFFIX="macos"
+          elif [ "$OS_NAME" == "windows-latest" ]; then
+            OS_SUFFIX="windows"
           else
-            zip -r ../uxp-sync-extension-v${{ steps.version.outputs.version }}-${{ runner.os }}.zip .
+            OS_SUFFIX="linux"
+          fi
+          
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            powershell -Command "Compress-Archive -Path * -DestinationPath ../uxp-sync-extension-v${{ steps.version.outputs.version }}-${OS_SUFFIX}.zip -Force"
+          else
+            zip -r ../uxp-sync-extension-v${{ steps.version.outputs.version }}-${OS_SUFFIX}.zip .
           fi
 
       - name: Package Resolve plugin
+        shell: bash
         run: |
           cd dist
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            powershell -Command "Compress-Archive -Path resolve -DestinationPath davinci-sync-extension-v${{ steps.version.outputs.version }}-windows.zip -Force"
+          OS_NAME="${{ matrix.os }}"
+          if [ "$OS_NAME" == "macos-latest" ]; then
+            OS_SUFFIX="macos"
+          elif [ "$OS_NAME" == "windows-latest" ]; then
+            OS_SUFFIX="windows"
           else
-            zip -r davinci-sync-extension-v${{ steps.version.outputs.version }}-${{ runner.os }}.zip resolve
+            OS_SUFFIX="linux"
+          fi
+          
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            powershell -Command "Compress-Archive -Path resolve -DestinationPath davinci-sync-extension-v${{ steps.version.outputs.version }}-${OS_SUFFIX}.zip -Force"
+          else
+            zip -r davinci-sync-extension-v${{ steps.version.outputs.version }}-${OS_SUFFIX}.zip resolve
           fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: packages-${{ runner.os }}
+          name: packages-${{ matrix.os }}
           path: |
-            dist/*.zip
+            dist/uxp-sync-extension-*.zip
+            dist/davinci-sync-extension-*.zip
           retention-days: 30
 
   upload_release:
@@ -114,12 +135,12 @@ jobs:
             **UXP Extension (After Effects & Premiere Pro):**
             - macOS: `uxp-sync-extension-v${{ steps.version.outputs.version }}-macos.zip`
             - Windows: `uxp-sync-extension-v${{ steps.version.outputs.version }}-windows.zip`
-            - Linux: `uxp-sync-extension-v${{ steps.version.outputs.version }}-ubuntu-latest.zip`
+            - Linux: `uxp-sync-extension-v${{ steps.version.outputs.version }}-linux.zip`
             
             **DaVinci Resolve Plugin:**
             - macOS: `davinci-sync-extension-v${{ steps.version.outputs.version }}-macos.zip`
             - Windows: `davinci-sync-extension-v${{ steps.version.outputs.version }}-windows.zip`
-            - Linux: `davinci-sync-extension-v${{ steps.version.outputs.version }}-ubuntu-latest.zip`
+            - Linux: `davinci-sync-extension-v${{ steps.version.outputs.version }}-linux.zip`
             
             Choose the appropriate package for your platform and application.
             
