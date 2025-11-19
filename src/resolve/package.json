@@ -1,6 +1,6 @@
 {
   "name": "sync-resolve",
-  "version": "0.9.56",
+  "version": "0.9.57",
   "main": "backend.js",
   "scripts": {
     "start": "electron backend.js",

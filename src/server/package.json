@@ -1,6 +1,6 @@
 {
   "name": "sync-extensions-server",
-  "version": "0.9.56",
+  "version": "0.9.57",
   "private": true,
   "type": "module",
   "main": "server.ts",
