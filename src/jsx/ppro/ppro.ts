@@ -945,24 +945,17 @@ export function PPRO_startBackend() {
       var serverPath = extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts");
       var serverFile = new File(serverPath);
       if (!serverFile.exists) {
-        serverPath = extPath + (isWindows ? "\\dist\\server\\server.ts" : "/dist/server/server.ts");
-        serverFile = new File(serverPath);
-        if (!serverFile.exists) {
-          serverPath = extPath + (isWindows ? "\\cep\\server\\server.ts" : "/cep/server/server.ts");
-          serverFile = new File(serverPath);
-          if (!serverFile.exists) {
-            var errorMsg = "Server file not found. Tried: " + extPath + (isWindows ? "\\server\\server.ts" : "/server/server.ts") + ", " + extPath + (isWindows ? "\\dist\\server\\server.ts" : "/dist/server/server.ts") + ", and " + serverPath;
-            try {
-              var logFile = _pproDebugLogFile();
-              if (logFile && logFile.fsName) {
-                logFile.open('a');
-                logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-                logFile.close();
-              }
-            } catch(e) {}
-            return _respond({ ok: false, error: errorMsg });
+        var errorMsg = "Server file not found at: " + serverPath;
+        try {
+          var logFile = _pproDebugLogFile();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+            logFile.close();
           }
-        }
+        } catch(e) {}
+        return _respond({ ok: false, error: errorMsg });
       }
       
       try {
@@ -1023,16 +1016,7 @@ export function PPRO_startBackend() {
         }
       } catch(_) {}
       
-      var serverDir = serverPath;
-      if (serverDir.indexOf("/server/server.ts") !== -1) {
-        serverDir = serverDir.replace("/server/server.ts", "/server");
-      } else if (serverDir.indexOf("/dist/server/server.ts") !== -1) {
-        serverDir = serverDir.replace("/dist/server/server.ts", "/dist/server");
-      } else if (serverDir.indexOf("/cep/server/server.ts") !== -1) {
-        serverDir = serverDir.replace("/cep/server/server.ts", "/cep/server");
-      } else {
-        serverDir = extPath + "/server";
-      }
+      var serverDir = extPath + (isWindows ? "\\server" : "/server");
       
       var spawnCmd;
       var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
