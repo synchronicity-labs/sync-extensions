@@ -523,7 +523,6 @@ async function buildResolvePlugin() {
     }
     
     console.log(`📦 Creating Resolve plugin ZIP with version: ${version}`);
-    const zipPath = path.join(__dirname, devDist, `sync-resolve-plugin-v${version}.zip`);
     
     // Clean up old Resolve plugin zip files (keep only current version)
     try {
@@ -531,7 +530,10 @@ async function buildResolvePlugin() {
       if (fs.existsSync(distDir)) {
         const files = fs.readdirSync(distDir);
         files.forEach(file => {
-          if (file.startsWith('sync-resolve-plugin-v') && file.endsWith('.zip') && file !== `sync-resolve-plugin-v${version}.zip`) {
+          // Clean up both old naming conventions
+          const isOldSyncResolve = file.startsWith('sync-resolve-plugin-v') && file.endsWith('.zip');
+          const isOldDavinci = file.startsWith('davinci-sync-extension-v') && file.endsWith('.zip') && file !== `davinci-sync-extension-v${version}.zip`;
+          if (isOldSyncResolve || isOldDavinci) {
             const oldZipPath = path.join(distDir, file);
             try {
               fs.unlinkSync(oldZipPath);
@@ -546,13 +548,28 @@ async function buildResolvePlugin() {
       console.warn('⚠️  Could not clean up old zip files:', err);
     }
     
+    // Create final package: davinci-sync-extension-v${version}.zip with sync.resolve folder + instructions
+    const zipPath = path.join(__dirname, devDist, `davinci-sync-extension-v${version}.zip`);
+    
     if (fs.existsSync(zipPath)) {
       fs.unlinkSync(zipPath);
     }
     
     console.log(`\nCreating Resolve plugin ZIP package...`);
     
-    const instructionsPath = path.join(resolveDest, 'INSTALLATION_INSTRUCTIONS.txt');
+    // Create temp directory for packaging
+    const tempPackageDir = path.join(__dirname, devDist, '.resolve-package-temp');
+    if (fs.existsSync(tempPackageDir)) {
+      fs.rmSync(tempPackageDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(tempPackageDir, { recursive: true });
+    
+    // Copy resolve folder as sync.resolve (DaVinci Resolve requires this name)
+    const syncResolveDest = path.join(tempPackageDir, 'sync.resolve');
+    fs.cpSync(resolveDest, syncResolveDest, { recursive: true });
+    
+    // Add installation instructions
+    const instructionsPath = path.join(tempPackageDir, 'INSTALLATION_INSTRUCTIONS.txt');
     const instructions = `INSTALLATION INSTRUCTIONS FOR DAVINCI RESOLVE PLUGIN
 ================================================
 
@@ -609,26 +626,32 @@ For more help, visit: https://sync.so
     console.log(`✓ Created installation instructions file`);
     
     try {
+      // Create zip from temp package directory (contains sync.resolve folder + instructions)
       if (process.platform === 'win32') {
-        const resolveDirName = path.basename(resolveDest);
-        const parentDir = path.dirname(resolveDest);
         execSync(
-          `powershell -Command "Compress-Archive -Path '${resolveDirName}' -DestinationPath '${path.basename(zipPath)}' -Force"`,
-          { cwd: parentDir, stdio: 'inherit' }
+          `powershell -Command "Compress-Archive -Path 'sync.resolve','INSTALLATION_INSTRUCTIONS.txt' -DestinationPath '${path.basename(zipPath)}' -Force"`,
+          { cwd: tempPackageDir, stdio: 'inherit' }
         );
-        const tempZip = path.join(parentDir, path.basename(zipPath));
+        const tempZip = path.join(tempPackageDir, path.basename(zipPath));
         if (fs.existsSync(tempZip) && tempZip !== zipPath) {
           fs.renameSync(tempZip, zipPath);
         }
       } else {
         // macOS/Linux: Use zip command
         execSync(
-          `cd "${path.dirname(resolveDest)}" && zip -r "${zipPath}" "${path.basename(resolveDest)}"`,
+          `cd "${tempPackageDir}" && zip -r "${zipPath}" sync.resolve INSTALLATION_INSTRUCTIONS.txt`,
           { stdio: 'inherit' }
         );
       }
       console.log(`✓ Created Resolve plugin ZIP: ${zipPath}`);
+      
+      // Clean up temp directory
+      fs.rmSync(tempPackageDir, { recursive: true, force: true });
     } catch (err) {
+      // Clean up temp directory on error
+      if (fs.existsSync(tempPackageDir)) {
+        fs.rmSync(tempPackageDir, { recursive: true, force: true });
+      }
       console.error('Failed to create ZIP package:', err);
       throw err;
     }

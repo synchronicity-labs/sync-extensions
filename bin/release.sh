@@ -78,7 +78,8 @@ npm run zxp
 echo ""
 echo "Cleaning up old ZIP files from dist/..."
 # Remove old zip files (keep only the current version being built)
-find "$REPO_DIR/dist" -maxdepth 1 -type f \( -name "*.zip" -o -name "*.ZIP" \) ! -name "sync-resolve-plugin-v${VERSION}.zip" -delete 2>/dev/null || true
+# Clean up both old naming conventions
+find "$REPO_DIR/dist" -maxdepth 1 -type f \( -name "sync-resolve-plugin-*.zip" -o -name "davinci-sync-extension-*.zip" \) ! -name "davinci-sync-extension-v${VERSION}.zip" -delete 2>/dev/null || true
 echo "✅ Cleaned up old ZIP files"
 
 echo ""
@@ -364,7 +365,7 @@ echo ""
 echo "🔍 DaVinci Resolve ZIP Verification Report"
 echo "============================================================"
 
-RESOLVE_ZIP_PATH="$REPO_DIR/dist/sync-resolve-plugin-v${VERSION}.zip"
+RESOLVE_ZIP_PATH="$REPO_DIR/dist/davinci-sync-extension-v${VERSION}.zip"
 
 echo ""
 echo "1. File Existence Check"
@@ -393,10 +394,10 @@ unzip -q -o "$RESOLVE_ZIP_PATH" -d "$EXTRACT_DIR" || {
 }
 
 RESOLVE_REQUIRED_FILES=(
-  "resolve/backend.js"
-  "resolve/manifest.json"
-  "resolve/package.json"
-  "resolve/static/index.html"
+  "sync.resolve/backend.js"
+  "sync.resolve/manifest.json"
+  "sync.resolve/package.json"
+  "sync.resolve/static/index.html"
 )
 
 RESOLVE_ALL_PRESENT=true
@@ -409,20 +410,20 @@ for file in "${RESOLVE_REQUIRED_FILES[@]}"; do
   fi
 done
 
-if [ -d "$EXTRACT_DIR/resolve/static/server/node_modules" ]; then
+if [ -d "$EXTRACT_DIR/sync.resolve/static/server/node_modules" ]; then
   if command -v find >/dev/null 2>&1; then
-    RESOLVE_FILE_COUNT=$(find "$EXTRACT_DIR/resolve/static/server/node_modules" -type f 2>/dev/null | wc -l | tr -d ' ')
+    RESOLVE_FILE_COUNT=$(find "$EXTRACT_DIR/sync.resolve/static/server/node_modules" -type f 2>/dev/null | wc -l | tr -d ' ')
   else
-    RESOLVE_FILE_COUNT=$(ls -R "$EXTRACT_DIR/resolve/static/server/node_modules" 2>/dev/null | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
+    RESOLVE_FILE_COUNT=$(ls -R "$EXTRACT_DIR/sync.resolve/static/server/node_modules" 2>/dev/null | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
   fi
   if [ "$RESOLVE_FILE_COUNT" -gt 0 ]; then
-    echo "✅ resolve/static/server/node_modules (contains $RESOLVE_FILE_COUNT files)"
+    echo "✅ sync.resolve/static/server/node_modules (contains $RESOLVE_FILE_COUNT files)"
   else
-    echo "❌ resolve/static/server/node_modules exists but is empty"
+    echo "❌ sync.resolve/static/server/node_modules exists but is empty"
     RESOLVE_ALL_PRESENT=false
   fi
 else
-  echo "⚠️  resolve/static/server/node_modules not found (may be optional for Resolve)"
+  echo "⚠️  sync.resolve/static/server/node_modules not found (may be optional for Resolve)"
 fi
 
 rm -rf "$EXTRACT_DIR"
@@ -548,25 +549,36 @@ echo "Creating DaVinci Resolve package..."
 DAVINCI_DIR="$TEMP_DIR/davinci"
 mkdir -p "$DAVINCI_DIR"
 
-# Extract the resolve zip to get the resolve folder
+# The build process now creates davinci-sync-extension-v${VERSION}.zip directly
+# with sync.resolve folder + instructions.txt already included
+# We just need to verify it exists and use it directly
+if [ ! -f "$REPO_DIR/dist/davinci-sync-extension-v${VERSION}.zip" ]; then
+  echo "Error: DaVinci Resolve ZIP not found. Build should have created it."
+  exit 1
+fi
+
+# The build process creates the final package, so we can use it directly
+# But for consistency with Premiere/AE package structure, we'll extract and verify
 RESOLVE_EXTRACT_DIR="$TEMP_DIR/resolve-extract"
 rm -rf "$RESOLVE_EXTRACT_DIR"
 mkdir -p "$RESOLVE_EXTRACT_DIR"
-unzip -q -o "$REPO_DIR/dist/sync-resolve-plugin-v${VERSION}.zip" -d "$RESOLVE_EXTRACT_DIR" || {
-  echo "Error: Failed to extract Resolve ZIP for repackaging"
+unzip -q -o "$REPO_DIR/dist/davinci-sync-extension-v${VERSION}.zip" -d "$RESOLVE_EXTRACT_DIR" || {
+  echo "Error: Failed to extract Resolve ZIP for verification"
   exit 1
 }
 
-# Find the resolve folder (it might be named "resolve" or the root)
-if [ -d "$RESOLVE_EXTRACT_DIR/resolve" ]; then
-  RESOLVE_SOURCE="$RESOLVE_EXTRACT_DIR/resolve"
+# Verify structure and copy to davinci directory
+if [ -d "$RESOLVE_EXTRACT_DIR/sync.resolve" ]; then
+  # Correct structure: has sync.resolve folder
+  cp -r "$RESOLVE_EXTRACT_DIR/sync.resolve" "$DAVINCI_DIR/sync.resolve"
+  # Copy instructions if present
+  if [ -f "$RESOLVE_EXTRACT_DIR/INSTALLATION_INSTRUCTIONS.txt" ]; then
+    cp "$RESOLVE_EXTRACT_DIR/INSTALLATION_INSTRUCTIONS.txt" "$DAVINCI_DIR/instructions.txt"
+  fi
 else
-  # If no resolve folder, the contents are at the root
-  RESOLVE_SOURCE="$RESOLVE_EXTRACT_DIR"
+  echo "Error: ZIP does not contain sync.resolve folder"
+  exit 1
 fi
-
-# Copy resolve folder as sync.resolve
-cp -r "$RESOLVE_SOURCE" "$DAVINCI_DIR/sync.resolve"
 
 # Create installation instructions for DaVinci
 cat > "$DAVINCI_DIR/instructions.txt" << 'EOF'
