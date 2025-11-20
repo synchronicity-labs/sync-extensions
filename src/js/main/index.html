@@ -89,13 +89,53 @@
     </script>
     <script type="module" src="./main.tsx"></script>
     <script>
+      window.__mountErrors = [];
+      window.addEventListener('error', function(e) {
+        window.__mountErrors.push({
+          message: e.message,
+          filename: e.filename,
+          lineno: e.lineno,
+          colno: e.colno,
+          error: e.error ? (e.error.stack || e.error.toString()) : null
+        });
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        window.__mountErrors.push({
+          message: 'Unhandled Promise Rejection: ' + (e.reason?.message || String(e.reason)),
+          error: e.reason?.stack || String(e.reason)
+        });
+      });
+      
       setTimeout(function() {
         console.log('[HTML] Post-module check');
         var root = document.getElementById('root');
         if (!root || root.children.length === 0) {
           console.error('[HTML] CRITICAL: Root element is empty after module load');
+          var errors = window.__mountErrors || [];
+          var errorHtml = '';
+          
+          if (errors.length > 0) {
+            errorHtml = '<h3 style="margin-top: 20px; color: #ff6b6b;">Errors:</h3><ul style="text-align: left; max-width: 600px; margin: 0 auto;">';
+            errors.forEach(function(err, i) {
+              errorHtml += '<li style="margin: 10px 0;"><strong>' + (err.filename || 'Error ' + (i + 1)) + ':' + (err.lineno || '') + '</strong><br>';
+              errorHtml += '<pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 11px; margin-top: 5px;">' + 
+                (err.error || err.message || 'Unknown error').replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
+                '</pre></li>';
+            });
+            errorHtml += '</ul>';
+          }
+          
+          var debugInfo = '<h3 style="margin-top: 20px;">Debug Info:</h3><ul style="text-align: left; max-width: 600px; margin: 0 auto; list-style: none; padding: 0;">';
+          debugInfo += '<li><strong>React:</strong> ' + (typeof window.React || typeof React || 'undefined') + '</li>';
+          debugInfo += '<li><strong>ReactDOM:</strong> ' + (typeof window.ReactDOM || typeof ReactDOM || 'undefined') + '</li>';
+          debugInfo += '<li><strong>mountReactApp:</strong> ' + (typeof window.mountReactApp || 'undefined') + '</li>';
+          debugInfo += '<li><strong>__react_mounted:</strong> ' + (window.__react_mounted || 'false') + '</li>';
+          debugInfo += '<li><strong>Document readyState:</strong> ' + document.readyState + '</li>';
+          debugInfo += '<li><strong>Script executed:</strong> ' + (window.__html_script_executed || 'false') + '</li>';
+          debugInfo += '</ul>';
+          
           if (root) {
-            root.innerHTML = '<div style="padding: 20px; color: #ff6b6b; font-family: system-ui;"><h2>React Failed to Mount</h2><p>Root element is empty. Check console for errors.</p></div>';
+            root.innerHTML = '<div style="padding: 20px; color: #ff6b6b; font-family: system-ui; text-align: center; max-width: 800px; margin: 0 auto;"><h2 style="color: #ff6b6b;">React Failed to Mount</h2><p>Root element is empty after mount attempt.</p>' + errorHtml + debugInfo + '</div>';
           }
         }
       }, 2000);

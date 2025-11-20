@@ -817,12 +817,32 @@ export default defineConfig({
             /<script\s+src=["']([^"']*main[^"']*\.cjs)["']([^>]*)><\/script>/gi,
             (match, src, attrs) => {
               if (!match.includes('data-main')) {
-                const cleanSrc = src.replace(/"/g, '&quot;');
-                return `<script data-main="${cleanSrc}" src="${cleanSrc}"${attrs}></script><script>setTimeout(function(){if(typeof window.__react_mounted==='undefined'){console.error('[CEP] Script did not execute via require.js, loading directly');var s=document.createElement('script');s.src='${cleanSrc}';s.type='module';document.head.appendChild(s);}},1000);</script>`;
+                return `<script data-main="${src}" src="${src}"${attrs}></script>`;
               }
               return match;
             }
           );
+          
+          const requireLoaderMatch = html.match(/window\.addEventListener\(["']load["'],\s*req\.bind/);
+          if (requireLoaderMatch) {
+            html = html.replace(
+              /if\s*\(mainStr\)\s*\{\s*window\.addEventListener\(["']load["'],\s*req\.bind\(this,\s*new\s+URL\(mainStr,\s*baseDir\)\.href\)\);\s*\}/,
+              `if (mainStr) {
+                var executeMain = function() {
+                  try {
+                    req.call(this, new URL(mainStr, baseDir).href);
+                  } catch(e) {
+                    console.error('[CEP] Failed to execute main script:', e);
+                  }
+                };
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                  executeMain();
+                } else {
+                  window.addEventListener('load', executeMain);
+                }
+              }`
+            );
+          }
           
           return html;
         }

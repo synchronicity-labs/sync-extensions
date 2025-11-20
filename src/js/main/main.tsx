@@ -228,11 +228,37 @@ const mountReactApp = () => {
             });
             
             if (!hasChildren && rootEl) {
+              const errors = (window as any).__mountErrors || [];
+              let errorHtml = '';
+              
+              if (errors.length > 0) {
+                errorHtml = '<h3 style="margin-top: 20px; color: #ff6b6b;">Errors:</h3><ul style="text-align: left; max-width: 600px; margin: 0 auto;">';
+                errors.forEach((err: any, i: number) => {
+                  errorHtml += `<li style="margin: 10px 0;"><strong>${err.filename || 'Error ' + (i + 1)}:${err.lineno || ''}</strong><br>`;
+                  errorHtml += `<pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 11px; margin-top: 5px;">${(err.error || err.message || 'Unknown error').toString().replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></li>`;
+                });
+                errorHtml += '</ul>';
+              }
+              
               debugError('[main] React render() called but DOM is empty - forcing visible content', { 
                 rootExists: !!rootEl,
-                innerHTML: rootEl?.innerHTML || 'null'
+                innerHTML: rootEl?.innerHTML || 'null',
+                errors: errors.length
               });
-              rootEl.innerHTML = '<div style="padding: 20px; color: #333; font-family: system-ui;">React mounted but no content rendered. Check console for errors.</div>';
+              
+              rootEl.innerHTML = `<div style="padding: 20px; color: #333; font-family: system-ui; text-align: center; max-width: 800px; margin: 0 auto;">
+                <h2 style="color: #ff6b6b;">React Mounted But No Content Rendered</h2>
+                <p>React.render() was called but the DOM is empty.</p>
+                ${errorHtml}
+                <h3 style="margin-top: 20px;">Debug Info:</h3>
+                <ul style="text-align: left; max-width: 600px; margin: 0 auto; list-style: none; padding: 0;">
+                  <li><strong>React:</strong> ${typeof React}</li>
+                  <li><strong>ReactDOM:</strong> ${typeof ReactDOM}</li>
+                  <li><strong>App:</strong> ${typeof App}</li>
+                  <li><strong>Root children:</strong> ${rootEl?.children.length || 0}</li>
+                  <li><strong>Root innerHTML length:</strong> ${rootEl?.innerHTML?.length || 0}</li>
+                </ul>
+              </div>`;
               rootEl.style.display = 'block';
               rootEl.style.visibility = 'visible';
               rootEl.style.opacity = '1';
@@ -282,22 +308,72 @@ const mountReactApp = () => {
 };
 
 try {
+  console.log('[main] Script executing, calling mountReactApp()');
   debugLog('[main] Calling mountReactApp()');
-  mountReactApp();
-  (window as any).__react_mounted = true;
-  debugLog('[main] mountReactApp() completed');
+  
+  if (typeof mountReactApp === 'function') {
+    mountReactApp();
+    (window as any).__react_mounted = true;
+    debugLog('[main] mountReactApp() completed');
+    
+    setTimeout(() => {
+      const rootEl = document.getElementById('root');
+      if (!rootEl || rootEl.children.length === 0) {
+        console.error('[main] CRITICAL: Root still empty after mountReactApp');
+        debugError('[main] CRITICAL: Root still empty after mountReactApp', {
+          rootExists: !!rootEl,
+          hasChildren: rootEl?.children.length || 0,
+          innerHTML: rootEl?.innerHTML?.substring(0, 100) || 'empty'
+        });
+        
+        if (rootEl) {
+          rootEl.innerHTML = `
+            <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
+              <h2 style="color: #ff6b6b; margin-top: 0;">React Failed to Mount</h2>
+              <p>Root element is empty after mount attempt.</p>
+              <p><strong>React:</strong> ${typeof React}</p>
+              <p><strong>ReactDOM:</strong> ${typeof ReactDOM}</p>
+              <p><strong>App:</strong> ${typeof App}</p>
+              <p><strong>mountReactApp:</strong> ${typeof mountReactApp}</p>
+              <p style="margin-top: 20px;">Check console and CEP logs for errors.</p>
+            </div>
+          `;
+        }
+      }
+    }, 1000);
+  } else {
+    throw new Error('mountReactApp function not defined');
+  }
 } catch (fatalError) {
+  console.error('[main] FATAL ERROR:', fatalError);
   debugError('[main] FATAL: mountReactApp failed', fatalError);
-  try {
-    document.body.innerHTML = `
+  
+  const rootEl = document.getElementById('root');
+  if (rootEl) {
+    rootEl.innerHTML = `
       <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
         <h2 style="color: #ff6b6b; margin-top: 0;">Fatal Error: React Failed to Mount</h2>
         <p><strong>Error:</strong> ${fatalError instanceof Error ? fatalError.message : String(fatalError)}</p>
         <pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 12px;">${fatalError instanceof Error ? fatalError.stack : String(fatalError)}</pre>
+        <p style="margin-top: 20px;"><strong>Debug Info:</strong></p>
+        <p>React: ${typeof React}</p>
+        <p>ReactDOM: ${typeof ReactDOM}</p>
+        <p>App: ${typeof App}</p>
+        <p>mountReactApp: ${typeof mountReactApp}</p>
         <p style="margin-top: 20px;">Check the CEP debug console for more details.</p>
       </div>
     `;
-  } catch (_) {
-    console.error("[main] Could not display error message");
+  } else {
+    try {
+      document.body.innerHTML = `
+        <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
+          <h2 style="color: #ff6b6b; margin-top: 0;">Fatal Error: React Failed to Mount</h2>
+          <p><strong>Error:</strong> ${fatalError instanceof Error ? fatalError.message : String(fatalError)}</p>
+          <p>Root element not found!</p>
+        </div>
+      `;
+    } catch (_) {
+      console.error("[main] Could not display error message");
+    }
   }
 }
