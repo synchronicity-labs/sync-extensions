@@ -830,14 +830,21 @@ export default defineConfig({
               `if (mainStr) {
                 var executeMain = function() {
                   try {
-                    req.call(this, new URL(mainStr, baseDir).href);
+                    console.log('[CEP] Executing main script:', mainStr, 'baseDir:', baseDir);
+                    var result = req(mainStr);
+                    console.log('[CEP] Main script executed, result:', result);
+                    window.__main_script_executed = true;
                   } catch(e) {
                     console.error('[CEP] Failed to execute main script:', e);
+                    window.__main_script_error = e.message + '\\n' + (e.stack || '');
+                    throw e;
                   }
                 };
                 if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                  console.log('[CEP] Document already loaded, executing immediately');
                   executeMain();
                 } else {
+                  console.log('[CEP] Waiting for load event');
                   window.addEventListener('load', executeMain);
                 }
               }`
