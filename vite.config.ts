@@ -34,10 +34,19 @@ const isResolveBuild = process.env.RESOLVE_BUILD === "true";
 const isResolvePackage = process.env.RESOLVE_PACKAGE === "true";
 const action = process.env.BOLT_ACTION;
 
-let input = {};
-cepConfig.panels.map((panel) => {
-  input[panel.name] = path.resolve(root, panel.mainPath);
+let input: Record<string, string> = {};
+cepConfig.panels.forEach((panel) => {
+  const resolvedPath = path.resolve(root, panel.mainPath);
+  if (fs.existsSync(resolvedPath)) {
+    input[panel.name] = resolvedPath;
+  } else {
+    console.warn(`Warning: Panel entry point not found: ${resolvedPath}`);
+  }
 });
+
+if (Object.keys(input).length === 0) {
+  throw new Error('No valid panel entry points found. Check cep.config.ts panels configuration.');
+}
 
 const config = {
   cepConfig,
@@ -778,26 +787,6 @@ export default defineConfig({
         });
       },
     },
-    // Remove .debug file from bundle after vite-cep-plugin adds it
-    // vite-cep-plugin creates .debug file unconditionally via emitFile - we remove it for production builds
-    {
-      name: 'remove-debug-file',
-      enforce: 'post',
-      generateBundle(options, bundle) {
-        if (isPackage || isProduction) {
-          // Find and remove .debug file from bundle before it's written to disk
-          const debugFileKey = Object.keys(bundle).find(key => {
-            const file = bundle[key];
-            return file.type === 'asset' && 
-                   (file.fileName === '.debug' || file.fileName?.endsWith('/.debug') || file.name === 'CEP Debug File');
-          });
-          if (debugFileKey) {
-            delete bundle[debugFileKey];
-            console.log('✓ Removed .debug file from bundle (prevented from being written)');
-          }
-        }
-      },
-    },
     {
       name: 'bolt-cep-production-html',
       enforce: 'post',
@@ -806,21 +795,17 @@ export default defineConfig({
           return html;
         }
         
-        // In production/package builds: ensure clean production HTML
         if (isProduction || isPackage) {
-          // Remove any dev server redirects that vite-cep-plugin might inject
           html = html.replace(
             /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
             ''
           );
           
-          // Remove dev redirect divs
           html = html.replace(
             /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
             ''
           );
           
-          // Ensure root div exists for React
           if (!html.includes('id="root"')) {
             html = html.replace(
               /(<body[^>]*>)/i,
@@ -828,18 +813,19 @@ export default defineConfig({
             );
           }
           
-          // CRITICAL: Ensure script src points to bundled file, not source .tsx
-          // Vite should transform this, but vite-cep-plugin might interfere
-          // If we see .tsx in the HTML, it means Vite didn't transform it
-          if (html.includes('src="./main.tsx"') || html.includes("src='./main.tsx'")) {
-            console.warn('⚠️  Warning: HTML still contains .tsx reference - Vite transform may have failed');
-            // Don't try to fix here - let Vite handle it, but log the issue
-          }
+          html = html.replace(
+            /<script\s+src=["']([^"']*main[^"']*\.cjs)["'][^>]*><\/script>/gi,
+            (match, src) => {
+              if (!match.includes('data-main')) {
+                return `<script data-main="${src}" src="${src}"></script>`;
+              }
+              return match;
+            }
+          );
           
           return html;
         }
         
-        // Dev mode: allow redirects but fix path
         if (!isProduction && !isPackage) {
           if (context && context.bundle && context.chunk) {
             html = html.replace(
@@ -852,7 +838,6 @@ export default defineConfig({
         return html;
       },
       async closeBundle() {
-        // Final cleanup: ensure production HTML is correct after vite-cep-plugin finishes
         if (isProduction || isPackage) {
           cepConfig.panels.forEach(panel => {
             const htmlPath = path.join(outDir, panel.name, 'index.html');
@@ -860,25 +845,32 @@ export default defineConfig({
               let content = fs.readFileSync(htmlPath, 'utf-8');
               const originalContent = content;
               
-              // Remove any dev redirects that might have been injected
               content = content.replace(
                 /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
                 ''
               );
               
-              // Remove dev redirect divs
               content = content.replace(
                 /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
                 ''
               );
               
-              // Ensure root div exists
               if (!content.includes('id="root"')) {
                 content = content.replace(
                   /(<body[^>]*>)/i,
                   '$1\n    <div id="root"></div>'
                 );
               }
+              
+              content = content.replace(
+                /<script\s+src=["']([^"']*main[^"']*\.cjs)["']([^>]*)><\/script>/gi,
+                (match, src, attrs) => {
+                  if (!match.includes('data-main')) {
+                    return `<script data-main="${src}" src="${src}"${attrs}></script>`;
+                  }
+                  return match;
+                }
+              );
               
               if (content !== originalContent) {
                 fs.writeFileSync(htmlPath, content, 'utf-8');
@@ -1011,26 +1003,6 @@ export default defineConfig({
           }
         }
         
-        if (isPackage) {
-          const debugFile = path.join(outDir, '.debug');
-          if (fs.existsSync(debugFile)) {
-            try {
-              fs.unlinkSync(debugFile);
-              console.log('Removed .debug file from build output');
-            } catch (err) {
-              console.warn('Failed to remove .debug file:', err);
-            }
-          }
-          const nestedDebugFile = path.join(outDir, cepDist, '.debug');
-          if (fs.existsSync(nestedDebugFile)) {
-            try {
-              fs.unlinkSync(nestedDebugFile);
-              console.log('Removed nested .debug file from build output');
-            } catch (err) {
-              console.warn('Failed to remove nested .debug file:', err);
-            }
-          }
-        }
         
         if (!isPackage && !isProduction) {
           const metaInfDir = path.join(outDir, 'META-INF');
@@ -1417,7 +1389,7 @@ export default defineConfig({
       include: "src/jsx/**",
     },
     rollupOptions: {
-      input,
+      input: Object.keys(input).length > 0 ? input : undefined,
       output: {
         format: "cjs",
         entryFileNames: "assets/[name]-[hash].cjs",

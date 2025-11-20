@@ -18,19 +18,59 @@ import "../shared/styles/main.scss";
 
 const AppContent: React.FC = () => {
   console.log("[App] AppContent rendering...");
-  const { activeTab, setActiveTab } = useTabs();
-  console.log("[App] Tabs initialized, activeTab:", activeTab);
-  const core = useCore();
-  console.log("[App] Core initialized");
+  let activeTab, setActiveTab, core, media, jobs, history;
+  
+  try {
+    const tabs = useTabs();
+    activeTab = tabs.activeTab;
+    setActiveTab = tabs.setActiveTab;
+    console.log("[App] Tabs initialized, activeTab:", activeTab);
+  } catch (e) {
+    console.error("[App] Error initializing tabs:", e);
+    throw e;
+  }
+  
+  try {
+    core = useCore();
+    console.log("[App] Core initialized");
+  } catch (e) {
+    console.error("[App] Error initializing core:", e);
+    throw e;
+  }
+  
   const { startOfflineChecking, nle } = core;
-  const media = useMedia();
-  console.log("[App] Media initialized");
-  const jobs = useJobs();
-  console.log("[App] Jobs initialized");
-  const history = useHistory();
-  console.log("[App] History initialized");
-  useServerAutoStart();
-  console.log("[App] Server auto-start initialized");
+  
+  try {
+    media = useMedia();
+    console.log("[App] Media initialized");
+  } catch (e) {
+    console.error("[App] Error initializing media:", e);
+    throw e;
+  }
+  
+  try {
+    jobs = useJobs();
+    console.log("[App] Jobs initialized");
+  } catch (e) {
+    console.error("[App] Error initializing jobs:", e);
+    throw e;
+  }
+  
+  try {
+    history = useHistory();
+    console.log("[App] History initialized");
+  } catch (e) {
+    console.error("[App] Error initializing history:", e);
+    throw e;
+  }
+  
+  try {
+    useServerAutoStart();
+    console.log("[App] Server auto-start initialized");
+  } catch (e) {
+    console.error("[App] Error initializing server auto-start:", e);
+    // Don't throw - server auto-start is not critical for UI
+  }
 
   // Setup window globals for backward compatibility
   useEffect(() => {
@@ -40,34 +80,29 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       try {
-        // Load settings (for backward compatibility)
         if (typeof (window as any).loadSettings === "function") {
           (window as any).loadSettings();
         }
       } catch (_) {}
 
       try {
-        // Load jobs from localStorage (for backward compatibility)
         if (typeof (window as any).loadJobsLocal === "function") {
           (window as any).loadJobsLocal();
         }
       } catch (_) {}
 
       try {
-        // Update model display
         if (typeof (window as any).updateModelDisplay === "function") {
           (window as any).updateModelDisplay();
         }
       } catch (_) {}
 
       try {
-        // Update from video button
         if (typeof (window as any).updateFromVideoButton === "function") {
           (window as any).updateFromVideoButton();
         }
       } catch (_) {}
 
-      // Ensure auth token
       try {
         if (typeof (window as any).ensureAuthToken === "function") {
           await (window as any).ensureAuthToken();
@@ -75,13 +110,11 @@ const AppContent: React.FC = () => {
       } catch (_) {}
     };
 
-    // Listen for backend ready event and load jobs from server
     const handleBackendReady = async (e: CustomEvent) => {
       try {
         if (e.detail && e.detail.port) {
           (window as any).__syncServerPort = e.detail.port;
         }
-        // Load jobs from server once backend is ready
         if (typeof (window as any).loadJobsFromServer === "function") {
           await (window as any).loadJobsFromServer();
         }
@@ -90,7 +123,6 @@ const AppContent: React.FC = () => {
 
     window.addEventListener("sync-backend-ready", handleBackendReady as EventListener);
 
-    // Run initialization after a short delay to ensure DOM is ready
     const timer = setTimeout(() => {
       init();
     }, 100);
@@ -102,12 +134,9 @@ const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Initialize app
     if (typeof window !== "undefined" && window.CSInterface) {
-      // Initialize PostHog interceptors before PostHog loads
       const initPostHogInterceptors = () => {
         try {
-          // Intercept fetch requests for PostHog uploads
           const originalFetch = window.fetch;
           window.fetch = function (url: RequestInfo | URL, options?: RequestInit) {
             if (typeof url === "string" && url.includes("posthog.com") && 
@@ -123,26 +152,20 @@ const AppContent: React.FC = () => {
               };
               return originalFetch(proxyUrl, proxyOptions);
             }
-            return originalFetch.apply(this, arguments as any);
+              return originalFetch.apply(this, arguments as any);
           };
-        } catch (e) {
-          // Silently fail
-        }
+        } catch (e) {}
       };
 
       initPostHogInterceptors();
-      
-      // Start offline checking
       startOfflineChecking();
       
-      // Load host script
       if (nle) {
         nle.loadHostScript();
       }
     }
   }, [startOfflineChecking, nle]);
 
-  // Load PostHog scripts
   useEffect(() => {
     console.log("[App] Loading PostHog scripts...");
     const loadPostHog = () => {
@@ -169,14 +192,11 @@ const AppContent: React.FC = () => {
     loadPostHog();
   }, []);
 
-  // Initialize Lucide icons for data-lucide attributes
   useEffect(() => {
     const normalizeButtonIcons = () => {
-      // Ensure all button icons have consistent sizing
       document.querySelectorAll('button i').forEach((icon: any) => {
         const svg = icon.querySelector('svg');
         if (svg) {
-          // Only normalize 32px button icons (16px icons)
           const button = icon.closest('button');
           if (button && (button.classList.contains('history-btn') || 
                          button.classList.contains('post-action-btn') ||
@@ -199,16 +219,13 @@ const AppContent: React.FC = () => {
     };
 
     const initLucideIcons = () => {
-      // Check if lucide is already loaded
       if (window.lucide && window.lucide.createIcons) {
         window.lucide.createIcons();
         normalizeButtonIcons();
-        // Replace globe icons with languages icons in dubbing contexts
         replaceGlobeWithLanguages();
         return;
       }
 
-      // Load lucide.js library
       const script = document.createElement("script");
       script.src = "../../lib/lucide.js";
       script.onload = () => {
@@ -222,10 +239,8 @@ const AppContent: React.FC = () => {
       document.head.appendChild(script);
     };
 
-    // Helper function to replace globe icons with languages icons
     const replaceGlobeWithLanguages = () => {
       try {
-        // Find all globe icons in dubbing contexts
         const selectors = [
           '.dubbing-dropdown-header i[data-lucide="globe"]',
           '.dubbing-dropdown-header i[data-lucide="Globe"]',
@@ -242,31 +257,23 @@ const AppContent: React.FC = () => {
           });
         });
         
-        // Re-initialize icons after replacement
         if (window.lucide && window.lucide.createIcons) {
           window.lucide.createIcons();
         }
-      } catch (e) {
-        // Silently fail
-      }
+      } catch (e) {}
     };
 
     initLucideIcons();
 
-    // Re-initialize icons when tab changes (for dynamically rendered content)
-    // Use double RAF to ensure React has finished all DOM operations
     let rafId1: number;
     let rafId2: number;
     const timer = setTimeout(() => {
       rafId1 = requestAnimationFrame(() => {
         rafId2 = requestAnimationFrame(() => {
           try {
-            // Only initialize icons on currently visible tab content
             const activePane = document.querySelector('.tab-pane.active');
             if (activePane && window.lucide && window.lucide.createIcons) {
-              // Scope to active pane only to avoid conflicts with unmounting components
               window.lucide.createIcons({ root: activePane });
-              // Normalize button icon sizes after creation
               activePane.querySelectorAll('button i').forEach((icon: any) => {
                 const svg = icon.querySelector('svg');
                 if (svg) {
@@ -274,7 +281,6 @@ const AppContent: React.FC = () => {
                   if (button && (button.classList.contains('history-btn') || 
                                  button.classList.contains('post-action-btn') ||
                                  button.classList.contains('action-btn'))) {
-                    // Constrain the <i> element itself for post-action-btn
                     if (button.classList.contains('post-action-btn')) {
                       icon.style.width = '16px';
                       icon.style.height = '16px';
@@ -300,9 +306,7 @@ const AppContent: React.FC = () => {
               });
               replaceGlobeWithLanguages();
             }
-          } catch (e) {
-            // Silently ignore DOM errors
-          }
+          } catch (e) {}
         });
       });
     }, 100);
@@ -330,13 +334,23 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   console.log("[App] App component rendering");
-  return (
-    <GlobalErrorBoundary>
-      <TabsProvider>
-        <AppContent />
-      </TabsProvider>
-    </GlobalErrorBoundary>
-  );
+  try {
+    return (
+      <GlobalErrorBoundary>
+        <TabsProvider>
+          <AppContent />
+        </TabsProvider>
+      </GlobalErrorBoundary>
+    );
+  } catch (error) {
+    console.error("[App] Error in App component render:", error);
+    return (
+      <div style={{ padding: "20px", color: "#ff6b6b" }}>
+        <h2>App Render Error</h2>
+        <p>{error instanceof Error ? error.message : String(error)}</p>
+      </div>
+    );
+  }
 };
 
 export default App;

@@ -15,9 +15,7 @@ const config: CEP_Config = {
   id: "com.sync.extension",
   displayName: "sync.",
   version,
-  // Only use symlink in dev mode - in production it creates .debug file that shouldn't be in ZXP
-  // Disable symlink for both ZXP and ZIP packages to avoid readlink errors
-  symlink: (isPackage || isZip) ? false : "local", // Use symlink for development, but not for production builds
+  symlink: (isPackage || isZip) ? false : "local",
   port: 3001,
   servePort: 5000,
   startingDebugPort: 8860,

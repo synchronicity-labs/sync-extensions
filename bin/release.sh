@@ -94,13 +94,11 @@ ZXP_PATH="$REPO_DIR/dist/zxp/com.sync.extension.zxp"
 ZXPSIGN_CMD="$REPO_DIR/node_modules/vite-cep-plugin/lib/bin/ZXPSignCmd"
 
 echo ""
-echo "0. Checking for .debug file (should not be in production ZXP)"
+echo "0. Checking for .debug file (required for CEP HTML engine logging)"
 if unzip -l "$ZXP_PATH" 2>/dev/null | grep -q "\.debug"; then
-  echo "❌ WARNING: .debug file found in ZXP - this may cause issues!"
-  echo "   The extension may not appear correctly in ZXP Installer"
-  echo "   Consider rebuilding without debug mode"
+  echo "✅ .debug file found in ZXP (required for console.log capture)"
 else
-  echo "✅ No .debug file found in ZXP"
+  echo "⚠️  No .debug file found - HTML engine logs won't work"
 fi
 
 echo ""

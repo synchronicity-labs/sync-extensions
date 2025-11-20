@@ -1,6 +1,4 @@
-// Initialize console logging FIRST - before anything else
 (function() {
-  // Ensure console methods exist
   if (!window.console) {
     (window as any).console = {
       log: function() {},
@@ -10,14 +8,13 @@
     };
   }
   
-  // Log initialization
+  
   console.log('[sync] Extension initializing...');
   console.log('[sync] CEP available:', typeof (window as any).__adobe_cep__ !== 'undefined');
   console.log('[sync] CSInterface available:', typeof (window as any).CSInterface !== 'undefined');
   console.log('[sync] User agent:', navigator.userAgent);
   console.log('[sync] Document ready state:', document.readyState);
   
-  // Check if CEP is properly initialized (critical for extension to work)
   setTimeout(function() {
     const cepAvailable = typeof (window as any).__adobe_cep__ !== 'undefined';
     const csInterfaceAvailable = typeof (window as any).CSInterface !== 'undefined';
@@ -42,13 +39,7 @@
   }, 500);
 })();
 
-// Load CSInterface shim FIRST - must be available before any code tries to use it
-// This ensures CSInterface is available even if Adobe CEP runtime hasn't fully initialized
 import "../lib/CSInterface";
-
-// Host detection - runs synchronously before React loads
-// This ensures HOST_CONFIG is available immediately for all code
-// Uses centralized host detection from shared/utils/clientHostDetection.ts
 import { detectHost } from "../shared/utils/clientHostDetection";
 
 (function() {
@@ -62,10 +53,8 @@ import { detectHost } from "../shared/utils/clientHostDetection";
       log("[host-detection] Could not detect host - will be detected by useHostDetection hook");
     }
   } catch (e) {
-    // Detection failed - log but don't block panel
     const log = window.debugLog || console.error || (() => {});
     log("[host-detection] Error detecting host:", e);
-    // Don't re-throw - let React mount even if host detection fails
   }
 })();
 
@@ -75,22 +64,17 @@ import App from "./App";
 import { initBolt } from "../lib/utils/bolt";
 import { debugLog, debugError, debugWarn } from "../shared/utils/debugLog";
 
-// Initialize Bolt CEP - loads JSX files
-// Wait for CEP to be fully available before initializing
 let boltInitRetries = 0;
-const MAX_BOLT_INIT_RETRIES = 50; // 5 seconds max (50 * 100ms)
+const MAX_BOLT_INIT_RETRIES = 50;
 
 const initializeBoltWhenReady = () => {
-  // Check if CEP is available
   if (typeof window !== "undefined" && (window as any).cep && (window as any).__adobe_cep__) {
     try {
       initBolt();
     } catch (error) {
       debugError("[main] Error initializing Bolt", error);
-      // Don't block panel rendering if Bolt fails
     }
   } else {
-    // Retry after a short delay if CEP isn't ready yet
     boltInitRetries++;
     if (boltInitRetries < MAX_BOLT_INIT_RETRIES) {
       setTimeout(initializeBoltWhenReady, 100);
@@ -100,18 +84,12 @@ const initializeBoltWhenReady = () => {
   }
 };
 
-// Start initialization
 initializeBoltWhenReady();
 
-// Enable HMR hot reload for CEP panels
-// In development, Vite HMR updates should work automatically
 if (import.meta.hot) {
   try {
-    // Accept HMR updates - let Vite handle them naturally
-    // Don't force reload unless absolutely necessary
     import.meta.hot.accept();
     
-    // Handle WebSocket connection errors gracefully
     import.meta.hot.on("vite:ws:disconnect", () => {
       debugWarn("[HMR] WebSocket disconnected - HMR may not work until reconnection");
     });
@@ -120,51 +98,39 @@ if (import.meta.hot) {
       debugLog("[HMR] WebSocket connected - hot reload active");
     });
     
-    // Only reload on critical errors that can't be recovered
     import.meta.hot.on("vite:error", (error) => {
       debugError("[HMR] Critical error during update", error);
-      // Only reload if it's a critical error that prevents the app from working
-      // Use a small delay to let React finish current render cycle
       setTimeout(() => {
         if (typeof window !== "undefined" && window.location) {
-          // Reload safely (handles dev vs production)
           window.location.reload();
         }
       }, 500);
     });
   } catch (error) {
-    // Silently handle HMR setup errors - don't break the app if HMR fails
     debugWarn("[HMR] Error setting up HMR (non-critical)", error);
   }
 }
 
-// Catch unhandled promise rejections related to WebSocket/HMR
 if (typeof window !== "undefined") {
-  const originalError = window.onerror;
   window.addEventListener("unhandledrejection", (event) => {
     const error = event.reason;
     const errorMessage = error?.message || String(error);
     
-    // Ignore WebSocket connection errors - they're non-critical
     if (errorMessage.includes("WebSocket") || 
         errorMessage.includes("websocket") ||
         errorMessage.includes("closed without opened")) {
       debugWarn("[HMR] WebSocket error (non-critical, ignoring):", errorMessage);
-      event.preventDefault(); // Prevent error from showing in console
+      event.preventDefault();
       return;
     }
     
-    // Log other unhandled rejections but don't break the app
     debugError("[Unhandled Rejection]", error);
   });
 }
 
-// Mount React app - ensure root element exists
-// This function MUST succeed even if other parts fail
 const mountReactApp = () => {
   console.log("[main] mountReactApp called");
   
-  // Ensure React and ReactDOM are available
   if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
     console.error("[main] React or ReactDOM not available!");
     const errorDiv = document.createElement('div');
@@ -179,7 +145,6 @@ const mountReactApp = () => {
     if (!rootElement) {
       console.error("[main] Root element not found! Waiting for DOM");
       debugError("[main] Root element not found! Waiting for DOM");
-      // Wait for DOM to be ready
       const waitForRoot = () => {
         const el = document.getElementById("root");
         if (el) {
@@ -217,7 +182,6 @@ const mountReactApp = () => {
         waitForRoot();
       }
     } else {
-      // Root element exists - mount React
       try {
         console.log("[main] Creating React root...");
         console.log("[main] App component:", typeof App);
@@ -231,16 +195,26 @@ const mountReactApp = () => {
         const root = ReactDOM.createRoot(rootElement);
         console.log("[main] React root created, rendering App...");
         
-        // Use React.createElement as fallback if JSX fails
         try {
+          console.log("[main] About to render App component...");
           root.render(React.createElement(App));
-        } catch (jsxError) {
-          console.error("[main] JSX render failed, trying createElement:", jsxError);
-          root.render(React.createElement(App));
+          console.log("[main] React render() called successfully");
+          
+          setTimeout(() => {
+            const rootEl = document.getElementById("root");
+            if (rootEl && rootEl.children.length > 0) {
+              console.log("[main] React app mounted successfully - DOM has children");
+              if (debugLog) debugLog("[main] React app mounted successfully");
+            } else {
+              console.error("[main] React render() called but DOM is empty!");
+              debugError("[main] React render() called but DOM is empty", new Error("No children in root element"));
+            }
+          }, 100);
+        } catch (renderError) {
+          console.error("[main] Error during React render:", renderError);
+          debugError("[main] Error during React render", renderError);
+          rootElement.innerHTML = `<div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;"><h2 style="color: #ff6b6b; margin-top: 0;">React Render Error</h2><p><strong>Error:</strong> ${renderError instanceof Error ? renderError.message : String(renderError)}</p><pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 12px;">${renderError instanceof Error ? renderError.stack : String(renderError)}</pre></div>`;
         }
-        
-        console.log("[main] React app mounted successfully");
-        if (debugLog) debugLog("[main] React app mounted successfully");
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : '';
@@ -264,7 +238,6 @@ const mountReactApp = () => {
     const errorStack = error instanceof Error ? error.stack : '';
     console.error("[main] Fatal error during initialization", error);
     debugError("[main] Fatal error during initialization", error);
-    // Last resort - try to show error in body
     try {
       document.body.innerHTML = `
         <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
@@ -276,18 +249,15 @@ const mountReactApp = () => {
         </div>
       `;
     } catch (_) {
-      // If even this fails, there's nothing we can do
       console.error("[main] Could not display error message");
     }
   }
 };
 
-// Start mounting React app - wrap in try-catch to ensure we always show something
 try {
   mountReactApp();
 } catch (fatalError) {
   console.error("[main] FATAL: mountReactApp failed:", fatalError);
-  // Last resort - show error directly in body
   try {
     document.body.innerHTML = `
       <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">

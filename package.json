@@ -17,7 +17,7 @@
     "build:parallel": "concurrently -n adobe,davinci -c blue,green \"npm run build:adobe\" \"npm run build:davinci\"",
     "build:adobe": "npm run prezxp && npx dotenv-cli -e src/server/.env -- cross-env ZXP_PACKAGE=true NODE_ENV=production vite build",
     "build:davinci": "cross-env RESOLVE_BUILD=true RESOLVE_PACKAGE=true NODE_ENV=production vite build",
-    "prezxp": "mkdir -p dist/cep/server && (grep -v '^ZXP_PASSWORD=' src/server/.env > dist/cep/server/.env 2>/dev/null || true) && (rm -f dist/cep/.debug dist/cep/cep/.debug dist/.debug 2>/dev/null || true) && (find dist -name '.debug' -type f -delete 2>/dev/null || true)",
+    "prezxp": "mkdir -p dist/cep/server && (grep -v '^ZXP_PASSWORD=' src/server/.env > dist/cep/server/.env 2>/dev/null || true)",
     "zxp": "npx dotenv-cli -e src/server/.env -- cross-env ZXP_PACKAGE=true vite build",
     "zip": "cross-env ZIP_PACKAGE=true vite build",
     "preview": "vite preview",

@@ -205,6 +205,17 @@ function _hostLog(msg){
       logFile.write(logLine);
       logFile.close();
     } catch(_){ }
+    
+    var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
+    if (isWindows) {
+      var url = "http://127.0.0.1:3000/hostlog?msg=" + encodeURIComponent(s).replace(/\"/g,'\\"');
+      var wcmd = 'cmd.exe /c curl -s -m 1 ' + '"' + url.replace(/"/g,'\"') + '"' + ' >NUL 2>&1';
+      _callSystem(wcmd);
+    } else {
+      var payload = '{"msg": ' + JSON.stringify(s) + '}';
+      var cmd = "/bin/bash -lc " + _shq("(curl -s -m 1 -X POST -H 'Content-Type: application/json' --data " + _shq(payload) + " http://127.0.0.1:3000/hostlog || true) >/dev/null 2>&1");
+      _callSystem(cmd);
+    }
   }catch(e){ }
 }
 
@@ -971,27 +982,40 @@ export function PPRO_startBackend() {
       if (isWindows) {
         nodeBin = extPath + "\\bin\\win32-x64\\node.exe";
       } else {
+        var arm64Path = extPath + "/bin/darwin-arm64/node";
+        var x64Path = extPath + "/bin/darwin-x64/node";
+        var arm64File = new File(arm64Path);
+        var x64File = new File(x64Path);
+        
         try {
-          var archFile = new File(extPath + "/bin/darwin-arm64/node");
-          var isArm64 = archFile.exists;
-          if (isArm64) {
-            nodeBin = extPath + "/bin/darwin-arm64/node";
-          } else {
-            nodeBin = extPath + "/bin/darwin-x64/node";
+          var logFile = _pproDebugLogFile();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Checking Node binaries:');
+            logFile.writeln('[' + new Date().toString() + '] ARM64 exists: ' + arm64File.exists + ' at ' + arm64Path);
+            logFile.writeln('[' + new Date().toString() + '] x64 exists: ' + x64File.exists + ' at ' + x64Path);
+            logFile.close();
           }
-        } catch(e) {
-          nodeBin = extPath + "/bin/darwin-x64/node";
+        } catch(e) {}
+        
+        if (arm64File.exists) {
+          nodeBin = arm64Path;
+        } else if (x64File.exists) {
+          nodeBin = x64Path;
+        } else {
+          nodeBin = x64Path;
         }
       }
       
       var nodeBinFile = new File(nodeBin);
       if (!nodeBinFile.exists) {
-        var errorMsg = "Node binary not found at: " + nodeBin;
+        var errorMsg = "Node binary not found. Checked: " + (isWindows ? nodeBin : extPath + "/bin/darwin-arm64/node and " + extPath + "/bin/darwin-x64/node");
         try {
           var logFile = _pproDebugLogFile();
           if (logFile && logFile.fsName) {
             logFile.open('a');
             logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
             logFile.close();
           }
         } catch(e) {}
@@ -1002,7 +1026,7 @@ export function PPRO_startBackend() {
         var logFile = _pproDebugLogFile();
         if (logFile && logFile.fsName) {
           logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Node binary found: ' + nodeBin);
+          logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
           logFile.close();
         }
       } catch(e) {}
@@ -1067,9 +1091,35 @@ export function PPRO_startBackend() {
       if (!isWindows) {
         try {
           var chmodCmd = "/bin/bash -c 'chmod +x \"" + nodeBin.replace(/"/g, '\\"') + "\"'";
-          _callSystem(chmodCmd);
-        } catch(e) {}
+          var chmodResult = _callSystem(chmodCmd);
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] chmod result: ' + chmodResult);
+              logFile.close();
+            }
+          } catch(e) {}
+        } catch(e) {
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] chmod failed: ' + String(e));
+              logFile.close();
+            }
+          } catch(_) {}
+        }
       }
+      
+      try {
+        var logFile = _pproDebugLogFile();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] Executing spawn command: ' + spawnCmd);
+          logFile.close();
+        }
+      } catch(e) {}
       
       var spawnResult = _callSystem(spawnCmd);
       
@@ -1078,6 +1128,9 @@ export function PPRO_startBackend() {
         if (logFile && logFile.fsName) {
           logFile.open('a');
           logFile.writeln('[' + new Date().toString() + '] Spawn result: ' + spawnResult);
+          if (serverErrLog) {
+            logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
+          }
           logFile.close();
         }
       } catch(e) {}
