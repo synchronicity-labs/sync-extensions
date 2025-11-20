@@ -1,4 +1,6 @@
 (function() {
+  console.log('[main] IIFE executing immediately');
+  
   if (!window.console) {
     (window as any).console = {
       log: function() {},
@@ -8,12 +10,23 @@
     };
   }
   
+  console.log('[main] Module script loaded and executing');
+  console.log('[main] Window ready state:', typeof window !== 'undefined');
+  console.log('[main] Document ready state:', typeof document !== 'undefined' ? document.readyState : 'undefined');
   
-  console.log('[sync] Extension initializing...');
-  console.log('[sync] CEP available:', typeof (window as any).__adobe_cep__ !== 'undefined');
-  console.log('[sync] CSInterface available:', typeof (window as any).CSInterface !== 'undefined');
-  console.log('[sync] User agent:', navigator.userAgent);
-  console.log('[sync] Document ready state:', document.readyState);
+  if (typeof window.__html_script_executed === 'undefined') {
+    console.error('[main] CRITICAL: HTML script block did not execute before module!');
+  }
+})();
+
+import { debugLog, debugError, debugWarn } from "../shared/utils/debugLog";
+
+(function() {
+  debugLog('[main] Extension initializing');
+  debugLog('[main] CEP available', { available: typeof (window as any).__adobe_cep__ !== 'undefined' });
+  debugLog('[main] CSInterface available', { available: typeof (window as any).CSInterface !== 'undefined' });
+  debugLog('[main] User agent', { userAgent: navigator.userAgent });
+  debugLog('[main] Document ready state', { readyState: document.readyState });
   
   setTimeout(function() {
     const cepAvailable = typeof (window as any).__adobe_cep__ !== 'undefined';
@@ -62,7 +75,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initBolt } from "../lib/utils/bolt";
-import { debugLog, debugError, debugWarn } from "../shared/utils/debugLog";
 
 let boltInitRetries = 0;
 const MAX_BOLT_INIT_RETRIES = 50;
@@ -129,37 +141,39 @@ if (typeof window !== "undefined") {
 }
 
 const mountReactApp = () => {
-  console.log("[main] mountReactApp called");
+  debugLog('[main] mountReactApp called');
   
   if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
-    console.error("[main] React or ReactDOM not available!");
+    debugError('[main] React or ReactDOM not available', { react: typeof React, reactDOM: typeof ReactDOM });
     const errorDiv = document.createElement('div');
     errorDiv.innerHTML = '<div style="padding: 20px; color: #ff6b6b;">React libraries not loaded. Check console for errors.</div>';
     document.body.appendChild(errorDiv);
     return;
   }
   
+  debugLog('[main] React libraries available', { react: typeof React, reactDOM: typeof ReactDOM });
+  
   try {
     const rootElement = document.getElementById("root");
-    console.log("[main] Root element:", rootElement ? "found" : "not found");
+    debugLog('[main] Root element check', { found: !!rootElement, body: !!document.body, html: !!document.documentElement });
+    
     if (!rootElement) {
-      console.error("[main] Root element not found! Waiting for DOM");
-      debugError("[main] Root element not found! Waiting for DOM");
+      debugError('[main] Root element not found - waiting for DOM');
       const waitForRoot = () => {
         const el = document.getElementById("root");
         if (el) {
           try {
+            debugLog('[main] Root element found, creating React root');
             const root = ReactDOM.createRoot(el);
+            debugLog('[main] React root created, rendering App component');
             root.render(
               <App />
             );
-            console.log("[main] React app mounted successfully");
-            debugLog("[main] React app mounted successfully");
+            debugLog('[main] React render() called successfully');
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : '';
-            console.error("[main] Error mounting React", error);
-            debugError("[main] Error mounting React", error);
+            debugError('[main] Error mounting React after wait', error);
             // Show error message in panel
             el.innerHTML = `
               <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
@@ -183,43 +197,57 @@ const mountReactApp = () => {
       }
     } else {
       try {
-        console.log("[main] Creating React root...");
-        console.log("[main] App component:", typeof App);
-        console.log("[main] ReactDOM:", typeof ReactDOM);
-        console.log("[main] React:", typeof React);
+        debugLog('[main] Root element found, creating React root');
+        debugLog('[main] Component availability', { app: typeof App, reactDOM: typeof ReactDOM, react: typeof React });
         
         if (!App) {
           throw new Error("App component is not available");
         }
         
         const root = ReactDOM.createRoot(rootElement);
-        console.log("[main] React root created, rendering App...");
+        debugLog('[main] React root created, rendering App component');
         
         try {
-          console.log("[main] About to render App component...");
+          debugLog('[main] Calling root.render() with App component');
           root.render(React.createElement(App));
-          console.log("[main] React render() called successfully");
+          debugLog('[main] root.render() completed without throwing');
           
           setTimeout(() => {
             const rootEl = document.getElementById("root");
-            if (rootEl && rootEl.children.length > 0) {
-              console.log("[main] React app mounted successfully - DOM has children");
-              if (debugLog) debugLog("[main] React app mounted successfully");
-            } else {
-              console.error("[main] React render() called but DOM is empty!");
-              debugError("[main] React render() called but DOM is empty", new Error("No children in root element"));
+            const hasChildren = rootEl && rootEl.children.length > 0;
+            const computedStyle = rootEl ? window.getComputedStyle(rootEl) : null;
+            
+            debugLog('[main] Post-render DOM check', { 
+              rootExists: !!rootEl, 
+              childrenCount: rootEl?.children.length || 0,
+              display: computedStyle?.display || 'unknown',
+              visibility: computedStyle?.visibility || 'unknown',
+              opacity: computedStyle?.opacity || 'unknown',
+              height: computedStyle?.height || 'unknown',
+              innerHTML: rootEl?.innerHTML?.substring(0, 200) || 'empty'
+            });
+            
+            if (!hasChildren && rootEl) {
+              debugError('[main] React render() called but DOM is empty - forcing visible content', { 
+                rootExists: !!rootEl,
+                innerHTML: rootEl?.innerHTML || 'null'
+              });
+              rootEl.innerHTML = '<div style="padding: 20px; color: #333; font-family: system-ui;">React mounted but no content rendered. Check console for errors.</div>';
+              rootEl.style.display = 'block';
+              rootEl.style.visibility = 'visible';
+              rootEl.style.opacity = '1';
+            } else if (hasChildren) {
+              debugLog('[main] React app mounted successfully - DOM has children');
             }
-          }, 100);
+          }, 500);
         } catch (renderError) {
-          console.error("[main] Error during React render:", renderError);
-          debugError("[main] Error during React render", renderError);
+          debugError('[main] Error during React render', renderError);
           rootElement.innerHTML = `<div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;"><h2 style="color: #ff6b6b; margin-top: 0;">React Render Error</h2><p><strong>Error:</strong> ${renderError instanceof Error ? renderError.message : String(renderError)}</p><pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 12px;">${renderError instanceof Error ? renderError.stack : String(renderError)}</pre></div>`;
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : '';
-        console.error("[main] Error mounting React", error);
-        debugError("[main] Error mounting React", error);
+        debugError('[main] Error mounting React', error);
         // Show error message in panel
         rootElement.innerHTML = `
           <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
@@ -236,8 +264,7 @@ const mountReactApp = () => {
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : '';
-    console.error("[main] Fatal error during initialization", error);
-    debugError("[main] Fatal error during initialization", error);
+    debugError('[main] Fatal error during initialization', error);
     try {
       document.body.innerHTML = `
         <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">
@@ -255,9 +282,12 @@ const mountReactApp = () => {
 };
 
 try {
+  debugLog('[main] Calling mountReactApp()');
   mountReactApp();
+  (window as any).__react_mounted = true;
+  debugLog('[main] mountReactApp() completed');
 } catch (fatalError) {
-  console.error("[main] FATAL: mountReactApp failed:", fatalError);
+  debugError('[main] FATAL: mountReactApp failed', fatalError);
   try {
     document.body.innerHTML = `
       <div style="padding: 20px; font-family: system-ui; background: #1e1e1e; color: #ff6b6b;">

@@ -8,6 +8,7 @@ import { useJobs } from "../shared/hooks/useJobs";
 import { useHistory } from "../shared/hooks/useHistory";
 import { setupWindowGlobals } from "../shared/utils/windowGlobals";
 import { getApiUrl } from "../shared/utils/serverConfig";
+import { debugLog, debugError } from "../shared/utils/debugLog";
 import Header from "../shared/components/Header";
 import SourcesTab from "../shared/components/SourcesTab";
 import HistoryTab from "../shared/components/HistoryTab";
@@ -17,59 +18,24 @@ import { GlobalErrorBoundary } from "../shared/components/GlobalErrorBoundary";
 import "../shared/styles/main.scss";
 
 const AppContent: React.FC = () => {
-  console.log("[App] AppContent rendering...");
-  let activeTab, setActiveTab, core, media, jobs, history;
+  debugLog('[App] AppContent rendering');
   
-  try {
-    const tabs = useTabs();
-    activeTab = tabs.activeTab;
-    setActiveTab = tabs.setActiveTab;
-    console.log("[App] Tabs initialized, activeTab:", activeTab);
-  } catch (e) {
-    console.error("[App] Error initializing tabs:", e);
-    throw e;
-  }
+  const tabs = useTabs();
+  const activeTab = tabs.activeTab;
+  const setActiveTab = tabs.setActiveTab;
   
-  try {
-    core = useCore();
-    console.log("[App] Core initialized");
-  } catch (e) {
-    console.error("[App] Error initializing core:", e);
-    throw e;
-  }
-  
+  const core = useCore();
   const { startOfflineChecking, nle } = core;
   
-  try {
-    media = useMedia();
-    console.log("[App] Media initialized");
-  } catch (e) {
-    console.error("[App] Error initializing media:", e);
-    throw e;
-  }
+  const media = useMedia();
+  const jobs = useJobs();
+  const history = useHistory();
   
-  try {
-    jobs = useJobs();
-    console.log("[App] Jobs initialized");
-  } catch (e) {
-    console.error("[App] Error initializing jobs:", e);
-    throw e;
-  }
+  useServerAutoStart();
   
-  try {
-    history = useHistory();
-    console.log("[App] History initialized");
-  } catch (e) {
-    console.error("[App] Error initializing history:", e);
-    throw e;
-  }
-  
-  try {
-    useServerAutoStart();
-    console.log("[App] Server auto-start initialized");
-  } catch (e) {
-    console.error("[App] Error initializing server auto-start:", e);
-    // Don't throw - server auto-start is not critical for UI
+  if (!tabs || !core || !media || !jobs || !history) {
+    debugError('[App] Missing required hooks', { tabs: !!tabs, core: !!core, media: !!media, jobs: !!jobs, history: !!history });
+    return <div style={{ padding: '20px', color: '#ff6b6b' }}>Error: Missing hooks</div>;
   }
 
   // Setup window globals for backward compatibility
@@ -167,7 +133,7 @@ const AppContent: React.FC = () => {
   }, [startOfflineChecking, nle]);
 
   useEffect(() => {
-    console.log("[App] Loading PostHog scripts...");
+    debugLog('[App] Loading PostHog scripts');
     const loadPostHog = () => {
       const scripts = [
         "../../lib/posthog.js",
@@ -175,15 +141,15 @@ const AppContent: React.FC = () => {
       ];
       
       scripts.forEach((src, index) => {
-        console.log(`[App] Loading PostHog script ${index + 1}/${scripts.length}: ${src}`);
+        debugLog(`[App] Loading PostHog script ${index + 1}/${scripts.length}`, { src });
         const script = document.createElement("script");
         script.src = src;
         script.async = true;
         script.onload = () => {
-          console.log(`[App] PostHog script loaded: ${src}`);
+          debugLog(`[App] PostHog script loaded`, { src });
         };
         script.onerror = (error) => {
-          console.error(`[App] Failed to load PostHog script: ${src}`, error);
+          debugError(`[App] Failed to load PostHog script`, { src, error });
         };
         document.head.appendChild(script);
       });
@@ -318,35 +284,52 @@ const AppContent: React.FC = () => {
     };
   }, [activeTab]);
 
-  console.log("[App] Rendering JSX...");
-  return (
-    <div className="app-container">
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
-      <div className="content">
-        <SourcesTab />
-        <HistoryTab />
-        <SettingsTab />
+  debugLog('[App] All hooks initialized, rendering JSX');
+  
+  try {
+    return (
+      <div className="app-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+        <div className="content" style={{ flex: 1 }}>
+          <SourcesTab />
+          <HistoryTab />
+          <SettingsTab />
+        </div>
+        <BottomBar />
       </div>
-      <BottomBar />
-    </div>
-  );
+    );
+  } catch (renderError) {
+    debugError('[App] Error rendering JSX', renderError);
+    return (
+      <div style={{ padding: '20px', color: '#ff6b6b' }}>
+        <h2>Render Error</h2>
+        <p>{renderError instanceof Error ? renderError.message : String(renderError)}</p>
+      </div>
+    );
+  }
 };
 
 const App: React.FC = () => {
-  console.log("[App] App component rendering");
+  debugLog('[App] App component rendering');
+  
   try {
     return (
-      <GlobalErrorBoundary>
+      <GlobalErrorBoundary fallback={
+        <div style={{ padding: '20px', color: '#333', fontFamily: 'system-ui' }}>
+          <h2>Error Loading Panel</h2>
+          <p>Please check the console for details.</p>
+        </div>
+      }>
         <TabsProvider>
           <AppContent />
         </TabsProvider>
       </GlobalErrorBoundary>
     );
   } catch (error) {
-    console.error("[App] Error in App component render:", error);
+    debugError('[App] Fatal error in App render', error);
     return (
-      <div style={{ padding: "20px", color: "#ff6b6b" }}>
-        <h2>App Render Error</h2>
+      <div style={{ padding: '20px', color: '#ff6b6b', fontFamily: 'system-ui', minHeight: '100vh' }}>
+        <h2>Fatal Error</h2>
         <p>{error instanceof Error ? error.message : String(error)}</p>
       </div>
     );

@@ -72,12 +72,34 @@
           console.warn('[CEP] CEP runtime not detected - extension may not be loaded correctly');
         }
       }, 1000);
+      
+      // Force script execution check
+      console.log('[HTML] Script block executing');
+      window.__html_script_executed = true;
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" style="min-height: 100vh; display: block; visibility: visible; opacity: 1;"></div>
     <div id="error-display"></div>
+    <script>
+      console.log('[HTML] Inline script executing before module script');
+      if (typeof window.__html_script_executed === 'undefined') {
+        console.error('[HTML] CRITICAL: HTML script block did not execute!');
+      }
+    </script>
     <script type="module" src="./main.tsx"></script>
+    <script>
+      setTimeout(function() {
+        console.log('[HTML] Post-module check');
+        var root = document.getElementById('root');
+        if (!root || root.children.length === 0) {
+          console.error('[HTML] CRITICAL: Root element is empty after module load');
+          if (root) {
+            root.innerHTML = '<div style="padding: 20px; color: #ff6b6b; font-family: system-ui;"><h2>React Failed to Mount</h2><p>Root element is empty. Check console for errors.</p></div>';
+          }
+        }
+      }, 2000);
+    </script>
   </body>
 </html>
 

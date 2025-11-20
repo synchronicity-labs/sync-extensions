@@ -814,10 +814,11 @@ export default defineConfig({
           }
           
           html = html.replace(
-            /<script\s+src=["']([^"']*main[^"']*\.cjs)["'][^>]*><\/script>/gi,
-            (match, src) => {
+            /<script\s+src=["']([^"']*main[^"']*\.cjs)["']([^>]*)><\/script>/gi,
+            (match, src, attrs) => {
               if (!match.includes('data-main')) {
-                return `<script data-main="${src}" src="${src}"></script>`;
+                const cleanSrc = src.replace(/"/g, '&quot;');
+                return `<script data-main="${cleanSrc}" src="${cleanSrc}"${attrs}></script><script>setTimeout(function(){if(typeof window.__react_mounted==='undefined'){console.error('[CEP] Script did not execute via require.js, loading directly');var s=document.createElement('script');s.src='${cleanSrc}';s.type='module';document.head.appendChild(s);}},1000);</script>`;
               }
               return match;
             }

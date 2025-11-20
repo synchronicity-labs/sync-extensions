@@ -1630,7 +1630,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   render() {
     if (this.state.hasError) {
-      return null;
+      return (
+        <div style={{ padding: '20px', color: '#ff6b6b' }}>
+          <h3>Error in History Tab</h3>
+          <p>An error occurred. Check console for details.</p>
+        </div>
+      );
     }
 
     return this.props.children;
