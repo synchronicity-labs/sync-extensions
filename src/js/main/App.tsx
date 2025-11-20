@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useCore } from "../shared/hooks/useCore";
 import { useTabs, TabsProvider } from "../shared/hooks/useTabs";
 import { useServerAutoStart } from "../shared/hooks/useServerAutoStart";
@@ -6,14 +6,17 @@ import { useNLE } from "../shared/hooks/useNLE";
 import { useMedia } from "../shared/hooks/useMedia";
 import { useJobs } from "../shared/hooks/useJobs";
 import { useHistory } from "../shared/hooks/useHistory";
+import { useOnboarding } from "../shared/hooks/useOnboarding";
 import { setupWindowGlobals } from "../shared/utils/windowGlobals";
 import { getApiUrl } from "../shared/utils/serverConfig";
 import { debugLog, debugError } from "../shared/utils/debugLog";
+import { isDevMode } from "../shared/utils/env";
 import Header from "../shared/components/Header";
 import SourcesTab from "../shared/components/SourcesTab";
 import HistoryTab from "../shared/components/HistoryTab";
 import SettingsTab from "../shared/components/SettingsTab";
 import BottomBar from "../shared/components/BottomBar";
+import OnboardingModal from "../shared/components/OnboardingModal";
 import { GlobalErrorBoundary } from "../shared/components/GlobalErrorBoundary";
 import "../shared/styles/main.scss";
 
@@ -30,8 +33,73 @@ const AppContent: React.FC = () => {
   const media = useMedia();
   const jobs = useJobs();
   const history = useHistory();
+  const { showOnboarding, resetOnboarding, isLoading } = useOnboarding();
   
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  // Start hidden - will show main panel only after onboarding completes (or if onboarding not needed)
+  const [shouldFadeIn, setShouldFadeIn] = useState(false);
+
   useServerAutoStart();
+
+  // Handle onboarding display logic
+  useEffect(() => {
+    // Wait for onboarding hook to finish loading
+    if (isLoading) {
+      return;
+    }
+
+    // Check for URL parameter to show onboarding (dev mode only)
+    if (isDevMode() && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('showOnboarding') === 'true') {
+        resetOnboarding();
+        setShouldFadeIn(false); // Hide main panel
+        setIsOnboardingOpen(true);
+        debugLog('[App] Showing onboarding via URL parameter');
+        return;
+      }
+    }
+    
+    // Normal flow: show onboarding if needed, otherwise show app
+    if (showOnboarding) {
+      setShouldFadeIn(false); // Hide main panel when onboarding shows
+      setIsOnboardingOpen(true);
+    } else {
+      // Onboarding not needed - show main panel
+      setIsOnboardingOpen(false);
+      setShouldFadeIn(true);
+    }
+  }, [showOnboarding, resetOnboarding, isLoading]);
+
+  // Handle onboarding close - trigger fade-in from black
+  const handleOnboardingClose = () => {
+    // Immediately start fading in main UI from black
+    setShouldFadeIn(true);
+    // Close overlay after fade completes (overlay will fade out)
+    setTimeout(() => {
+      setIsOnboardingOpen(false);
+    }, 500); // Match fade duration
+  };
+  
+  // Dev mode: Expose function to window for console access
+  useEffect(() => {
+    if (isDevMode() && typeof window !== 'undefined') {
+      (window as any).showOnboarding = () => {
+        resetOnboarding();
+        setIsOnboardingOpen(true);
+        debugLog('[App] Showing onboarding via window.showOnboarding()');
+      };
+      (window as any).hideOnboarding = () => {
+        setIsOnboardingOpen(false);
+        debugLog('[App] Hiding onboarding via window.hideOnboarding()');
+      };
+      
+      return () => {
+        delete (window as any).showOnboarding;
+        delete (window as any).hideOnboarding;
+      };
+    }
+  }, [resetOnboarding]);
   
   if (!tabs || !core || !media || !jobs || !history) {
     debugError('[App] Missing required hooks', { tabs: !!tabs, core: !!core, media: !!media, jobs: !!jobs, history: !!history });
@@ -288,15 +356,18 @@ const AppContent: React.FC = () => {
   
   try {
     return (
-      <div className="app-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <Header activeTab={activeTab} setActiveTab={setActiveTab} />
-        <div className="content" style={{ flex: 1 }}>
-          <SourcesTab />
-          <HistoryTab />
-          <SettingsTab />
+      <>
+        <div className={`app-container ${shouldFadeIn ? "fade-in" : "hidden"}`} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+          <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+          <div className="content" style={{ flex: 1 }}>
+            <SourcesTab />
+            <HistoryTab />
+            <SettingsTab />
+          </div>
+          <BottomBar />
         </div>
-        <BottomBar />
-      </div>
+        <OnboardingModal isOpen={isOnboardingOpen} onClose={handleOnboardingClose} />
+      </>
     );
   } catch (renderError) {
     debugError('[App] Error rendering JSX', renderError);

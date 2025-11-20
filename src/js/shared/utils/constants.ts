@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   SELECTED_VIDEO_URL: "selectedVideoUrl",
   SELECTED_AUDIO_URL: "selectedAudioUrl",
   ACTIVE_TAB: "sync_activeTab",
+  ONBOARDING_COMPLETED: "sync_onboardingCompleted",
 } as const;
 
 // Common timeout delays (in milliseconds)

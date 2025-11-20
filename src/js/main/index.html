@@ -32,7 +32,6 @@
       }
     </style>
     <script>
-      // Global error handler - catches ALL errors before React loads
       window.addEventListener('error', function(e) {
         console.error('[CEP] Global error:', e.error, e.message, e.filename, e.lineno);
         showError('JavaScript Error', e.message + '\n\nFile: ' + e.filename + ':' + e.lineno + '\n\n' + (e.error ? e.error.stack : ''));
@@ -41,16 +40,6 @@
       window.addEventListener('unhandledrejection', function(e) {
         var reason = e.reason;
         var errorMessage = reason?.message || String(reason);
-        
-        // Ignore WebSocket connection errors - they're non-critical (HMR will retry)
-        if (errorMessage.includes('WebSocket') || 
-            errorMessage.includes('websocket') ||
-            errorMessage.includes('closed without opened')) {
-          console.warn('[CEP] WebSocket error (non-critical, ignoring):', errorMessage);
-          e.preventDefault(); // Prevent error from showing
-          return;
-        }
-        
         console.error('[CEP] Unhandled promise rejection:', reason);
         showError('Unhandled Promise Rejection', String(reason));
       });
@@ -66,14 +55,12 @@
         errorDiv.classList.add('show');
       }
       
-      // Check if CEP is available
       setTimeout(function() {
         if (typeof window.__adobe_cep__ === 'undefined' && typeof window.cep === 'undefined') {
           console.warn('[CEP] CEP runtime not detected - extension may not be loaded correctly');
         }
       }, 1000);
       
-      // Force script execution check
       console.log('[HTML] Script block executing');
       window.__html_script_executed = true;
     </script>
@@ -114,7 +101,6 @@
         var requireAvailable = typeof window.require === 'function';
         var mainSrc = mainScript ? mainScript.dataset.main : null;
         
-        // Log all script tags for debugging
         var allScripts = Array.from(document.querySelectorAll('script'));
         console.log('[HTML] All script tags found:', allScripts.length);
         allScripts.forEach(function(s, i) {
@@ -140,12 +126,10 @@
           console.warn('[HTML] require.modules not available');
         }
         
-        // Check base tag
         var baseTag = document.querySelector('base');
         var baseHref = baseTag ? baseTag.getAttribute('href') : null;
         console.log('[HTML] Base tag href:', baseHref);
         
-        // Try to resolve the path
         var resolvedPath = null;
         if (mainSrc) {
           try {
@@ -175,57 +159,42 @@
           locationHref: window.location.href
         });
         
-        if (mainSrc && requireAvailable && !window.__main_script_executed) {
+        if (!mainSrc) {
+          console.error('[HTML] CRITICAL: No script[data-main] found!');
+          window.__mountErrors.push({
+            message: 'No script[data-main] tag found - vite-cep-plugin require shim cannot load main module',
+            error: 'The HTML should contain: <' + 'script data-main="../assets/main-XXXXX.cjs" src="../assets/main-XXXXX.cjs"></' + 'script>'
+          });
+        } else if (!requireAvailable) {
+          console.error('[HTML] CRITICAL: window.require is not available!');
+          window.__mountErrors.push({
+            message: 'window.require is not available - vite-cep-plugin require shim failed to initialize',
+            error: 'Check browser console for vite-cep-plugin errors'
+          });
+        } else {
           var isLoaded = false;
-          if (window.require.modules) {
+          if (window.require.modules && resolvedPath) {
             try {
-              var fullUrl = resolvedPath || new URL(mainSrc, window.location.href).href;
-              console.log('[HTML] Checking if module loaded:', fullUrl);
-              isLoaded = !!window.require.modules[fullUrl] || !!window.require.modules[mainSrc] || !!window.require.modules[resolvedPath];
-              console.log('[HTML] Module loaded check result:', isLoaded);
+              isLoaded = !!window.require.modules[resolvedPath];
               if (!isLoaded) {
-                console.log('[HTML] Module keys in require.modules:', Object.keys(window.require.modules).slice(0, 10));
+                var possibleKeys = Object.keys(window.require.modules).filter(function(key) {
+                  return key.includes('main-') && key.includes('.cjs');
+                });
+                if (possibleKeys.length > 0) {
+                  console.log('[HTML] Found main module keys:', possibleKeys);
+                  isLoaded = true;
+                }
               }
             } catch(e) {
               console.warn('[HTML] Could not check if module loaded:', e);
             }
           }
           
-          if (!isLoaded) {
-            console.error('[HTML] Main script not loaded, attempting manual load');
-            console.log('[HTML] Attempting require("' + mainSrc + '")');
-            try {
-              var result = window.require(mainSrc);
-              console.log('[HTML] Manual require succeeded:', result);
-              window.__main_script_executed = true;
-            } catch(e) {
-              console.error('[HTML] Manual require failed:', e);
-              console.error('[HTML] Error details:', {
-                message: e.message,
-                stack: e.stack,
-                name: e.name
-              });
-              window.__mountErrors.push({
-                message: 'Manual require() failed: ' + e.message,
-                error: e.stack || e.toString(),
-                mainSrc: mainSrc,
-                resolvedPath: resolvedPath
-              });
-              window.__main_script_error = e;
-            }
-          } else {
-            console.log('[HTML] Module already loaded');
+          if (isLoaded) {
+            console.log('[HTML] Module loaded by vite-cep-plugin shim');
             window.__main_script_executed = true;
-          }
-        } else {
-          if (!mainSrc) {
-            console.error('[HTML] No script[data-main] found!');
-          }
-          if (!requireAvailable) {
-            console.error('[HTML] window.require is not available!');
-          }
-          if (window.__main_script_executed) {
-            console.log('[HTML] Script already executed');
+          } else {
+            console.log('[HTML] Waiting for vite-cep-plugin shim to load module...');
           }
         }
       }
@@ -249,9 +218,11 @@
               if (err.filename) {
                 errorHtml += '<span style="color: #888; font-size: 12px;">' + err.filename + (err.lineno ? ':' + err.lineno : '') + '</span><br>';
               }
-              errorHtml += '<pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 11px; margin-top: 5px; white-space: pre-wrap; word-wrap: break-word;">' + 
-                (err.error || err.message || 'Unknown error').replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
-                '</pre></div>';
+              var errorText = String(err.error || err.message || 'Unknown error');
+              var ltRegex = /</g;
+              var gtRegex = />/g;
+              errorText = errorText.replace(ltRegex, '&lt;').replace(gtRegex, '&gt;');
+              errorHtml += '<pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 11px; margin-top: 5px; white-space: pre-wrap; word-wrap: break-word;">' + errorText + '</pre></div>';
             });
             errorHtml += '</div>';
           }
@@ -261,7 +232,6 @@
           var mainSrc = mainScript ? mainScript.dataset.main : null;
           var requireModules = requireAvailable ? Object.keys(window.require.modules || {}) : [];
           
-          // Collect all script tags for debugging
           var allScripts = Array.from(document.querySelectorAll('script')).map(function(s, i) {
             return {
               index: i,
@@ -275,11 +245,9 @@
             };
           });
           
-          // Check base tag
           var baseTag = document.querySelector('base');
           var baseHref = baseTag ? baseTag.getAttribute('href') : null;
           
-          // Try to resolve the main script path
           var resolvedPath = null;
           var pathResolutionError = null;
           if (mainSrc && baseHref) {
@@ -314,14 +282,18 @@
           }
           debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">require modules loaded:</strong> <span style="color: #fff;">' + requireModules.length + '</span></div>';
           if (requireModules.length > 0) {
-            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Loaded modules (first 20):</strong> <pre style="background: #2d2d2d; padding: 8px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + requireModules.slice(0, 20).join('\\n') + '</pre></div>';
+            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Loaded modules (first 20):</strong> <pre style="background: #2d2d2d; padding: 8px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + requireModules.slice(0, 20).join('\n') + '</pre></div>';
           }
           debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">__main_script_executed:</strong> <span style="color: #fff;">' + (window.__main_script_executed || 'false') + '</span></div>';
           if (window.__main_script_error) {
-            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #ff6b6b;">__main_script_error:</strong> <pre style="background: #2d2d2d; padding: 8px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + String(window.__main_script_error).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></div>';
+            var mainErrorText = String(window.__main_script_error);
+            mainErrorText = mainErrorText.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #ff6b6b;">__main_script_error:</strong> <pre style="background: #2d2d2d; padding: 8px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + mainErrorText + '</pre></div>';
           }
           debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Total script tags:</strong> <span style="color: #fff;">' + allScripts.length + '</span></div>';
-          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Script tags details:</strong> <pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + JSON.stringify(allScripts, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></div>';
+          var scriptsJsonText = JSON.stringify(allScripts, null, 2);
+          scriptsJsonText = scriptsJsonText.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Script tags details:</strong> <pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + scriptsJsonText + '</pre></div>';
           debugInfo += '</div>';
           
           if (root) {

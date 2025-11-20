@@ -676,7 +676,23 @@ fi
 echo "✅ Created DaVinci Resolve package: davinci-sync-extension-v${VERSION}.zip"
 
 # Clean up temporary directory
-rm -rf "$TEMP_DIR"
+# Handle node_modules symlinks that can cause rm -rf to fail
+if [ -d "$TEMP_DIR" ]; then
+  # Try standard rm -rf first
+  rm -rf "$TEMP_DIR" 2>/dev/null || {
+    # If that fails, try to remove contents individually
+    echo "Cleaning up temp directory (handling symlinks)..."
+    find "$TEMP_DIR" -type l -delete 2>/dev/null || true
+    find "$TEMP_DIR" -type f -delete 2>/dev/null || true
+    find "$TEMP_DIR" -type d -empty -delete 2>/dev/null || true
+    # Final attempt with rm -rf
+    rm -rf "$TEMP_DIR" 2>/dev/null || {
+      echo "⚠️  Warning: Could not fully clean temp directory (non-fatal)"
+      echo "   Directory: $TEMP_DIR"
+      echo "   You can manually remove it if needed"
+    }
+  }
+fi
 
 echo ""
 echo "Creating or updating GitHub release..."

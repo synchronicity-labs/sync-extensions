@@ -210,12 +210,14 @@
   min-height: 200px;
   height: 100%;
   flex: 1 1 0%;
+  overflow: visible;
 }
 
 .audio-upload:not(.has-media) #audioDropzone {
   min-height: 200px;
   height: 100%;
   flex: 1 1 0%;
+  overflow: visible;
 }
 
 /* Dropzone drag state - consolidated for video and audio */
@@ -278,6 +280,39 @@
   
   .action-row {
     gap: var(--spacing-sm);
+  }
+  
+  /* Fix empty state - prevent content cropping and increase height */
+  .video-upload:not(.has-media),
+  .audio-upload:not(.has-media) {
+    overflow: visible;
+    min-height: 280px; /* Taller in compressed mode */
+  }
+  
+  .video-upload:not(.has-media) {
+    height: auto;
+  }
+  
+  .audio-upload:not(.has-media) {
+    height: 280px; /* Taller in compressed mode */
+    max-height: none; /* Remove max-height restriction */
+  }
+  
+  .video-upload:not(.has-media) #videoDropzone,
+  .audio-upload:not(.has-media) #audioDropzone {
+    overflow: visible;
+    min-height: 280px; /* Match container height */
+  }
+  
+  /* Ensure consistent gaps between icons → text → buttons for both video and audio */
+  .video-upload:not(.has-media) .upload-visual,
+  .audio-upload:not(.has-media) .upload-visual {
+    gap: var(--spacing-md); /* Consistent gap between icons and text */
+  }
+  
+  .video-upload:not(.has-media) .upload-content,
+  .audio-upload:not(.has-media) .upload-content {
+    gap: var(--spacing-lg); /* Consistent gap between visual (icons+text) and buttons */
   }
   
   /* Fix audio container height in compressed breakpoint */

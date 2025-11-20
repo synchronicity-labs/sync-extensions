@@ -14,6 +14,7 @@
 @use 'components/bottom-bar' as *;
 @use 'components/settings' as *;
 @use 'components/modals' as *;
+@use 'components/onboarding' as *;
 @use 'components/model-selector' as *;
 @use 'components/tts' as *;
 @use 'components/recording' as *;
@@ -302,10 +303,25 @@ body {
   flex-direction: column;
   background: var(--bg-primary);
   padding: clamp(8px, 1vw, 12px);
+  transition: opacity 0.5s ease;
   gap: var(--spacing-sm);
   min-width: 0;
   overflow: hidden;
   position: relative;
+  opacity: 1; /* Visible by default */
+}
+
+/* Only hide if explicitly marked as hidden (when onboarding is showing) */
+.app-container.hidden {
+  opacity: 0;
+  pointer-events: none; /* Prevent interaction when hidden */
+  background: #000000; /* Start from black */
+}
+
+.app-container.fade-in {
+  opacity: 1;
+  background: var(--bg-primary); /* Fade to main background */
+  transition: opacity 0.5s ease, background 0.5s ease;
 }
 
 .content {

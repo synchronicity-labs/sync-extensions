@@ -14,7 +14,6 @@ dotenv.config({ path: path.resolve(process.cwd(), "src/server/.env") });
 
 import cepConfig from "./cep.config";
 
-// Define __dirname for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -759,8 +758,6 @@ const fixRedirectPath = () => {
 
 export default defineConfig({
   plugins: [
-    // CRITICAL: Create output directories BEFORE vite-cep-plugin runs
-    // vite-cep-plugin tries to write files during configResolved, which is before buildStart
     {
       name: 'ensure-output-dirs',
       enforce: 'pre',
@@ -779,53 +776,39 @@ export default defineConfig({
     },
     react(),
     cep(config),
-    // Ensure image imports work correctly in dev mode
     {
       name: 'dev-image-handler',
       enforce: 'pre',
       resolveId(id) {
-        // Handle image imports - let Vite process them normally
         if (id.match(/\.(png|jpg|jpeg|svg|gif)$/)) {
-          return null; // Let Vite handle it
+          return null;
         }
         return null;
       },
       load(id) {
-        // Don't interfere with Vite's image handling
         return null;
       },
     },
-    // Fix asset paths - ensure they use relative paths for CEP compatibility
     {
       name: 'fix-asset-paths',
       enforce: 'post',
       generateBundle(options, bundle) {
-        // Fix asset paths in all builds (dev and production)
         Object.keys(bundle).forEach(key => {
           const file = bundle[key];
           if (file.type === 'chunk' && file.code) {
-            // In CEP, HTML is at main/index.html and assets are at assets/
-            // So we need ../assets/ to reach assets from main/
-            
-            // Fix 1: /assets/white_icon-D5IQTeYv.png -> ../assets/white_icon-D5IQTeYv.png
             file.code = file.code.replace(
               /(["'])\/assets\/((white_icon|avatar)[^"']*\.png)(["'])/g,
               '$1../assets/$2$4'
             );
             
-            // Fix 2: /white_icon-D5IQTeYv.png -> ../assets/white_icon-D5IQTeYv.png
             file.code = file.code.replace(
               /(["'])\/((white_icon|avatar)[^"']*\.png)(["'])/g,
               '$1../assets/$2$4'
             );
             
-            // Fix 3: "white_icon-D5IQTeYv.png" (no path, just filename) -> "../assets/white_icon-D5IQTeYv.png"
-            // Only match if it's a standalone filename without any slashes
             file.code = file.code.replace(
               /(["'])((white_icon|avatar)[^"']*\.png)(["'])/g,
               (match, quote1, filename, name, quote2) => {
-                // Only fix if it doesn't already have a path prefix (no /, ../, or ./)
-                // And make sure we're not matching something that already has ../assets/
                 if (!match.includes('/') && !match.includes('../assets/')) {
                   return `${quote1}../assets/${filename}${quote2}`;
                 }
@@ -839,68 +822,8 @@ export default defineConfig({
     {
       name: 'bolt-cep-production-html',
       enforce: 'post',
-      transformIndexHtml(html, context) {
-        if (!html || typeof html !== 'string') {
-          return html;
-        }
-        
-        if (isProduction || isPackage) {
-          html = html.replace(
-            /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
-            ''
-          );
-          
-          html = html.replace(
-            /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
-            ''
-          );
-          
-          if (!html.includes('id="root"')) {
-            html = html.replace(
-              /(<body[^>]*>)/i,
-              '$1\n    <div id="root"></div>'
-            );
-          }
-          
-          html = html.replace(
-            /<script\s+src=["']([^"']*main[^"']*\.cjs)["']([^>]*)><\/script>/gi,
-            (match, src, attrs) => {
-              if (!match.includes('data-main')) {
-                return `<script data-main="${src}" src="${src}"${attrs}></script>`;
-              }
-              return match;
-            }
-          );
-          
-          html = html.replace(
-            /if\s*\(mainStr\)\s*\{\s*window\.addEventListener\(["']load["'],\s*req\.bind\(this,\s*new\s+URL\(mainStr,\s*baseDir\)\.href\)\);\s*\}/,
-            `if (mainStr) {
-              var executeMain = req.bind(this, new URL(mainStr, baseDir).href);
-              if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                executeMain();
-              } else {
-                window.addEventListener('load', executeMain);
-              }
-            }`
-          );
-          
-          return html;
-        }
-        
-        if (!isProduction && !isPackage) {
-          if (context && context.bundle && context.chunk) {
-            html = html.replace(
-              /window\.location\.href\s*=\s*['"]http:\/\/localhost:3001\/main\/index\.html['"]/g,
-              `window.location.href = 'http://localhost:3001/main/'`
-            );
-          }
-        }
-        
-        return html;
-      },
       async closeBundle() {
         if (isProduction || isPackage) {
-          // Wait a bit to ensure vite-cep-plugin has finished writing files
           await new Promise(resolve => setTimeout(resolve, 100));
           
           cepConfig.panels.forEach(panel => {
@@ -920,25 +843,21 @@ export default defineConfig({
             let content = fs.readFileSync(htmlPath, 'utf-8');
             const originalContent = content;
             
-            // Remove dev redirect script
             content = content.replace(
               /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
               ''
             );
             
-            // Remove module script tag (type="module" src="./main.tsx")
             content = content.replace(
               /<script\s+type=["']module["'][^>]*src=["'][^"']*main\.tsx["'][^>]*><\/script>/gi,
               ''
             );
             
-            // Remove app div if it exists
             content = content.replace(
               /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
               ''
             );
             
-            // Ensure root div exists
             if (!content.includes('id="root"')) {
               content = content.replace(
                 /(<body[^>]*>)/i,
@@ -946,8 +865,6 @@ export default defineConfig({
               );
             }
             
-            // Find the actual main-*.cjs file that was built
-            let mainScriptPath = null;
             const assetFiles = fs.readdirSync(assetsDir);
             const mainCjsFile = assetFiles.find(f => f.startsWith('main-') && f.endsWith('.cjs'));
             
@@ -957,117 +874,35 @@ export default defineConfig({
               return;
             }
             
-            // HTML is at main/index.html, assets are at assets/, so path is ../assets/main-*.cjs
-            // CRITICAL: Use exactly "../assets/" - this is the correct relative path from main/ to assets/
-            // The vite-cep-plugin require shim will resolve this using: new URL(mainStr, baseDir)
-            // where baseDir is "./" (resolved to main/), so "../assets/file.cjs" resolves correctly
-            mainScriptPath = `../assets/${mainCjsFile}`;
+            const mainScriptPath = `../assets/${mainCjsFile}`;
             
-            // CRITICAL: Remove ALL existing script tags that might have incorrect paths
-            // This includes any with data-main, data-scripts with main-*.cjs, any with malformed paths, and any pointing to main-*.cjs
-            // Remove script tags with data-scripts that contain main-*.cjs (vite-cep-plugin might generate these)
-            content = content.replace(
-              /<script[^>]*data-scripts=["'][^"']*main-[^"']*\.cjs[^"']*["'][^>]*><\/script>/gi,
-              ''
-            );
-            
-            // Remove script tags with malformed paths (4+ dots)
-            content = content.replace(
-              /<script[^>]*src=["'][^"']*\.\.\.\.\/[^"']*["'][^>]*><\/script>/gi,
-              ''
-            );
-            
-            // Remove script tags with data-main (we'll add the correct one)
-            content = content.replace(
-              /<script[^>]*data-main[^>]*><\/script>/gi,
-              ''
-            );
-            
-            // Remove script tags pointing to main-*.cjs files
             content = content.replace(
               /<script[^>]*src=["'][^"']*main-[^"']*\.cjs["'][^>]*><\/script>/gi,
-              ''
+              `<script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`
             );
             
-            // Also remove any script tags with data-main attribute (to be safe - do multiple passes)
-            const dataMainRegex = /<script[^>]*data-main[^>]*><\/script>/gi;
-            let previousContent;
-            let iterations = 0;
-            do {
-              previousContent = content;
-              content = content.replace(dataMainRegex, '');
-              iterations++;
-              if (iterations > 10) {
-                console.warn(`⚠️  Warning: Removed data-main script tags ${iterations} times - might be infinite loop`);
-                break;
-              }
-            } while (content !== previousContent);
-            
-            // Verify the path is correct (should be exactly "../assets/filename.cjs")
-            if (!mainScriptPath.match(/^\.\.\/assets\/main-[^\/]+\.cjs$/)) {
-              console.error(`❌ ERROR: Invalid script path format: ${mainScriptPath}`);
-              console.error(`   Expected format: ../assets/main-XXXXX.cjs`);
-              return;
-            }
-            
-            // Add the script tag with data-main attribute BEFORE closing body tag
-            // The vite-cep-plugin require shim looks for script[data-main] to load the main module
-            // Format: <script data-main="../assets/main-XXXXX.cjs" src="../assets/main-XXXXX.cjs"></script>
-            const scriptTag = `    <script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`;
-            
-            // Insert before </body> tag (only if it doesn't already exist)
             if (!content.includes(`data-main="${mainScriptPath}"`)) {
-              // Find the closing body tag and insert before it
+              const scriptTag = `    <script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`;
               const bodyCloseIndex = content.lastIndexOf('</body>');
               if (bodyCloseIndex === -1) {
                 console.error(`❌ ERROR: Could not find </body> tag in HTML`);
                 return;
               }
-              
               content = content.slice(0, bodyCloseIndex) + scriptTag + '\n' + content.slice(bodyCloseIndex);
-              console.log(`✓ Added script tag with correct path: ${mainScriptPath}`);
+              console.log(`✓ Added script tag: ${mainScriptPath}`);
             } else {
-              console.log(`✓ Script tag already exists with correct path: ${mainScriptPath}`);
+              console.log(`✓ Script tag with correct path exists: ${mainScriptPath}`);
             }
             
-            // Always write the file to ensure it's correct
+            content = content.replace(
+              /<script[^>]*data-base_dir=["'][^"']*["'][^>]*><\/script>/gi,
+              ''
+            );
+            
             fs.writeFileSync(htmlPath, content, 'utf-8');
             
             if (content !== originalContent) {
               console.log(`✓ Updated production HTML: ${htmlPath}`);
-            } else {
-              console.log(`✓ Verified production HTML: ${htmlPath}`);
-            }
-            
-            // Verify the script tag was added correctly
-            const scriptTagExists = content.includes(`data-main="${mainScriptPath}"`);
-            if (!scriptTagExists) {
-              console.error(`❌ ERROR: Failed to add script tag to ${htmlPath}`);
-              console.error(`   Expected: data-main="${mainScriptPath}"`);
-              console.error(`   HTML content around </body>: ${content.slice(Math.max(0, content.lastIndexOf('</body>') - 200), content.lastIndexOf('</body>') + 50)}`);
-            } else {
-              console.log(`✓ Verified script tag exists in HTML with path: ${mainScriptPath}`);
-            }
-            
-            // Extract and log all script tags for debugging
-            const scriptTagMatches = content.matchAll(/<script[^>]*>/gi);
-            const scriptTags: string[] = [];
-            for (const match of scriptTagMatches) {
-              scriptTags.push(match[0]);
-            }
-            console.log(`📋 Found ${scriptTags.length} script tags in HTML:`);
-            scriptTags.forEach((tag, i) => {
-              const hasDataMain = tag.includes('data-main');
-              const hasMainCjs = tag.includes('main-') && tag.includes('.cjs');
-              console.log(`   ${i + 1}. ${hasDataMain ? '✓' : '✗'} data-main ${hasMainCjs ? '✓' : '✗'} main-*.cjs ${tag.substring(0, 100)}`);
-            });
-            
-            // Log the exact script tag we added
-            const addedScriptTagMatch = content.match(new RegExp(`<script[^>]*data-main="${mainScriptPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>`));
-            if (addedScriptTagMatch) {
-              console.log(`✓ Confirmed script tag in HTML: ${addedScriptTagMatch[0]}`);
-            } else {
-              console.error(`❌ Script tag not found in HTML after write!`);
             }
           });
         }
@@ -1133,7 +968,6 @@ export default defineConfig({
           }
         }
         
-        // Ensure bin folder with Node.js binaries is copied (required, not optional)
         const binSource = path.join(__dirname, 'bin');
         const binDest = path.join(outDir, 'bin');
         if (!fs.existsSync(binDest) || isProduction || isPackage) {
@@ -1149,7 +983,6 @@ export default defineConfig({
           console.log('✓ Copied bin folder with Node.js binaries to', binDest);
         }
         
-        // Ensure epr preset files are copied (required for Premiere Pro in/out exports)
         const eprSource = path.join(__dirname, 'src', 'js', 'panels', 'ppro', 'epr');
         const eprDest = path.join(outDir, 'js', 'panels', 'ppro', 'epr');
         if (!fs.existsSync(eprDest) || isProduction || isPackage) {
@@ -1457,10 +1290,8 @@ export default defineConfig({
         
       },
       configureServer(server) {
-        // Allow browser access in dev mode - add CORS headers
         server.middlewares.use((req, res, next) => {
           if (!isProduction && !isPackage) {
-            // Allow browser access for development
             const origin = req.headers.origin;
             if (origin) {
               res.setHeader('Access-Control-Allow-Origin', origin);
@@ -1477,25 +1308,19 @@ export default defineConfig({
           next();
         });
         
-        // Serve images from assets/icons when requested directly (for img src attributes)
-        // But let Vite handle ?import requests as modules
         server.middlewares.use((req, res, next) => {
           if (!req.url) {
             next();
             return;
           }
           
-          // Let Vite handle ?import requests - don't interfere
           if (req.url.includes('?import')) {
             next();
             return;
           }
           
-          // Serve images directly when requested without ?import (for img src in CEP)
-          // Handle both /assets/icons/ and /assets/ paths
           const urlWithoutQuery = req.url.split('?')[0];
           
-          // Pattern 1: /assets/icons/white_icon.png
           if (urlWithoutQuery.startsWith('/assets/icons/') && urlWithoutQuery.match(/\.(png|jpg|jpeg|svg|gif)$/)) {
             const imageName = urlWithoutQuery.replace('/assets/icons/', '');
             const imagePath = path.join(__dirname, 'src/js/assets/icons', imageName);
@@ -1514,9 +1339,7 @@ export default defineConfig({
             }
           }
           
-          // Pattern 2: /assets/white_icon-D5IQTeYv.png (hashed names from build)
           if (urlWithoutQuery.startsWith('/assets/') && urlWithoutQuery.match(/(white_icon|avatar)[^/]*\.png$/)) {
-            // Extract the base name (without hash)
             const filename = urlWithoutQuery.split('/').pop() || '';
             const baseName = filename.replace(/-[A-Za-z0-9]+\.png$/, '.png');
             const imagePath = path.join(__dirname, 'src/js/assets/icons', baseName);
@@ -1531,7 +1354,6 @@ export default defineConfig({
           next();
         });
         
-        // Fix redirect path
         server.middlewares.use((req, res, next) => {
           if (req.url === '/main/index.html') {
             req.url = '/main/';
@@ -1556,8 +1378,6 @@ export default defineConfig({
   root,
   base: isPackage ? "./" : "/",
   clearScreen: false,
-  // Disable publicDir - it interferes with Vite's ?import handling
-  // Vite will serve images through its import system
   publicDir: false,
   server: {
     port: cepConfig.port || 3001,
