@@ -5,6 +5,21 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-}"
 MESSAGE="${2:-Release $VERSION}"
 
+# Get GitHub repository from environment variable or git remote
+if [ -n "${GITHUB_REPO:-}" ]; then
+  GITHUB_REPO_NAME="$GITHUB_REPO"
+elif [ -n "${UPDATES_REPO:-}" ]; then
+  GITHUB_REPO_NAME="$UPDATES_REPO"
+else
+  # Try to get from git remote
+  GITHUB_REPO_NAME=$(git remote get-url origin 2>/dev/null | sed -E 's|.*github.com[:/]([^/]+/[^/]+)(\.git)?$|\1|' || echo "")
+  if [ -z "$GITHUB_REPO_NAME" ]; then
+    echo "Error: GITHUB_REPO or UPDATES_REPO environment variable must be set (e.g., 'org/repo')"
+    echo "   Or ensure git remote 'origin' points to a GitHub repository"
+    exit 1
+  fi
+fi
+
 if [ -z "$VERSION" ]; then
   echo "Usage: $0 <version> [message]"
   echo "Example: $0 0.9.45 'Fixed ZXP signing'"
@@ -764,4 +779,4 @@ DAVINCI_SIZE=$(du -h "$DAVINCI_ZIP" 2>/dev/null | cut -f1 || echo "~448MB")
 echo "   - Premiere/AE: premiere-ae-sync-extension-v${VERSION}.zip ($PREM_AE_SIZE)"
 echo "   - DaVinci Resolve: davinci-sync-extension-v${VERSION}.zip ($DAVINCI_SIZE)"
 echo ""
-echo "🔗 View release: https://github.com/mhadifilms/sync-extensions/releases/tag/v${VERSION}"
+echo "🔗 View release: https://github.com/${GITHUB_REPO_NAME}/releases/tag/v${VERSION}"

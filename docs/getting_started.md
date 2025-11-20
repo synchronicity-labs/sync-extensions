@@ -6,14 +6,14 @@ Welcome to sync. extensions! This guide will help you get started with lipsync g
 
 ### Adobe Applications (Premiere Pro & After Effects)
 
-1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/mhadifilms/sync-extensions/releases)
 2. Install the ZXP file using [ZXP Installer](https://aescripts.com/learn/zxp-installer/)
 3. Restart Premiere Pro or After Effects
 4. Find the extension in **Window > Extensions > sync.**
 
 ### DaVinci Resolve
 
-1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/mhadifilms/sync-extensions/releases)
 2. Extract the `sync-resolve-plugin-*.zip` file
 3. Copy the `sync.resolve` folder to:
    - **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/`

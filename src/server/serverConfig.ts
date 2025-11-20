@@ -63,7 +63,7 @@ function detectExtensionLocation(): 'user' | 'system' {
 }
 
 export const EXTENSION_LOCATION = detectExtensionLocation();
-export const UPDATES_REPO = process.env.UPDATES_REPO || process.env.GITHUB_REPO || 'mhadifilms/sync-extensions';
+export const UPDATES_REPO = process.env.UPDATES_REPO || process.env.GITHUB_REPO || '';
 export const UPDATES_CHANNEL = process.env.UPDATES_CHANNEL || 'releases';
 export const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
 export const GH_UA = process.env.GITHUB_USER_AGENT || 'sync-extension-updater/1.0';

@@ -19,6 +19,9 @@ async function ghFetch(url, opts) {
 
 export async function getLatestReleaseInfo() {
   const repo = UPDATES_REPO;
+  if (!repo || repo.trim() === '') {
+    throw new Error('GITHUB_REPO or UPDATES_REPO environment variable must be set (e.g., "org/repo")');
+  }
   const base = `https://api.github.com/repos/${repo}`;
   
   async function tryReleases() {

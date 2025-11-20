@@ -6,14 +6,14 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 
 ### Adobe Applications (After Effects & Premiere Pro)
 
-1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/mhadifilms/sync-extensions/releases)
 2. Install the ZXP file using [ZXP Installer](https://aescripts.com/learn/zxp-installer/)
 3. Restart After Effects or Premiere Pro
 4. Find the extension in **Window > Extensions > sync.**
 
 ### DaVinci Resolve
 
-1. Download the latest release from [GitHub Releases](https://github.com/your-org/sync-extensions/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/mhadifilms/sync-extensions/releases)
 2. Extract the `sync-resolve-plugin-*.zip` file
 3. Copy the `sync.resolve` folder to:
    - **macOS**: `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/`
@@ -87,20 +87,10 @@ Extensions for After Effects, Premiere Pro, and DaVinci Resolve. Built with Reac
 ## Quick Start
 
 1. **Install** the extension/plugin (see Installation above)
-2. **Get API key** from [sync.media](https://sync.media) (or your API provider)
+2. **Get API key** from [sync.](https://sync.media)
 3. **Configure** settings in the extension (Settings tab)
 4. **Select media** - Upload files, export from timeline, or enter URLs
 5. **Generate** - Click Lipsync button and wait for completion
 6. **Use result** - Save to project or insert into timeline
 
 For detailed instructions, see the [Getting Started Guide](./docs/getting_started.md).
-
-## Security & Trust
-
-- Package is digitally signed and verified
-- SHA256 checksums are provided in releases for integrity verification
-- Verify checksums: `sha256sum -c checksums.txt` (Linux/macOS) or `certutil -hashfile com.sync.extension.zxp SHA256` (Windows)
-
-## License
-
-See LICENSE file for details.
