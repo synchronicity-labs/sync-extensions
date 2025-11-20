@@ -29,23 +29,66 @@ const defaultSettings: Settings = {
 export const useSettings = () => {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
 
+  // Load settings from localStorage and listen for changes
   useEffect(() => {
-    // Load from localStorage
-    const stored = localStorage.getItem("syncSettings");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setSettings({ ...defaultSettings, ...parsed });
-      } catch (_) {
-        // Invalid JSON, use defaults
+    const loadSettings = () => {
+      const stored = localStorage.getItem("syncSettings");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setSettings((prev) => {
+            const updated = { ...defaultSettings, ...parsed };
+            // Only update if something actually changed to avoid unnecessary re-renders
+            if (JSON.stringify(prev) !== JSON.stringify(updated)) {
+              return updated;
+            }
+            return prev;
+          });
+        } catch (_) {
+          // Invalid JSON, use defaults
+        }
       }
-    }
+    };
+
+    // Load initially
+    loadSettings();
+
+    // Listen for storage events (changes from other windows/tabs)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "syncSettings") {
+        loadSettings();
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+
+    // Listen for custom syncSettingsChanged event (for same-window changes)
+    const handleCustomChange = () => {
+      loadSettings();
+    };
+    window.addEventListener("syncSettingsChanged", handleCustomChange);
+
+    // Also check periodically for changes (localStorage changes don't trigger storage event in same window)
+    // This ensures we catch changes made directly to localStorage
+    const interval = setInterval(loadSettings, 500);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("syncSettingsChanged", handleCustomChange);
+      clearInterval(interval);
+    };
   }, []);
 
   const updateSettings = useCallback((updates: Partial<Settings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...updates };
       localStorage.setItem("syncSettings", JSON.stringify(updated));
+      
+      // Dispatch custom event to notify other components using useSettings
+      // This ensures SettingsTab updates when onboarding saves API keys
+      window.dispatchEvent(new CustomEvent("syncSettingsChanged", {
+        detail: updates
+      }));
+      
       return updated;
     });
   }, []);

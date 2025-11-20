@@ -11,21 +11,43 @@ const SettingsTab: React.FC = () => {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [debugLoading, setDebugLoading] = useState(false);
 
-  // Check debug status on mount
+  // Check debug status on mount and when settings tab becomes active
   useEffect(() => {
     const checkDebugStatus = async () => {
       try {
-        const response = await fetch(getApiUrl("/debug/status"));
-        if (response.ok) {
-          const data = await response.json();
-          setDebugEnabled(data.enabled || false);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+        try {
+          const response = await fetch(getApiUrl("/debug/status"), {
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (response.ok) {
+            const data = await response.json();
+            setDebugEnabled(data.enabled || false);
+          }
+        } catch (error: any) {
+          clearTimeout(timeoutId);
+          // Server might not be running - that's okay, just leave debugEnabled as false
+          // Don't set an error state, just silently fail
         }
       } catch (error) {
         // Silently fail
       }
     };
+    
+    // Check immediately
     checkDebugStatus();
-  }, []);
+    
+    // Also check when settings tab becomes active (in case server started after mount)
+    if (activeTab === "settings") {
+      const interval = setInterval(() => {
+        checkDebugStatus();
+      }, 5000); // Check every 5 seconds when settings tab is active
+      
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
 
   // Re-initialize Lucide icons when component mounts or tab changes
   useEffect(() => {
@@ -41,17 +63,73 @@ const SettingsTab: React.FC = () => {
     if (debugLoading) return;
     setDebugLoading(true);
     try {
-      const response = await fetch(getApiUrl("/debug/toggle"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !debugEnabled }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDebugEnabled(data.enabled || false);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      try {
+        const response = await fetch(getApiUrl("/debug/toggle"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !debugEnabled }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          setDebugEnabled(data.enabled || false);
+        } else {
+            // Server responded but with error - try to check status
+          try {
+            const statusController = new AbortController();
+            const statusTimeoutId = setTimeout(() => statusController.abort(), 2000);
+            try {
+              const statusResponse = await fetch(getApiUrl("/debug/status"), {
+                signal: statusController.signal,
+              });
+              clearTimeout(statusTimeoutId);
+              if (statusResponse.ok) {
+                const statusData = await statusResponse.json();
+                setDebugEnabled(statusData.enabled || false);
+              }
+            } catch (_) {
+              clearTimeout(statusTimeoutId);
+              // Status check failed too
+            }
+          } catch (_) {
+            // Status check failed
+          }
+        }
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          // Request timed out - server might not be running
+          // Don't show error, just leave state as is
+        } else {
+          // Other error - server might not be running
+          // Try to check if server is available
+          try {
+            const healthController = new AbortController();
+            const healthTimeoutId = setTimeout(() => healthController.abort(), 2000);
+            try {
+              const healthCheck = await fetch(getApiUrl("/health"), {
+                signal: healthController.signal,
+              });
+              clearTimeout(healthTimeoutId);
+              if (!healthCheck.ok) {
+                // Server not running - that's okay, user will see it when server starts
+              }
+            } catch (_) {
+              clearTimeout(healthTimeoutId);
+              // Health check failed - server not running
+            }
+          } catch (_) {
+            // Health check failed
+          }
+        }
       }
     } catch (error) {
-      // Silently fail
+      // Silently fail - server might not be running yet
     } finally {
       setDebugLoading(false);
     }

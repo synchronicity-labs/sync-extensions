@@ -16,8 +16,7 @@ sync-extensions/
 ├── src/
 │   ├── js/
 │   │   ├── panels/           # Panel-specific code
-│   │   │   ├── ae/           # After Effects panel
-│   │   │   └── ppro/         # Premiere Pro panel
+│   │   │   └── ppro/         # Premiere Pro panel (EPR presets)
 │   │   ├── shared/            # Shared code
 │   │   │   ├── components/   # React components
 │   │   │   ├── hooks/         # React hooks
@@ -153,7 +152,7 @@ The `src/server/` directory contains a Node.js backend that handles:
 - Job management
 - Telemetry
 
-Server configuration is in `src/server/config.js`.
+Server configuration is in `src/server/serverConfig.ts`.
 
 ### Environment Variables
 
@@ -239,6 +238,12 @@ The build process is handled by `vite.config.ts` which compiles TypeScript files
 - **useRecording.ts**: Video/audio recording
 - **useTTS.ts**: Text-to-speech functionality
 - **useServerAutoStart.ts**: Server auto-start logic
+- **useAudioPlayer.ts**: Audio player functionality
+- **useVideoPlayer.ts**: Video player functionality
+- **useDragAndDrop.ts**: Drag and drop handling
+- **useHostDetection.ts**: Host application detection
+- **useOnboarding.ts**: Onboarding flow management
+- **useTabs.tsx**: Tab navigation
 
 ### ExtendScript
 

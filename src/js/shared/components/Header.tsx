@@ -247,7 +247,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
                 <div className="dropdown-item-wrapper">
                   <div className="dropdown-item" onClick={() => handleTabClick("settings")}>
                     <Settings size={16} style={{ color: "#ff7700" }} />
-                    <span>extension settings</span>
+                    <span>settings</span>
                   </div>
                 </div>
                 <a href="https://sync.so/billing/subscription" className="dropdown-item" target="_blank" rel="noopener noreferrer" onClick={() => setDropdownOpen(false)}>

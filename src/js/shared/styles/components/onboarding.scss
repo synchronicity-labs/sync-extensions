@@ -12,6 +12,7 @@
   justify-content: center;
   opacity: 0;
   visibility: hidden;
+  pointer-events: none; /* Don't block clicks when hidden */
   transition: opacity 0.5s ease, visibility 0.5s ease;
   overflow: hidden;
 }
@@ -20,6 +21,7 @@
   display: flex !important;
   opacity: 1 !important;
   visibility: visible !important;
+  pointer-events: auto; /* Allow clicks when shown */
   background: #000000 !important; /* Ensure black background when shown */
 }
 
@@ -27,6 +29,7 @@
   display: flex !important;
   opacity: 1 !important;
   visibility: visible !important;
+  pointer-events: auto; /* Allow clicks during fade */
   background: #000000 !important;
   transition: opacity 0.5s ease, background 0.5s ease;
 }
@@ -36,6 +39,7 @@
   display: flex !important;
   opacity: 0 !important;
   visibility: visible !important;
+  pointer-events: none; /* Don't block clicks when fading out */
   transition: opacity 0.5s ease;
 }
 

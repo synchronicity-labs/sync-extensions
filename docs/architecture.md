@@ -76,14 +76,15 @@ Components:
 - `fetchUtils.ts` - Network request utilities
 - `debugLog.ts` - Logging utilities (includes error logging)
 - `stringUtils.ts` - String manipulation utilities
-- `validation.ts` - Input validation and sanitization
-- `retry.ts` - Retry logic with exponential backoff
 - `toast.ts` - Toast notification system
 - `iconUtils.tsx` - Icon rendering utilities
 - `env.ts` - Environment detection
 - `serverConfig.ts` - Server configuration
 - `thumbnails.ts` - Thumbnail generation
 - `windowGlobals.ts` - Window global setup (backward compatibility)
+- `clientHostDetection.ts` - Client-side host detection
+- `clientVersion.ts` - Client version utilities
+- `loader.ts` - Loading utilities
 
 ### Hooks (`src/js/shared/hooks/`)
 - `useCore.ts` - Core functionality (auth, API)
@@ -100,16 +101,23 @@ Components:
 - `useServerAutoStart.ts` - Server auto-start
 - `useJobs.ts` - Job management
 - `useTTS.ts` - Text-to-speech functionality
+- `useHostDetection.ts` - Host application detection
+- `useOnboarding.ts` - Onboarding flow management
 
 ### Components (`src/js/shared/components/`)
-- `App.tsx` - Main app component
+- `App.tsx` - Main app component (in `src/js/main/`)
 - `Header.tsx` - Header component
 - `SourcesTab.tsx` - Sources tab UI
 - `HistoryTab.tsx` - History tab UI
 - `SettingsTab.tsx` - Settings tab UI
 - `BottomBar.tsx` - Bottom action bar
 - `GlobalErrorBoundary.tsx` - Global error handler
-- Plus various modal and UI components
+- `ModelSelector.tsx` - Model selection modal
+- `URLInputModal.tsx` - URL input modal for remote media
+- `TTSVoiceSelector.tsx` - Text-to-speech voice selection
+- `TTSInterface.tsx` - Text-to-speech interface
+- `TTSVoiceCloneModal.tsx` - Voice cloning modal
+- `OnboardingModal.tsx` - Onboarding flow modal
 
 ## Data Flow
 

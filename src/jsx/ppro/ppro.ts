@@ -1042,14 +1042,86 @@ export function PPRO_startBackend() {
       
       var serverDir = extPath + (isWindows ? "\\server" : "/server");
       
-      var spawnCmd;
-      var redirectErr = serverErrLog ? ' 2>>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' 2>/dev/null';
-      var redirectOut = serverErrLog ? ' >>"' + serverErrLog.replace(/"/g, '\\"') + '"' : ' >/dev/null';
+      // Core solution: Use File.execute() directly - this is the proper ExtendScript API
+      // System.callSystem is unreliable for background processes
+      var spawnResult = -1;
+      var scriptCreated = false;
       
       if (isWindows) {
-        spawnCmd = 'cmd.exe /c "set HOST_APP=PPRO && cd /d "' + serverDir.replace(/\\/g, '\\\\') + '" && start /B "' + nodeBin.replace(/\\/g, '\\\\') + '" -r tsx/cjs server.ts"';
+        // Windows: Use batch file
+        var scriptPath = serverDir + '\\start_server.bat';
+        try {
+          var scriptFile = new File(scriptPath);
+          scriptFile.open('w');
+          scriptFile.write('@echo off\n');
+          scriptFile.write('set HOST_APP=PPRO\n');
+          scriptFile.write('cd /d "' + serverDir.replace(/"/g, '""') + '"\n');
+          scriptFile.write('start /B "" "' + nodeBin.replace(/"/g, '""') + '" -r tsx/cjs server.ts\n');
+          scriptFile.close();
+          scriptFile.execute();
+          scriptCreated = true;
+          spawnResult = 0;
+        } catch(e) {
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Failed to create/execute Windows batch file: ' + String(e));
+              logFile.close();
+            }
+          } catch(_) {}
+        }
       } else {
-        spawnCmd = "/bin/bash -c 'cd \"" + serverDir.replace(/"/g, '\\"') + "\" && HOST_APP=PPRO nohup \"" + nodeBin.replace(/"/g, '\\"') + "\" -r tsx/cjs server.ts" + redirectOut + redirectErr + " &'";
+        // macOS/Linux: Use shell script with File.execute()
+        var scriptPath = serverDir + '/.start_server.sh';
+        try {
+          var scriptFile = new File(scriptPath);
+          scriptFile.open('w');
+          scriptFile.write('#!/bin/bash\n');
+          scriptFile.write('cd "' + serverDir.replace(/"/g, '\\"') + '"\n');
+          scriptFile.write('export HOST_APP=PPRO\n');
+          if (serverErrLog) {
+            scriptFile.write('nohup "' + nodeBin.replace(/"/g, '\\"') + '" -r tsx/cjs server.ts >>"' + serverErrLog.replace(/"/g, '\\"') + '" 2>>"' + serverErrLog.replace(/"/g, '\\"') + '" &\n');
+          } else {
+            scriptFile.write('nohup "' + nodeBin.replace(/"/g, '\\"') + '" -r tsx/cjs server.ts >/dev/null 2>/dev/null &\n');
+          }
+          scriptFile.close();
+          
+          // Set executable permission using File properties (more reliable than chmod)
+          scriptFile.permissions = 'rwxrwxrwx';
+          
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Created startup script: ' + scriptPath);
+              logFile.close();
+            }
+          } catch(e) {}
+          
+          // Execute using File.execute() - this is the proper ExtendScript API
+          scriptFile.execute();
+          scriptCreated = true;
+          spawnResult = 0;
+          
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Executed script using File.execute()');
+              logFile.close();
+            }
+          } catch(e) {}
+        } catch(scriptError) {
+          try {
+            var logFile = _pproDebugLogFile();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Failed to create/execute script: ' + String(scriptError));
+              logFile.close();
+            }
+          } catch(e) {}
+        }
       }
       
       try {
@@ -1078,50 +1150,17 @@ export function PPRO_startBackend() {
         }
       } catch(e) {}
       
-      try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Spawn command: ' + spawnCmd);
-          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
-          logFile.close();
-        }
-      } catch(e) {}
-      
-      if (!isWindows) {
+      // Ensure Node binary is executable (try, but don't fail if it doesn't work)
+      if (!isWindows && !scriptCreated) {
         try {
-          var chmodCmd = "/bin/bash -c 'chmod +x \"" + nodeBin.replace(/"/g, '\\"') + "\"'";
-          var chmodResult = _callSystem(chmodCmd);
-          try {
-            var logFile = _pproDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] chmod result: ' + chmodResult);
-              logFile.close();
-            }
-          } catch(e) {}
+          var nodeFile = new File(nodeBin);
+          if (nodeFile.exists) {
+            nodeFile.permissions = 'rwxrwxrwx';
+          }
         } catch(e) {
-          try {
-            var logFile = _pproDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] chmod failed: ' + String(e));
-              logFile.close();
-            }
-          } catch(_) {}
+          // Ignore - binary might already be executable
         }
       }
-      
-      try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Executing spawn command: ' + spawnCmd);
-          logFile.close();
-        }
-      } catch(e) {}
-      
-      var spawnResult = _callSystem(spawnCmd);
       
       try {
         var logFile = _pproDebugLogFile();

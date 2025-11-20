@@ -73,6 +73,7 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClose }) =>
       setIsPage6Fading(false);
       setIsTransitioning(false);
       setShowPage2Content(false);
+      setIsFadingToBlack(false); // Reset fading state when modal closes
       globalGifKey = null;
       return;
     }
@@ -124,7 +125,7 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClose }) =>
       setTimeout(() => {
         let nextPage = currentPage + 1;
         
-        // Skip page 3 if not After Effects and not in dev mode
+        // Skip page 3 if not After Effects
         if (nextPage === 3 && !shouldShowScriptingPage) {
           nextPage = 4;
         }
@@ -209,7 +210,7 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClose }) =>
   const isValidApiKey = apiKeyInput.trim().startsWith("sk-");
   const isValidElevenlabsApiKey = elevenlabsApiKeyInput.trim().startsWith("sk_");
   const isAfterEffects = hostConfig?.hostId === HOST_IDS.AEFT;
-  const shouldShowScriptingPage = isAfterEffects || isDevMode();
+  const shouldShowScriptingPage = isAfterEffects;
 
   // Check scripting permissions for After Effects
   const checkScriptingPermissions = async (): Promise<boolean> => {
@@ -478,7 +479,7 @@ const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClose }) =>
           <div className={`onboarding-page onboarding-page-4 ${currentPage === 4 ? "active" : ""}`}>
             <div className="onboarding-page-content">
               <div className={`onboarding-image-wrapper ${currentPage === 4 ? "animate-in" : ""}`} style={{ animationDelay: "300ms" }}>
-                <img src={ballImage} alt="Save Location" className="onboarding-image" />
+                <img src={thumbImage} alt="Save Location" className="onboarding-image" />
               </div>
 
               <div className={`onboarding-text-content ${currentPage === 4 ? "animate-in" : ""}`} style={{ animationDelay: "600ms" }}>

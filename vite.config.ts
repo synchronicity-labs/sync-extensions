@@ -799,103 +799,225 @@ export default defineConfig({
       },
     },
     {
+      name: 'fix-manifest-xml',
+      enforce: 'post',
+      async writeBundle() {
+        // Fix manifest.xml to ensure proper namespace and format for Mac ZXP installers
+        if (isPackage) {
+          const manifestPath = path.join(outDir, 'CSXS', 'manifest.xml');
+          if (fs.existsSync(manifestPath)) {
+            let manifest = fs.readFileSync(manifestPath, 'utf-8');
+            let modified = false;
+            
+            // Add proper xmlns namespace if missing (required by some Mac ZXP installers)
+            if (!manifest.includes('xmlns="http://ns.adobe.com/ExtensionManifest/6.0/"')) {
+              // Replace the ExtensionManifest opening tag to add xmlns
+              manifest = manifest.replace(
+                /<ExtensionManifest([^>]*?)>/,
+                (match, attrs) => {
+                  // Check if xmlns is already there in a different format
+                  if (attrs.includes('xmlns=')) {
+                    return match;
+                  }
+                  // Add xmlns namespace
+                  return `<ExtensionManifest${attrs} xmlns="http://ns.adobe.com/ExtensionManifest/6.0/">`;
+                }
+              );
+              modified = true;
+            }
+            
+            // Ensure Host names use double quotes (some installers are picky about quotes)
+            manifest = manifest.replace(/<Host\s+Name=['']AEFT['']/g, '<Host Name="AEFT"');
+            manifest = manifest.replace(/<Host\s+Name=['']PPRO['']/g, '<Host Name="PPRO"');
+            
+            // Ensure proper spacing in HostList (some installers are sensitive to formatting)
+            manifest = manifest.replace(
+              /<HostList>\s*<Host/g,
+              '<HostList>\n    <Host'
+            );
+            manifest = manifest.replace(
+              /<\/Host>\s*<Host/g,
+              '</Host>\n    <Host'
+            );
+            manifest = manifest.replace(
+              /<\/Host>\s*<\/HostList>/g,
+              '</Host>\n  </HostList>'
+            );
+            
+            if (modified) {
+              fs.writeFileSync(manifestPath, manifest, 'utf-8');
+              console.log('✓ Fixed manifest.xml with proper namespace and formatting');
+            }
+            
+            // Verify AEFT and PPRO are present
+            if (!manifest.includes('Name="AEFT"') && !manifest.includes("Name='AEFT'")) {
+              console.warn('⚠️  Warning: AEFT host not found in manifest.xml');
+            }
+            if (!manifest.includes('Name="PPRO"') && !manifest.includes("Name='PPRO'")) {
+              console.warn('⚠️  Warning: PPRO host not found in manifest.xml');
+            }
+          }
+        }
+      },
+    },
+    {
       name: 'bolt-cep-production-html',
       enforce: 'post',
-      async closeBundle() {
+      transformIndexHtml(html, ctx) {
+        // Only transform in production builds
+        if (!isProduction && !isPackage) {
+          return html;
+        }
+        
+        // FIRST: Remove dev code that shouldn't be in production
+        // Remove dev redirect scripts (vite-cep-plugin may add these)
+        html = html.replace(
+          /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
+          ''
+        );
+        
+        // Remove module script tags (dev mode only)
+        html = html.replace(
+          /<script\s+type=["']module["'][^>]*src=["'][^"']*main\.tsx["'][^>]*><\/script>/gi,
+          ''
+        );
+        
+        // Remove dev app div if present (should be root, not app)
+        html = html.replace(
+          /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
+          ''
+        );
+        
+        // Ensure root div exists
+        if (!html.includes('id="root"')) {
+          html = html.replace(
+            /(<body[^>]*>)/i,
+            '$1\n    <div id="root"></div>'
+          );
+        }
+        
+        // THEN: Fix script tags - vite-cep-plugin adds script tags but doesn't add data-main attribute
+        // We need to add data-main to script tags that reference main-*.cjs files
+        // This works WITH vite-cep-plugin's transformIndexHtml, not against it
+        
+        // Find script tags with src pointing to main*.cjs (with or without hash) but missing data-main
+        // Handle both cases: script tags with or without data-main, and fix path issues
+        // Production uses fixed filenames (main.cjs), dev uses hashed (main-XXX.cjs)
+        const scriptTagRegex = /<script([^>]*?)(?:\s+data-main=["']([^"']*)["'])?(?:\s+src=["']([^"']*main[^"']*\.cjs)["'])([^>]*?)><\/script>/gi;
+        const matches = Array.from(html.matchAll(scriptTagRegex));
+        
+        if (matches.length > 0) {
+          matches.forEach(match => {
+            const fullMatch = match[0];
+            const beforeAttrs = match[1] || '';
+            const existingDataMain = match[2]; // May be undefined
+            const srcPath = match[3];
+            const afterAttrs = match[4] || '';
+            
+            // Normalize path: fix any ..../ or multiple ../ issues
+            // vite-cep-plugin may prepend .. to paths that already have ../, causing ..../assets/
+            let normalizedPath = srcPath;
+            
+            // Fix multiple ../ sequences (e.g., ..../assets/ -> ../assets/)
+            normalizedPath = normalizedPath.replace(/\.\.\/\.\.\/\.\.\/\.\./g, '../..');
+            normalizedPath = normalizedPath.replace(/\.\.\/\.\.\/\.\./g, '../..');
+            normalizedPath = normalizedPath.replace(/\.\.\/\.\./g, '..');
+            
+            // For main*.cjs files (with or without hash), ensure path is exactly ../assets/main*.cjs
+            if (normalizedPath.includes('main') && normalizedPath.includes('.cjs')) {
+              // Extract filename (handles both main.cjs and main-XXX.cjs)
+              const filename = normalizedPath.split('/').pop() || normalizedPath.split('\\').pop();
+              
+              // If filename is valid (main.cjs or main-XXX.cjs), use standard path
+              if (filename && filename.startsWith('main') && filename.endsWith('.cjs')) {
+                normalizedPath = `../assets/${filename}`;
+              } else {
+                // Try to extract filename from malformed path
+                const filenameMatch = normalizedPath.match(/main(-[A-Za-z0-9_-]+)?\.cjs/);
+                if (filenameMatch) {
+                  normalizedPath = `../assets/${filenameMatch[0]}`;
+                } else {
+                  // Last resort: try to fix the path structure
+                  normalizedPath = normalizedPath.replace(/^\.\.\/\.\.\/\.\./, '..');
+                  normalizedPath = normalizedPath.replace(/^\.\.\/\.\./, '..');
+                  if (!normalizedPath.startsWith('../assets/')) {
+                    const fallbackFilename = normalizedPath.match(/main[^/]*\.cjs/)?.[0];
+                    if (fallbackFilename) {
+                      normalizedPath = `../assets/${fallbackFilename}`;
+                    }
+                  }
+                }
+              }
+            }
+            
+            // Check if data-main needs to be added or fixed
+            if (!existingDataMain || existingDataMain !== normalizedPath) {
+              // Remove existing data-main if present and incorrect
+              let fixedAttrs = beforeAttrs + afterAttrs;
+              fixedAttrs = fixedAttrs.replace(/\s+data-main=["'][^"']*["']/gi, '');
+              
+              // Add correct data-main attribute
+              const fixedTag = `<script${fixedAttrs} data-main="${normalizedPath}" src="${normalizedPath}"></script>`;
+              html = html.replace(fullMatch, fixedTag);
+              console.log(`✓ Fixed script tag: data-main="${normalizedPath}" src="${normalizedPath}"`);
+            }
+          });
+        } else {
+          // Fallback: look for any script tag with main*.cjs that might be malformed
+          const fallbackRegex = /<script[^>]*main[^"']*\.cjs[^>]*><\/script>/gi;
+          const fallbackMatches = html.match(fallbackRegex);
+          if (fallbackMatches) {
+            console.warn(`⚠️  Found script tags with main*.cjs but regex didn't match: ${fallbackMatches.length} tags`);
+            fallbackMatches.forEach(tag => {
+              console.warn(`  Tag: ${tag.substring(0, 150)}...`);
+            });
+          }
+        }
+        
+        return html;
+      },
+      async buildEnd() {
+        fixRedirectPath();
+        
+        // Clean up dev code from HTML files after build
         if (isProduction || isPackage) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          cepConfig.panels.forEach(panel => {
-            const htmlPath = path.join(outDir, panel.name, 'index.html');
-            const assetsDir = path.join(outDir, 'assets');
+          const htmlPath = path.join(outDir, 'main', 'index.html');
+          if (fs.existsSync(htmlPath)) {
+            let html = fs.readFileSync(htmlPath, 'utf-8');
+            const originalHtml = html;
             
-            if (!fs.existsSync(htmlPath)) {
-              console.warn(`⚠️  Warning: HTML file not found at ${htmlPath}`);
-              return;
-            }
-            
-            if (!fs.existsSync(assetsDir)) {
-              console.warn(`⚠️  Warning: Assets directory not found at ${assetsDir}`);
-              return;
-            }
-            
-            let content = fs.readFileSync(htmlPath, 'utf-8');
-            const originalContent = content;
-            
-            content = content.replace(
+            // Remove dev redirect scripts
+            html = html.replace(
               /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
               ''
             );
             
-            content = content.replace(
+            // Remove module script tags
+            html = html.replace(
               /<script\s+type=["']module["'][^>]*src=["'][^"']*main\.tsx["'][^>]*><\/script>/gi,
               ''
             );
             
-            content = content.replace(
+            // Remove dev app div if present
+            html = html.replace(
               /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
               ''
             );
             
-            if (!content.includes('id="root"')) {
-              content = content.replace(
+            // Ensure root div exists
+            if (!html.includes('id="root"')) {
+              html = html.replace(
                 /(<body[^>]*>)/i,
                 '$1\n    <div id="root"></div>'
               );
             }
             
-            const assetFiles = fs.readdirSync(assetsDir);
-            const mainCjsFile = assetFiles.find(f => f.startsWith('main-') && f.endsWith('.cjs'));
-            
-            if (!mainCjsFile) {
-              console.error(`❌ ERROR: Could not find main-*.cjs file in ${assetsDir}`);
-              console.error(`   Available files: ${assetFiles.slice(0, 5).join(', ')}...`);
-              return;
+            if (html !== originalHtml) {
+              fs.writeFileSync(htmlPath, html, 'utf-8');
+              console.log('✓ Cleaned dev code from index.html');
             }
-            
-            const mainScriptPath = `../assets/${mainCjsFile}`;
-            
-            content = content.replace(
-              /<script[^>]*src=["'][^"']*main-[^"']*\.cjs["'][^>]*><\/script>/gi,
-              ''
-            );
-            
-            content = content.replace(
-              /<script[^>]*data-main=["'][^"']*main-[^"']*\.cjs["'][^>]*><\/script>/gi,
-              ''
-            );
-            
-            const scriptTag = `    <script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`;
-            
-            const headCloseIndex = content.lastIndexOf('</head>');
-            if (headCloseIndex !== -1) {
-              content = content.slice(0, headCloseIndex) + scriptTag + '\n' + content.slice(headCloseIndex);
-              console.log(`✓ Added script tag to head: ${mainScriptPath}`);
-            } else {
-              const bodyCloseIndex = content.lastIndexOf('</body>');
-              if (bodyCloseIndex === -1) {
-                console.error(`❌ ERROR: Could not find </head> or </body> tag in HTML`);
-                return;
-              }
-              content = content.slice(0, bodyCloseIndex) + scriptTag + '\n' + content.slice(bodyCloseIndex);
-              console.log(`✓ Added script tag to body (fallback): ${mainScriptPath}`);
-            }
-            
-            content = content.replace(
-              /<script[^>]*data-base_dir=["'][^"']*["'][^>]*><\/script>/gi,
-              ''
-            );
-            
-            fs.writeFileSync(htmlPath, content, 'utf-8');
-            
-            if (content !== originalContent) {
-              console.log(`✓ Updated production HTML: ${htmlPath}`);
-            }
-          });
+          }
         }
-      },
-      async buildEnd() {
-        fixRedirectPath();
         
         if (isProduction || isPackage) {
           const criticalPaths = [
@@ -1318,6 +1440,54 @@ export default defineConfig({
             }
           }
           
+          if (urlWithoutQuery.startsWith('/assets/onboarding/') && urlWithoutQuery.match(/\.(png|jpg|jpeg|svg|gif)$/)) {
+            const imageName = urlWithoutQuery.replace('/assets/onboarding/', '');
+            const imagePath = path.join(__dirname, 'src/js/assets/onboarding', imageName);
+            
+            if (fs.existsSync(imagePath)) {
+              const ext = path.extname(imageName).toLowerCase();
+              const contentType = 
+                ext === '.png' ? 'image/png' :
+                ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                ext === '.svg' ? 'image/svg+xml' :
+                ext === '.gif' ? 'image/gif' : 'application/octet-stream';
+              
+              res.setHeader('Content-Type', contentType);
+              res.end(fs.readFileSync(imagePath));
+              return;
+            }
+          }
+          
+          // Handle hashed onboarding image filenames (e.g., animation-B-Zs3t_P.gif, key-Cqpgl3B7.png)
+          if (urlWithoutQuery.startsWith('/assets/') && urlWithoutQuery.match(/\.(png|jpg|jpeg|svg|gif)$/)) {
+            const filename = urlWithoutQuery.split('/').pop() || '';
+            const onboardingImages = ['animation', 'key', 'pen', 'ball', 'mic', 'thumb'];
+            const isOnboardingImage = onboardingImages.some(name => filename.startsWith(name + '-') || filename.startsWith(name + '.'));
+            
+            if (isOnboardingImage) {
+              // Extract base filename (remove hash) - handle both single and multiple dashes
+              // Pattern: name-hash.ext or name-hash1-hash2.ext -> name.ext
+              const match = filename.match(/^([a-z]+)-[A-Za-z0-9_-]+\.(png|jpg|jpeg|svg|gif)$/);
+              if (match) {
+                const baseName = `${match[1]}.${match[2]}`;
+                const imagePath = path.join(__dirname, 'src/js/assets/onboarding', baseName);
+                
+                if (fs.existsSync(imagePath)) {
+                  const ext = path.extname(baseName).toLowerCase();
+                  const contentType = 
+                    ext === '.png' ? 'image/png' :
+                    ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                    ext === '.svg' ? 'image/svg+xml' :
+                    ext === '.gif' ? 'image/gif' : 'application/octet-stream';
+                  
+                  res.setHeader('Content-Type', contentType);
+                  res.end(fs.readFileSync(imagePath));
+                  return;
+                }
+              }
+            }
+          }
+          
           if (urlWithoutQuery.startsWith('/assets/') && urlWithoutQuery.match(/(white_icon|avatar)[^/]*\.png$/)) {
             const filename = urlWithoutQuery.split('/').pop() || '';
             const baseName = filename.replace(/-[A-Za-z0-9]+\.png$/, '.png');
@@ -1383,9 +1553,11 @@ export default defineConfig({
       input: Object.keys(input).length > 0 ? input : undefined,
       output: {
         format: "cjs",
-        entryFileNames: "assets/[name]-[hash].cjs",
-        chunkFileNames: "assets/[name]-[hash].cjs",
-        assetFileNames: `assets/[name]-[hash][extname]`,
+        // CEP extensions are local files, not served over HTTP, so no need for cache-busting hashes
+        // Use fixed filenames for easier debugging and predictable paths
+        entryFileNames: isProduction || isPackage ? "assets/[name].cjs" : "assets/[name]-[hash].cjs",
+        chunkFileNames: isProduction || isPackage ? "assets/[name].cjs" : "assets/[name]-[hash].cjs",
+        assetFileNames: isProduction || isPackage ? `assets/[name][extname]` : `assets/[name]-[hash][extname]`,
       },
     },
     target: "chrome74",
