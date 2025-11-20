@@ -91,6 +91,7 @@
     <script>
       window.__mountErrors = [];
       window.addEventListener('error', function(e) {
+        console.error('[HTML] Error captured:', e);
         window.__mountErrors.push({
           message: e.message,
           filename: e.filename,
@@ -100,11 +101,43 @@
         });
       });
       window.addEventListener('unhandledrejection', function(e) {
+        console.error('[HTML] Unhandled rejection captured:', e.reason);
         window.__mountErrors.push({
           message: 'Unhandled Promise Rejection: ' + (e.reason?.message || String(e.reason)),
           error: e.reason?.stack || String(e.reason)
         });
       });
+      
+      function checkScriptExecution() {
+        console.log('[HTML] Checking script execution...');
+        var mainScript = document.querySelector('script[data-main]');
+        var requireAvailable = typeof window.require === 'function';
+        var mainSrc = mainScript ? mainScript.dataset.main : null;
+        
+        console.log('[HTML] Script check:', {
+          mainScript: !!mainScript,
+          mainSrc: mainSrc,
+          requireAvailable: requireAvailable,
+          requireModules: requireAvailable ? Object.keys(window.require.modules || {}) : []
+        });
+        
+        if (mainSrc && requireAvailable && !window.require.modules[mainSrc]) {
+          console.error('[HTML] Main script not loaded in require modules, attempting manual load');
+          try {
+            window.require(mainSrc);
+          } catch(e) {
+            console.error('[HTML] Manual require failed:', e);
+            window.__mountErrors.push({
+              message: 'Manual require() failed: ' + e.message,
+              error: e.stack || e.toString()
+            });
+          }
+        }
+      }
+      
+      setTimeout(checkScriptExecution, 100);
+      setTimeout(checkScriptExecution, 500);
+      setTimeout(checkScriptExecution, 1000);
       
       setTimeout(function() {
         console.log('[HTML] Post-module check');
@@ -125,6 +158,11 @@
             errorHtml += '</ul>';
           }
           
+          var mainScript = document.querySelector('script[data-main]');
+          var requireAvailable = typeof window.require === 'function';
+          var mainSrc = mainScript ? mainScript.dataset.main : null;
+          var requireModules = requireAvailable ? Object.keys(window.require.modules || {}) : [];
+          
           var debugInfo = '<h3 style="margin-top: 20px;">Debug Info:</h3><ul style="text-align: left; max-width: 600px; margin: 0 auto; list-style: none; padding: 0;">';
           debugInfo += '<li><strong>React:</strong> ' + (typeof window.React || typeof React || 'undefined') + '</li>';
           debugInfo += '<li><strong>ReactDOM:</strong> ' + (typeof window.ReactDOM || typeof ReactDOM || 'undefined') + '</li>';
@@ -132,6 +170,13 @@
           debugInfo += '<li><strong>__react_mounted:</strong> ' + (window.__react_mounted || 'false') + '</li>';
           debugInfo += '<li><strong>Document readyState:</strong> ' + document.readyState + '</li>';
           debugInfo += '<li><strong>Script executed:</strong> ' + (window.__html_script_executed || 'false') + '</li>';
+          debugInfo += '<li><strong>require() available:</strong> ' + requireAvailable + '</li>';
+          debugInfo += '<li><strong>data-main script:</strong> ' + (mainSrc || 'not found') + '</li>';
+          debugInfo += '<li><strong>require modules loaded:</strong> ' + requireModules.length + ' (' + requireModules.join(', ') + ')' + '</li>';
+          debugInfo += '<li><strong>__main_script_executed:</strong> ' + (window.__main_script_executed || 'false') + '</li>';
+          if (window.__main_script_error) {
+            debugInfo += '<li><strong>__main_script_error:</strong> <pre style="background: #2d2d2d; padding: 5px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px;">' + String(window.__main_script_error).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></li>';
+          }
           debugInfo += '</ul>';
           
           if (root) {
