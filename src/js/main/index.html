@@ -78,8 +78,8 @@
       window.__html_script_executed = true;
     </script>
   </head>
-  <body>
-    <div id="root" style="min-height: 100vh; display: block; visibility: visible; opacity: 1;"></div>
+  <body style="margin: 0; padding: 0; overflow: auto; height: 100vh;">
+    <div id="root" style="min-height: 100vh; display: block; visibility: visible; opacity: 1; overflow-y: auto; height: 100vh; box-sizing: border-box;"></div>
     <div id="error-display"></div>
     <script>
       console.log('[HTML] Inline script executing before module script');
@@ -114,23 +114,118 @@
         var requireAvailable = typeof window.require === 'function';
         var mainSrc = mainScript ? mainScript.dataset.main : null;
         
+        // Log all script tags for debugging
+        var allScripts = Array.from(document.querySelectorAll('script'));
+        console.log('[HTML] All script tags found:', allScripts.length);
+        allScripts.forEach(function(s, i) {
+          console.log('[HTML] Script ' + i + ':', {
+            src: s.src || 'inline',
+            type: s.type || 'text/javascript',
+            dataMain: s.getAttribute('data-main'),
+            dataScripts: s.getAttribute('data-scripts'),
+            dataBaseDir: s.getAttribute('data-base_dir'),
+            hasInnerHTML: !!s.innerHTML
+          });
+        });
+        
+        var requireModules = [];
+        if (requireAvailable && window.require.modules) {
+          try {
+            requireModules = Object.keys(window.require.modules);
+            console.log('[HTML] require.modules available, count:', requireModules.length);
+          } catch(e) {
+            console.warn('[HTML] Could not access require.modules:', e);
+          }
+        } else {
+          console.warn('[HTML] require.modules not available');
+        }
+        
+        // Check base tag
+        var baseTag = document.querySelector('base');
+        var baseHref = baseTag ? baseTag.getAttribute('href') : null;
+        console.log('[HTML] Base tag href:', baseHref);
+        
+        // Try to resolve the path
+        var resolvedPath = null;
+        if (mainSrc) {
+          try {
+            if (baseHref) {
+              resolvedPath = new URL(mainSrc, baseHref).href;
+              console.log('[HTML] Resolved path (using base):', resolvedPath);
+            } else {
+              resolvedPath = new URL(mainSrc, window.location.href).href;
+              console.log('[HTML] Resolved path (using location):', resolvedPath);
+            }
+          } catch(e) {
+            console.error('[HTML] Path resolution failed:', e);
+            window.__mountErrors.push({
+              message: 'Path resolution failed: ' + e.message,
+              error: 'mainSrc: ' + mainSrc + ', baseHref: ' + baseHref + ', error: ' + e.toString()
+            });
+          }
+        }
+        
         console.log('[HTML] Script check:', {
           mainScript: !!mainScript,
           mainSrc: mainSrc,
+          resolvedPath: resolvedPath,
           requireAvailable: requireAvailable,
-          requireModules: requireAvailable ? Object.keys(window.require.modules || {}) : []
+          requireModulesCount: requireModules.length,
+          baseHref: baseHref,
+          locationHref: window.location.href
         });
         
-        if (mainSrc && requireAvailable && !window.require.modules[mainSrc]) {
-          console.error('[HTML] Main script not loaded in require modules, attempting manual load');
-          try {
-            window.require(mainSrc);
-          } catch(e) {
-            console.error('[HTML] Manual require failed:', e);
-            window.__mountErrors.push({
-              message: 'Manual require() failed: ' + e.message,
-              error: e.stack || e.toString()
-            });
+        if (mainSrc && requireAvailable && !window.__main_script_executed) {
+          var isLoaded = false;
+          if (window.require.modules) {
+            try {
+              var fullUrl = resolvedPath || new URL(mainSrc, window.location.href).href;
+              console.log('[HTML] Checking if module loaded:', fullUrl);
+              isLoaded = !!window.require.modules[fullUrl] || !!window.require.modules[mainSrc] || !!window.require.modules[resolvedPath];
+              console.log('[HTML] Module loaded check result:', isLoaded);
+              if (!isLoaded) {
+                console.log('[HTML] Module keys in require.modules:', Object.keys(window.require.modules).slice(0, 10));
+              }
+            } catch(e) {
+              console.warn('[HTML] Could not check if module loaded:', e);
+            }
+          }
+          
+          if (!isLoaded) {
+            console.error('[HTML] Main script not loaded, attempting manual load');
+            console.log('[HTML] Attempting require("' + mainSrc + '")');
+            try {
+              var result = window.require(mainSrc);
+              console.log('[HTML] Manual require succeeded:', result);
+              window.__main_script_executed = true;
+            } catch(e) {
+              console.error('[HTML] Manual require failed:', e);
+              console.error('[HTML] Error details:', {
+                message: e.message,
+                stack: e.stack,
+                name: e.name
+              });
+              window.__mountErrors.push({
+                message: 'Manual require() failed: ' + e.message,
+                error: e.stack || e.toString(),
+                mainSrc: mainSrc,
+                resolvedPath: resolvedPath
+              });
+              window.__main_script_error = e;
+            }
+          } else {
+            console.log('[HTML] Module already loaded');
+            window.__main_script_executed = true;
+          }
+        } else {
+          if (!mainSrc) {
+            console.error('[HTML] No script[data-main] found!');
+          }
+          if (!requireAvailable) {
+            console.error('[HTML] window.require is not available!');
+          }
+          if (window.__main_script_executed) {
+            console.log('[HTML] Script already executed');
           }
         }
       }
@@ -148,14 +243,17 @@
           var errorHtml = '';
           
           if (errors.length > 0) {
-            errorHtml = '<h3 style="margin-top: 20px; color: #ff6b6b;">Errors:</h3><ul style="text-align: left; max-width: 600px; margin: 0 auto;">';
+            errorHtml = '<h3 style="margin-top: 20px; color: #ff6b6b;">Errors (' + errors.length + '):</h3><div style="text-align: left; max-width: 100%; margin: 0 auto; max-height: 400px; overflow-y: auto; border: 1px solid #444; border-radius: 4px; padding: 10px; background: #1a1a1a;">';
             errors.forEach(function(err, i) {
-              errorHtml += '<li style="margin: 10px 0;"><strong>' + (err.filename || 'Error ' + (i + 1)) + ':' + (err.lineno || '') + '</strong><br>';
-              errorHtml += '<pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 11px; margin-top: 5px;">' + 
+              errorHtml += '<div style="margin: 15px 0; padding-bottom: 15px; border-bottom: 1px solid #333;"><strong style="color: #ff6b6b;">Error ' + (i + 1) + ':</strong><br>';
+              if (err.filename) {
+                errorHtml += '<span style="color: #888; font-size: 12px;">' + err.filename + (err.lineno ? ':' + err.lineno : '') + '</span><br>';
+              }
+              errorHtml += '<pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; overflow-x: auto; color: #fff; font-size: 11px; margin-top: 5px; white-space: pre-wrap; word-wrap: break-word;">' + 
                 (err.error || err.message || 'Unknown error').replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
-                '</pre></li>';
+                '</pre></div>';
             });
-            errorHtml += '</ul>';
+            errorHtml += '</div>';
           }
           
           var mainScript = document.querySelector('script[data-main]');
@@ -163,24 +261,71 @@
           var mainSrc = mainScript ? mainScript.dataset.main : null;
           var requireModules = requireAvailable ? Object.keys(window.require.modules || {}) : [];
           
-          var debugInfo = '<h3 style="margin-top: 20px;">Debug Info:</h3><ul style="text-align: left; max-width: 600px; margin: 0 auto; list-style: none; padding: 0;">';
-          debugInfo += '<li><strong>React:</strong> ' + (typeof window.React || typeof React || 'undefined') + '</li>';
-          debugInfo += '<li><strong>ReactDOM:</strong> ' + (typeof window.ReactDOM || typeof ReactDOM || 'undefined') + '</li>';
-          debugInfo += '<li><strong>mountReactApp:</strong> ' + (typeof window.mountReactApp || 'undefined') + '</li>';
-          debugInfo += '<li><strong>__react_mounted:</strong> ' + (window.__react_mounted || 'false') + '</li>';
-          debugInfo += '<li><strong>Document readyState:</strong> ' + document.readyState + '</li>';
-          debugInfo += '<li><strong>Script executed:</strong> ' + (window.__html_script_executed || 'false') + '</li>';
-          debugInfo += '<li><strong>require() available:</strong> ' + requireAvailable + '</li>';
-          debugInfo += '<li><strong>data-main script:</strong> ' + (mainSrc || 'not found') + '</li>';
-          debugInfo += '<li><strong>require modules loaded:</strong> ' + requireModules.length + ' (' + requireModules.join(', ') + ')' + '</li>';
-          debugInfo += '<li><strong>__main_script_executed:</strong> ' + (window.__main_script_executed || 'false') + '</li>';
-          if (window.__main_script_error) {
-            debugInfo += '<li><strong>__main_script_error:</strong> <pre style="background: #2d2d2d; padding: 5px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px;">' + String(window.__main_script_error).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></li>';
+          // Collect all script tags for debugging
+          var allScripts = Array.from(document.querySelectorAll('script')).map(function(s, i) {
+            return {
+              index: i,
+              src: s.src || 'inline',
+              type: s.type || 'text/javascript',
+              dataMain: s.getAttribute('data-main') || null,
+              dataScripts: s.getAttribute('data-scripts') || null,
+              dataStyles: s.getAttribute('data-styles') || null,
+              dataBaseDir: s.getAttribute('data-base_dir') || null,
+              innerHTML: s.innerHTML ? s.innerHTML.substring(0, 200) + '...' : null
+            };
+          });
+          
+          // Check base tag
+          var baseTag = document.querySelector('base');
+          var baseHref = baseTag ? baseTag.getAttribute('href') : null;
+          
+          // Try to resolve the main script path
+          var resolvedPath = null;
+          var pathResolutionError = null;
+          if (mainSrc && baseHref) {
+            try {
+              resolvedPath = new URL(mainSrc, baseHref).href;
+            } catch(e) {
+              pathResolutionError = e.message;
+            }
+          } else if (mainSrc) {
+            try {
+              resolvedPath = new URL(mainSrc, window.location.href).href;
+            } catch(e) {
+              pathResolutionError = e.message;
+            }
           }
-          debugInfo += '</ul>';
+          
+          var debugInfo = '<h3 style="margin-top: 20px; color: #ff6b6b;">Debug Info:</h3><div style="text-align: left; max-width: 100%; margin: 0 auto; max-height: 500px; overflow-y: auto; border: 1px solid #444; border-radius: 4px; padding: 15px; background: #1a1a1a; font-size: 12px;">';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">React:</strong> <span style="color: #fff;">' + (typeof window.React !== 'undefined' ? 'defined' : typeof React !== 'undefined' ? 'defined (global)' : 'undefined') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">ReactDOM:</strong> <span style="color: #fff;">' + (typeof window.ReactDOM !== 'undefined' ? 'defined' : typeof ReactDOM !== 'undefined' ? 'defined (global)' : 'undefined') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">mountReactApp:</strong> <span style="color: #fff;">' + (typeof window.mountReactApp !== 'undefined' ? 'defined' : 'undefined') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">__react_mounted:</strong> <span style="color: #fff;">' + (window.__react_mounted || 'false') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Document readyState:</strong> <span style="color: #fff;">' + document.readyState + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Document location:</strong> <span style="color: #888; font-size: 11px; word-break: break-all;">' + window.location.href + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Script executed:</strong> <span style="color: #fff;">' + (window.__html_script_executed || 'false') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">require() available:</strong> <span style="color: #fff;">' + requireAvailable + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">require type:</strong> <span style="color: #fff;">' + (typeof window.require) + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Base tag href:</strong> <span style="color: #888; word-break: break-all;">' + (baseHref || 'not found') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #ff6b6b;">data-main script path:</strong> <span style="color: #fff; font-family: monospace; word-break: break-all;">' + (mainSrc || 'NOT FOUND') + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Resolved script path:</strong> <span style="color: #888; font-family: monospace; word-break: break-all;">' + (resolvedPath || 'could not resolve') + '</span></div>';
+          if (pathResolutionError) {
+            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #ff6b6b;">Path resolution error:</strong> <span style="color: #ff6b6b;">' + pathResolutionError + '</span></div>';
+          }
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">require modules loaded:</strong> <span style="color: #fff;">' + requireModules.length + '</span></div>';
+          if (requireModules.length > 0) {
+            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Loaded modules (first 20):</strong> <pre style="background: #2d2d2d; padding: 8px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + requireModules.slice(0, 20).join('\\n') + '</pre></div>';
+          }
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">__main_script_executed:</strong> <span style="color: #fff;">' + (window.__main_script_executed || 'false') + '</span></div>';
+          if (window.__main_script_error) {
+            debugInfo += '<div style="margin: 8px 0;"><strong style="color: #ff6b6b;">__main_script_error:</strong> <pre style="background: #2d2d2d; padding: 8px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + String(window.__main_script_error).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></div>';
+          }
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Total script tags:</strong> <span style="color: #fff;">' + allScripts.length + '</span></div>';
+          debugInfo += '<div style="margin: 8px 0;"><strong style="color: #4a9eff;">Script tags details:</strong> <pre style="background: #2d2d2d; padding: 10px; border-radius: 4px; color: #fff; font-size: 10px; margin-top: 5px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">' + JSON.stringify(allScripts, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></div>';
+          debugInfo += '</div>';
           
           if (root) {
-            root.innerHTML = '<div style="padding: 20px; color: #ff6b6b; font-family: system-ui; text-align: center; max-width: 800px; margin: 0 auto;"><h2 style="color: #ff6b6b;">React Failed to Mount</h2><p>Root element is empty after mount attempt.</p>' + errorHtml + debugInfo + '</div>';
+            root.innerHTML = '<div style="padding: 20px; color: #ff6b6b; font-family: system-ui; text-align: center; max-width: 100%; margin: 0; height: 100vh; overflow-y: auto; box-sizing: border-box;"><h2 style="color: #ff6b6b; margin-top: 0;">React Failed to Mount</h2><p style="margin-bottom: 20px;">Root element is empty after mount attempt.</p>' + errorHtml + debugInfo + '</div>';
           }
         }
       }, 2000);
