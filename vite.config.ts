@@ -91,7 +91,7 @@ async function buildResolvePlugin() {
             if (fs.existsSync(destFile)) {
               fs.unlinkSync(destFile);
             }
-            const buildResult = esbuild.buildSync({
+            esbuild.buildSync({
               entryPoints: [srcFile],
               bundle: false,
               platform: (src.includes('preload') || src.includes('backend')) ? 'node' : 'browser',
@@ -118,8 +118,6 @@ async function buildResolvePlugin() {
       console.error('   Stack:', error?.stack);
       throw new Error(`Failed to compile Resolve plugin TypeScript files: ${error?.message || error}`);
     }
-  } else {
-    console.log('⚠️  No TypeScript files to compile for Resolve plugin');
   }
   
   const filesToCopy = ['manifest.json', 'package.json', 'launch-electron.sh'];
@@ -197,7 +195,7 @@ async function buildResolvePlugin() {
           }
         }
       }
-      console.log(`Copied server folder to ${serverDest} (excluding node_modules, dereferencing symlinks)`);
+      console.log(`Copied server folder to ${serverDest}`);
     } else {
       console.log(`✓ Server folder up to date, skipping copy`);
     }
@@ -324,7 +322,6 @@ async function buildResolvePlugin() {
     }
   }
   
-  // Read version from package.json for Resolve manifest
   const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
   
   const manifestXmlPath = path.join(resolveDest, 'manifest.xml');
@@ -402,7 +399,7 @@ async function buildResolvePlugin() {
               if (retries > 0) {
                 console.warn(`Install failed, retrying... (${retries} attempts remaining)`);
                 retries--;
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+                await new Promise(resolve => setTimeout(resolve, 2000));
               } else {
                 throw err;
               }
@@ -457,7 +454,6 @@ async function buildResolvePlugin() {
     
     const manifestPath = path.join(resolveDest, 'manifest.json');
     if (fs.existsSync(manifestPath)) {
-      // Read version from package.json for Resolve manifest
       const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
       
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
@@ -518,7 +514,6 @@ async function buildResolvePlugin() {
   }
   
   if (isResolvePackage) {
-    // Read version from environment variable (set by release script) or package.json
     let version = process.env.VERSION;
     if (!version) {
       const packageJsonPath = path.join(__dirname, 'package.json');
@@ -532,13 +527,11 @@ async function buildResolvePlugin() {
     
     console.log(`📦 Creating Resolve plugin ZIP with version: ${version}`);
     
-    // Clean up old Resolve plugin zip files (keep only current version)
     try {
       const distDir = path.join(__dirname, devDist);
       if (fs.existsSync(distDir)) {
         const files = fs.readdirSync(distDir);
         files.forEach(file => {
-          // Clean up both old naming conventions
           const isOldSyncResolve = file.startsWith('sync-resolve-plugin-v') && file.endsWith('.zip');
           const isOldDavinci = file.startsWith('davinci-sync-extension-v') && file.endsWith('.zip') && file !== `davinci-sync-extension-v${version}.zip`;
           if (isOldSyncResolve || isOldDavinci) {
@@ -556,7 +549,6 @@ async function buildResolvePlugin() {
       console.warn('⚠️  Could not clean up old zip files:', err);
     }
     
-    // Create final package: davinci-sync-extension-v${version}.zip with sync.resolve folder + instructions
     const zipPath = path.join(__dirname, devDist, `davinci-sync-extension-v${version}.zip`);
     
     if (fs.existsSync(zipPath)) {
@@ -565,14 +557,11 @@ async function buildResolvePlugin() {
     
     console.log(`\nCreating Resolve plugin ZIP package...`);
     
-    // Create temp directory for packaging
     const tempPackageDir = path.join(__dirname, devDist, '.resolve-package-temp');
     if (fs.existsSync(tempPackageDir)) {
       try {
-        // Force remove directory even if not empty
         fs.rmSync(tempPackageDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
       } catch (err: any) {
-        // If removal fails, try to remove contents individually
         console.warn(`⚠️  Warning: Could not remove temp directory, trying to clean contents: ${err.message}`);
         try {
           const files = fs.readdirSync(tempPackageDir);
@@ -588,17 +577,13 @@ async function buildResolvePlugin() {
           fs.rmdirSync(tempPackageDir);
         } catch (cleanupErr: any) {
           console.warn(`⚠️  Warning: Could not clean temp directory: ${cleanupErr.message}`);
-          // Continue anyway - mkdirSync with recursive will handle it
         }
       }
     }
     fs.mkdirSync(tempPackageDir, { recursive: true });
     
-    // Copy resolve folder as sync.resolve (DaVinci Resolve requires this name)
     const syncResolveDest = path.join(tempPackageDir, 'sync.resolve');
     fs.cpSync(resolveDest, syncResolveDest, { recursive: true });
-    
-    // Add installation instructions
     const instructionsPath = path.join(tempPackageDir, 'INSTALLATION_INSTRUCTIONS.txt');
     const instructions = `INSTALLATION INSTRUCTIONS FOR DAVINCI RESOLVE PLUGIN
 ================================================
@@ -656,7 +641,6 @@ For more help, visit: https://sync.so
     console.log(`✓ Created installation instructions file`);
     
     try {
-      // Create zip from temp package directory (contains sync.resolve folder + instructions)
       if (process.platform === 'win32') {
         execSync(
           `powershell -Command "Compress-Archive -Path 'sync.resolve','INSTALLATION_INSTRUCTIONS.txt' -DestinationPath '${path.basename(zipPath)}' -Force"`,
@@ -667,7 +651,6 @@ For more help, visit: https://sync.so
           fs.renameSync(tempZip, zipPath);
         }
       } else {
-        // macOS/Linux: Use zip command
         execSync(
           `cd "${tempPackageDir}" && zip -r "${zipPath}" sync.resolve INSTALLATION_INSTRUCTIONS.txt`,
           { stdio: 'inherit' }
@@ -675,12 +658,10 @@ For more help, visit: https://sync.so
       }
       console.log(`✓ Created Resolve plugin ZIP: ${zipPath}`);
       
-      // Clean up temp directory
       if (fs.existsSync(tempPackageDir)) {
         try {
           fs.rmSync(tempPackageDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
         } catch (cleanupErr: any) {
-          // If removal fails, try to remove contents individually
           console.warn(`⚠️  Warning: Could not remove temp directory: ${cleanupErr.message}`);
           try {
             const files = fs.readdirSync(tempPackageDir);
@@ -696,12 +677,10 @@ For more help, visit: https://sync.so
             fs.rmdirSync(tempPackageDir);
           } catch (finalCleanupErr: any) {
             console.warn(`⚠️  Warning: Could not fully clean temp directory (non-fatal): ${finalCleanupErr.message}`);
-            // Non-fatal - temp directory will be cleaned on next build
           }
         }
       }
     } catch (err) {
-      // Clean up temp directory on error
       if (fs.existsSync(tempPackageDir)) {
         try {
           fs.rmSync(tempPackageDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
@@ -878,20 +857,28 @@ export default defineConfig({
             
             content = content.replace(
               /<script[^>]*src=["'][^"']*main-[^"']*\.cjs["'][^>]*><\/script>/gi,
-              `<script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`
+              ''
             );
             
-            if (!content.includes(`data-main="${mainScriptPath}"`)) {
-              const scriptTag = `    <script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`;
+            content = content.replace(
+              /<script[^>]*data-main=["'][^"']*main-[^"']*\.cjs["'][^>]*><\/script>/gi,
+              ''
+            );
+            
+            const scriptTag = `    <script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`;
+            
+            const headCloseIndex = content.lastIndexOf('</head>');
+            if (headCloseIndex !== -1) {
+              content = content.slice(0, headCloseIndex) + scriptTag + '\n' + content.slice(headCloseIndex);
+              console.log(`✓ Added script tag to head: ${mainScriptPath}`);
+            } else {
               const bodyCloseIndex = content.lastIndexOf('</body>');
               if (bodyCloseIndex === -1) {
-                console.error(`❌ ERROR: Could not find </body> tag in HTML`);
+                console.error(`❌ ERROR: Could not find </head> or </body> tag in HTML`);
                 return;
               }
               content = content.slice(0, bodyCloseIndex) + scriptTag + '\n' + content.slice(bodyCloseIndex);
-              console.log(`✓ Added script tag: ${mainScriptPath}`);
-            } else {
-              console.log(`✓ Script tag with correct path exists: ${mainScriptPath}`);
+              console.log(`✓ Added script tag to body (fallback): ${mainScriptPath}`);
             }
             
             content = content.replace(
@@ -915,14 +902,13 @@ export default defineConfig({
             path.join(outDir, 'main', 'index.html'),
             path.join(outDir, 'bin'),
             path.join(outDir, 'jsx', 'index.jsxbin'),
-            path.join(outDir, 'js', 'panels', 'ppro', 'epr') // EPR presets required for Premiere Pro in/out exports
+            path.join(outDir, 'js', 'panels', 'ppro', 'epr')
           ];
           
           for (const criticalPath of criticalPaths) {
             if (!fs.existsSync(criticalPath)) {
               console.warn(`Warning: Critical build artifact missing: ${criticalPath}`);
             } else if (criticalPath.includes('epr')) {
-              // Verify epr folder contains files
               try {
                 const eprFiles = fs.readdirSync(criticalPath);
                 const eprFileCount = eprFiles.filter(f => f.endsWith('.epr')).length;
@@ -1108,8 +1094,6 @@ export default defineConfig({
         }
       },
       async buildStart() {
-        // Ensure output directories exist before vite-cep-plugin tries to write files
-        // This must run for ALL builds (dev and production) to prevent ENOENT errors
         const mainDir = path.join(outDir, 'main');
         const assetsDir = path.join(outDir, 'assets');
         if (!fs.existsSync(mainDir)) {
@@ -1121,8 +1105,6 @@ export default defineConfig({
           console.log('✓ Created assets directory:', assetsDir);
         }
         
-        // Ensure epr preset files are copied early (required for Premiere Pro in/out exports)
-        // This is especially important in dev mode where vite-cep-plugin might not copy folders
         const eprSource = path.join(__dirname, 'src', 'js', 'panels', 'ppro', 'epr');
         const eprDest = path.join(outDir, 'js', 'panels', 'ppro', 'epr');
         if (fs.existsSync(eprSource)) {
@@ -1146,13 +1128,11 @@ export default defineConfig({
           const serverPackageJson = path.join(serverDest, 'package.json');
           const serverSrc = path.join(__dirname, 'src', 'server');
           
-          // Ensure server folder exists before vite-cep-plugin copies files
           if (!fs.existsSync(serverDest) && fs.existsSync(serverSrc)) {
             console.log('Server folder not found in dist, creating it...');
             fs.mkdirSync(serverDest, { recursive: true });
           }
           
-          // Copy server files manually if they don't exist (vite-cep-plugin will copy them later, but we need them now for npm install)
           if (fs.existsSync(serverSrc) && !fs.existsSync(serverPackageJson)) {
             const srcPackageJson = path.join(serverSrc, 'package.json');
             if (fs.existsSync(srcPackageJson)) {
@@ -1160,7 +1140,6 @@ export default defineConfig({
               console.log('✓ Copied server/package.json for dependency installation');
             }
             
-            // Copy other server files that npm install might need
             const serverFiles = ['server.ts', 'serverConfig.ts', 'telemetry.ts'];
             for (const file of serverFiles) {
               const srcFile = path.join(serverSrc, file);
@@ -1219,7 +1198,7 @@ export default defineConfig({
                       timeout: 300000
                     });
                     installSuccess = true;
-                    console.log('✓ Server dependencies installed (will be included in ZXP)');
+                    console.log('✓ Server dependencies installed');
                     
                     const nodeModulesPath = path.join(serverDest, 'node_modules');
                     if (!fs.existsSync(nodeModulesPath)) {
@@ -1250,7 +1229,7 @@ export default defineConfig({
                 }
               } else {
                 fs.writeFileSync(serverPackageJson, JSON.stringify(serverPackage, null, 2));
-                console.log('✓ Server dependencies up to date (will be included in ZXP)');
+                console.log('✓ Server dependencies up to date');
                 
                 const nodeModulesPath = path.join(serverDest, 'node_modules');
                 if (!fs.existsSync(nodeModulesPath)) {
@@ -1268,7 +1247,7 @@ export default defineConfig({
               }
             } catch (err) {
               console.error('CRITICAL: Failed to install server dependencies:', err);
-              throw err; // Fail the build if server dependencies cannot be installed
+              throw err;
             }
           } else {
             console.warn('WARNING: server folder or package.json not found in buildStart');
@@ -1381,7 +1360,7 @@ export default defineConfig({
   publicDir: false,
   server: {
     port: cepConfig.port || 3001,
-    strictPort: true, // Always use port 3001 - fail if unavailable
+    strictPort: true,
     hmr: {
       port: cepConfig.port || 3001,
       protocol: 'ws',
@@ -1411,7 +1390,7 @@ export default defineConfig({
     },
     target: "chrome74",
     outDir,
-    assetsInlineLimit: 0, // Don't inline assets - always emit as files
+    assetsInlineLimit: 0,
   },
 });
 
