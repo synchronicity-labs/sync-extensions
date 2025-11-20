@@ -58,7 +58,10 @@
   border-radius: var(--radius-lg);
 }
 
-/* Base styles shared by both video and audio upload sections */
+/* ===== UNIFIED UPLOAD COMPONENT =====
+ * Video and audio are the same component structure.
+ * Only differences: background colors, buttons/icons/text (handled in JSX), and media-specific flex behavior.
+ */
 .video-upload,
 .audio-upload {
   border: 1px dashed var(--border-tertiary);
@@ -71,55 +74,59 @@
   padding: 0;
 }
 
+/* Empty state - unified structure */
 .video-upload:not(.has-media),
 .audio-upload:not(.has-media) {
   min-height: 200px;
   align-items: center;
   justify-content: center;
-}
-
-.video-upload:not(.has-media) {
-  background: var(--bg-black);
   flex: 1 1 0%;
   height: auto;
 }
 
-.audio-upload:not(.has-media) {
-  background: var(--bg-secondary);
-  flex: 0 0 auto;
-  height: 200px;
-  max-height: 200px;
+/* Only difference: background colors */
+.video-upload:not(.has-media) {
+  background: var(--bg-black);
 }
 
+.audio-upload:not(.has-media) {
+  background: var(--bg-secondary);
+}
+
+/* Has media state - unified */
 .video-upload.has-media,
 .audio-upload.has-media {
   border: none;
 }
 
-/* Video with media: full width and fills vertical space */
+/* Has media state - unified base structure */
+.video-upload.has-media,
+.audio-upload.has-media {
+  height: auto;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Video-specific: fills vertical space */
 .video-upload.has-media {
   flex: 1;
   min-height: 0;
-  height: auto;
-  width: 100%;
   border-radius: var(--radius-lg);
   background: var(--bg-black);
-  display: flex;
-  flex-direction: column;
 }
 
 /* When only video is loaded (no audio), don't flex grow to prevent cropping */
 .sources-container.has-video:not(.has-both) .video-upload.has-media {
   flex: 0 0 auto;
-  height: auto;
 }
 
 .sources-container.has-both .video-upload.has-media {
   flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
-  height: auto;
   margin-bottom: 0;
   box-sizing: border-box;
 }
@@ -133,15 +140,11 @@
   min-height: 0;
 }
 
+/* Audio-specific: compact height */
 .audio-upload.has-media {
-  height: auto;
   min-height: 40px;
-  border: none;
   background: transparent;
-  padding: 0;
-  margin: 0;
   flex: 0 0 auto;
-  width: 100%;
   margin-top: 16px;
   margin-bottom: 0;
 }
@@ -149,8 +152,6 @@
 .sources-container.has-both .audio-upload.has-media {
   margin-top: 0;
   margin-bottom: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .sources-container.has-both .audio-upload.has-media::before {
@@ -184,6 +185,7 @@
   padding: 0;
 }
 
+/* Unified dropzone structure - same for video and audio */
 #videoDropzone,
 #audioDropzone {
   width: 100%;
@@ -205,14 +207,8 @@
   margin: 0;
 }
 
-/* Ensure dropzones fill container height when empty */
-.video-upload:not(.has-media) #videoDropzone {
-  min-height: 200px;
-  height: 100%;
-  flex: 1 1 0%;
-  overflow: visible;
-}
-
+/* Empty state dropzone - unified */
+.video-upload:not(.has-media) #videoDropzone,
 .audio-upload:not(.has-media) #audioDropzone {
   min-height: 200px;
   height: 100%;
@@ -220,7 +216,7 @@
   overflow: visible;
 }
 
-/* Dropzone drag state - consolidated for video and audio */
+/* Dropzone drag state - unified */
 #videoDropzone.is-dragover,
 #audioDropzone.is-dragover {
   background: var(--drag-overlay);
@@ -275,45 +271,39 @@
 @media (max-width: 520px) {
   .upload-content {
     padding: var(--spacing-md);
-    gap: var(--spacing-md);
+    /* gap handled by responsive.scss - don't override here */
   }
   
   .action-row {
     gap: var(--spacing-sm);
   }
   
-  /* Fix empty state - prevent content cropping and increase height */
+  /* Unified empty state styles for both video and audio */
   .video-upload:not(.has-media),
   .audio-upload:not(.has-media) {
     overflow: visible;
-    min-height: 280px; /* Taller in compressed mode */
-  }
-  
-  .video-upload:not(.has-media) {
+    min-height: 280px;
     height: auto;
-  }
-  
-  .audio-upload:not(.has-media) {
-    height: 280px; /* Taller in compressed mode */
-    max-height: none; /* Remove max-height restriction */
+    flex: 1 1 0%;
+    max-height: none;
   }
   
   .video-upload:not(.has-media) #videoDropzone,
   .audio-upload:not(.has-media) #audioDropzone {
     overflow: visible;
-    min-height: 280px; /* Match container height */
+    min-height: 280px;
+    height: auto;
+    flex: 1 1 0%;
   }
   
-  /* Ensure consistent gaps between icons → text → buttons for both video and audio */
+  /* Unified gap spacing - both video and audio use same values */
   .video-upload:not(.has-media) .upload-visual,
   .audio-upload:not(.has-media) .upload-visual {
-    gap: var(--spacing-md); /* Consistent gap between icons and text */
+    gap: var(--spacing-md);
   }
   
-  .video-upload:not(.has-media) .upload-content,
-  .audio-upload:not(.has-media) .upload-content {
-    gap: var(--spacing-lg); /* Consistent gap between visual (icons+text) and buttons */
-  }
+  /* Don't override upload-content gap - let responsive.scss handle it */
+  /* Both video and audio will inherit the same gap from responsive.scss */
   
   /* Fix audio container height in compressed breakpoint */
   .sources-container.has-both {
@@ -372,10 +362,7 @@
   align-self: center;
 }
 
-/* Ensure audio section has matching spacing */
-.audio-upload .upload-visual {
-  gap: var(--spacing-md);
-}
+/* Note: upload-visual gap is already set globally - no need for separate audio rule */
 
 .icon-group,
 .icon-group-audio {
@@ -395,13 +382,8 @@
   padding: 0;
 }
 
-.icon-group-audio {
-  height: var(--icon-group-height);
-}
-
-.icon-group-audio .icon-float {
-  z-index: 2;
-}
+/* icon-group-audio inherits height from unified rule above */
+/* icon-group-audio .icon-float inherits z-index from .icon-float rule below */
 
 .icon-group-audio .icon-main-audio {
   z-index: 3;
@@ -417,21 +399,14 @@
   z-index: 2;
 }
 
-.icon-group .icon-float.rotate-15 {
-  left: 124.62px;
-  top: 15.62px;
-}
-
-.icon-group .icon-float.rotate-neg-15 {
-  left: 69.4px;
-  top: 24.41px;
-}
-
+/* Unified icon float positioning - same for both video and audio */
+.icon-group .icon-float.rotate-15,
 .icon-group-audio .icon-float.rotate-15 {
   left: 124.62px;
   top: 15.62px;
 }
 
+.icon-group .icon-float.rotate-neg-15,
 .icon-group-audio .icon-float.rotate-neg-15 {
   left: 69.4px;
   top: 24.41px;
@@ -445,27 +420,28 @@
   transform: rotate(-15deg);
 }
 
-.icon-bg {
-  position: absolute;
-  width: var(--icon-bg-size);
-  height: var(--icon-bg-size);
-  left: 94px;
-  top: var(--spacing-sm);
-  background: var(--bg-black);
-  z-index: 1;
-}
-
+/* Unified icon background positioning - only background differs */
+.icon-bg,
 .icon-bg-audio {
   position: absolute;
   width: var(--icon-bg-size);
   height: var(--icon-bg-size);
   left: 94px;
   top: var(--spacing-sm);
-  background: var(--bg-secondary);
   z-index: 1;
 }
 
-.icon-main-wrapper {
+.icon-bg {
+  background: var(--bg-black);
+}
+
+.icon-bg-audio {
+  background: var(--bg-secondary);
+}
+
+/* Unified icon main wrapper - same positioning for both */
+.icon-main-wrapper,
+.icon-main-wrapper-audio {
   position: absolute;
   left: 94px;
   top: var(--spacing-sm);
@@ -477,15 +453,8 @@
   z-index: 3;
 }
 
-.icon-main-wrapper-audio {
-  top: var(--spacing-sm);
-}
-
-.icon-main {
-  position: relative;
-  z-index: 3;
-}
-
+/* Unified icon main - same styles for both video and audio */
+.icon-main,
 .icon-main-audio {
   position: relative;
   z-index: 3;
@@ -830,13 +799,8 @@
   text-transform: lowercase;
 }
 
-/* Ensure containers maintain height when URL input mode is active */
-.video-upload.url-input-active {
-  height: 200px;
-  min-height: 200px;
-  flex: 0 0 200px;
-}
-
+/* Unified URL input mode - both video and audio */
+.video-upload.url-input-active,
 .audio-upload.url-input-active {
   height: 200px;
   min-height: 200px;
