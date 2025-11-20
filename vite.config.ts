@@ -569,7 +569,29 @@ async function buildResolvePlugin() {
     // Create temp directory for packaging
     const tempPackageDir = path.join(__dirname, devDist, '.resolve-package-temp');
     if (fs.existsSync(tempPackageDir)) {
-      fs.rmSync(tempPackageDir, { recursive: true, force: true });
+      try {
+        // Force remove directory even if not empty
+        fs.rmSync(tempPackageDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      } catch (err: any) {
+        // If removal fails, try to remove contents individually
+        console.warn(`⚠️  Warning: Could not remove temp directory, trying to clean contents: ${err.message}`);
+        try {
+          const files = fs.readdirSync(tempPackageDir);
+          for (const file of files) {
+            const filePath = path.join(tempPackageDir, file);
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+              fs.rmSync(filePath, { recursive: true, force: true });
+            } else {
+              fs.unlinkSync(filePath);
+            }
+          }
+          fs.rmdirSync(tempPackageDir);
+        } catch (cleanupErr: any) {
+          console.warn(`⚠️  Warning: Could not clean temp directory: ${cleanupErr.message}`);
+          // Continue anyway - mkdirSync with recursive will handle it
+        }
+      }
     }
     fs.mkdirSync(tempPackageDir, { recursive: true });
     
@@ -655,11 +677,38 @@ For more help, visit: https://sync.so
       console.log(`✓ Created Resolve plugin ZIP: ${zipPath}`);
       
       // Clean up temp directory
-      fs.rmSync(tempPackageDir, { recursive: true, force: true });
+      if (fs.existsSync(tempPackageDir)) {
+        try {
+          fs.rmSync(tempPackageDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        } catch (cleanupErr: any) {
+          // If removal fails, try to remove contents individually
+          console.warn(`⚠️  Warning: Could not remove temp directory: ${cleanupErr.message}`);
+          try {
+            const files = fs.readdirSync(tempPackageDir);
+            for (const file of files) {
+              const filePath = path.join(tempPackageDir, file);
+              const stat = fs.statSync(filePath);
+              if (stat.isDirectory()) {
+                fs.rmSync(filePath, { recursive: true, force: true });
+              } else {
+                fs.unlinkSync(filePath);
+              }
+            }
+            fs.rmdirSync(tempPackageDir);
+          } catch (finalCleanupErr: any) {
+            console.warn(`⚠️  Warning: Could not fully clean temp directory (non-fatal): ${finalCleanupErr.message}`);
+            // Non-fatal - temp directory will be cleaned on next build
+          }
+        }
+      }
     } catch (err) {
       // Clean up temp directory on error
       if (fs.existsSync(tempPackageDir)) {
-        fs.rmSync(tempPackageDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tempPackageDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        } catch (cleanupErr: any) {
+          console.warn(`⚠️  Warning: Could not clean temp directory on error: ${cleanupErr.message}`);
+        }
       }
       console.error('Failed to create ZIP package:', err);
       throw err;
@@ -823,33 +872,17 @@ export default defineConfig({
             }
           );
           
-          const requireLoaderMatch = html.match(/window\.addEventListener\(["']load["'],\s*req\.bind/);
-          if (requireLoaderMatch) {
-            html = html.replace(
-              /if\s*\(mainStr\)\s*\{\s*window\.addEventListener\(["']load["'],\s*req\.bind\(this,\s*new\s+URL\(mainStr,\s*baseDir\)\.href\)\);\s*\}/,
-              `if (mainStr) {
-                var executeMain = function() {
-                  try {
-                    console.log('[CEP] Executing main script:', mainStr, 'baseDir:', baseDir);
-                    var result = req(mainStr);
-                    console.log('[CEP] Main script executed, result:', result);
-                    window.__main_script_executed = true;
-                  } catch(e) {
-                    console.error('[CEP] Failed to execute main script:', e);
-                    window.__main_script_error = e.message + '\\n' + (e.stack || '');
-                    throw e;
-                  }
-                };
-                if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                  console.log('[CEP] Document already loaded, executing immediately');
-                  executeMain();
-                } else {
-                  console.log('[CEP] Waiting for load event');
-                  window.addEventListener('load', executeMain);
-                }
-              }`
-            );
-          }
+          html = html.replace(
+            /if\s*\(mainStr\)\s*\{\s*window\.addEventListener\(["']load["'],\s*req\.bind\(this,\s*new\s+URL\(mainStr,\s*baseDir\)\.href\)\);\s*\}/,
+            `if (mainStr) {
+              var executeMain = req.bind(this, new URL(mainStr, baseDir).href);
+              if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                executeMain();
+              } else {
+                window.addEventListener('load', executeMain);
+              }
+            }`
+          );
           
           return html;
         }
@@ -867,43 +900,174 @@ export default defineConfig({
       },
       async closeBundle() {
         if (isProduction || isPackage) {
+          // Wait a bit to ensure vite-cep-plugin has finished writing files
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
           cepConfig.panels.forEach(panel => {
             const htmlPath = path.join(outDir, panel.name, 'index.html');
-            if (fs.existsSync(htmlPath)) {
-              let content = fs.readFileSync(htmlPath, 'utf-8');
-              const originalContent = content;
-              
+            const assetsDir = path.join(outDir, 'assets');
+            
+            if (!fs.existsSync(htmlPath)) {
+              console.warn(`⚠️  Warning: HTML file not found at ${htmlPath}`);
+              return;
+            }
+            
+            if (!fs.existsSync(assetsDir)) {
+              console.warn(`⚠️  Warning: Assets directory not found at ${assetsDir}`);
+              return;
+            }
+            
+            let content = fs.readFileSync(htmlPath, 'utf-8');
+            const originalContent = content;
+            
+            // Remove dev redirect script
+            content = content.replace(
+              /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
+              ''
+            );
+            
+            // Remove module script tag (type="module" src="./main.tsx")
+            content = content.replace(
+              /<script\s+type=["']module["'][^>]*src=["'][^"']*main\.tsx["'][^>]*><\/script>/gi,
+              ''
+            );
+            
+            // Remove app div if it exists
+            content = content.replace(
+              /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
+              ''
+            );
+            
+            // Ensure root div exists
+            if (!content.includes('id="root"')) {
               content = content.replace(
-                /<script[^>]*>[\s\S]*?window\.location\.href\s*=\s*['"]http:\/\/localhost:3001[^'"]*['"][\s\S]*?<\/script>/gi,
-                ''
+                /(<body[^>]*>)/i,
+                '$1\n    <div id="root"></div>'
               );
-              
-              content = content.replace(
-                /<div\s+id=["']app["'][^>]*>[\s\S]*?<\/div>/gi,
-                ''
-              );
-              
-              if (!content.includes('id="root"')) {
-                content = content.replace(
-                  /(<body[^>]*>)/i,
-                  '$1\n    <div id="root"></div>'
-                );
+            }
+            
+            // Find the actual main-*.cjs file that was built
+            let mainScriptPath = null;
+            const assetFiles = fs.readdirSync(assetsDir);
+            const mainCjsFile = assetFiles.find(f => f.startsWith('main-') && f.endsWith('.cjs'));
+            
+            if (!mainCjsFile) {
+              console.error(`❌ ERROR: Could not find main-*.cjs file in ${assetsDir}`);
+              console.error(`   Available files: ${assetFiles.slice(0, 5).join(', ')}...`);
+              return;
+            }
+            
+            // HTML is at main/index.html, assets are at assets/, so path is ../assets/main-*.cjs
+            // CRITICAL: Use exactly "../assets/" - this is the correct relative path from main/ to assets/
+            // The vite-cep-plugin require shim will resolve this using: new URL(mainStr, baseDir)
+            // where baseDir is "./" (resolved to main/), so "../assets/file.cjs" resolves correctly
+            mainScriptPath = `../assets/${mainCjsFile}`;
+            
+            // CRITICAL: Remove ALL existing script tags that might have incorrect paths
+            // This includes any with data-main, data-scripts with main-*.cjs, any with malformed paths, and any pointing to main-*.cjs
+            // Remove script tags with data-scripts that contain main-*.cjs (vite-cep-plugin might generate these)
+            content = content.replace(
+              /<script[^>]*data-scripts=["'][^"']*main-[^"']*\.cjs[^"']*["'][^>]*><\/script>/gi,
+              ''
+            );
+            
+            // Remove script tags with malformed paths (4+ dots)
+            content = content.replace(
+              /<script[^>]*src=["'][^"']*\.\.\.\.\/[^"']*["'][^>]*><\/script>/gi,
+              ''
+            );
+            
+            // Remove script tags with data-main (we'll add the correct one)
+            content = content.replace(
+              /<script[^>]*data-main[^>]*><\/script>/gi,
+              ''
+            );
+            
+            // Remove script tags pointing to main-*.cjs files
+            content = content.replace(
+              /<script[^>]*src=["'][^"']*main-[^"']*\.cjs["'][^>]*><\/script>/gi,
+              ''
+            );
+            
+            // Also remove any script tags with data-main attribute (to be safe - do multiple passes)
+            const dataMainRegex = /<script[^>]*data-main[^>]*><\/script>/gi;
+            let previousContent;
+            let iterations = 0;
+            do {
+              previousContent = content;
+              content = content.replace(dataMainRegex, '');
+              iterations++;
+              if (iterations > 10) {
+                console.warn(`⚠️  Warning: Removed data-main script tags ${iterations} times - might be infinite loop`);
+                break;
+              }
+            } while (content !== previousContent);
+            
+            // Verify the path is correct (should be exactly "../assets/filename.cjs")
+            if (!mainScriptPath.match(/^\.\.\/assets\/main-[^\/]+\.cjs$/)) {
+              console.error(`❌ ERROR: Invalid script path format: ${mainScriptPath}`);
+              console.error(`   Expected format: ../assets/main-XXXXX.cjs`);
+              return;
+            }
+            
+            // Add the script tag with data-main attribute BEFORE closing body tag
+            // The vite-cep-plugin require shim looks for script[data-main] to load the main module
+            // Format: <script data-main="../assets/main-XXXXX.cjs" src="../assets/main-XXXXX.cjs"></script>
+            const scriptTag = `    <script data-main="${mainScriptPath}" src="${mainScriptPath}"></script>`;
+            
+            // Insert before </body> tag (only if it doesn't already exist)
+            if (!content.includes(`data-main="${mainScriptPath}"`)) {
+              // Find the closing body tag and insert before it
+              const bodyCloseIndex = content.lastIndexOf('</body>');
+              if (bodyCloseIndex === -1) {
+                console.error(`❌ ERROR: Could not find </body> tag in HTML`);
+                return;
               }
               
-              content = content.replace(
-                /<script\s+src=["']([^"']*main[^"']*\.cjs)["']([^>]*)><\/script>/gi,
-                (match, src, attrs) => {
-                  if (!match.includes('data-main')) {
-                    return `<script data-main="${src}" src="${src}"${attrs}></script>`;
-                  }
-                  return match;
-                }
-              );
-              
-              if (content !== originalContent) {
-                fs.writeFileSync(htmlPath, content, 'utf-8');
-                console.log(`✓ Ensured production HTML is clean: ${htmlPath}`);
-              }
+              content = content.slice(0, bodyCloseIndex) + scriptTag + '\n' + content.slice(bodyCloseIndex);
+              console.log(`✓ Added script tag with correct path: ${mainScriptPath}`);
+            } else {
+              console.log(`✓ Script tag already exists with correct path: ${mainScriptPath}`);
+            }
+            
+            // Always write the file to ensure it's correct
+            fs.writeFileSync(htmlPath, content, 'utf-8');
+            
+            if (content !== originalContent) {
+              console.log(`✓ Updated production HTML: ${htmlPath}`);
+            } else {
+              console.log(`✓ Verified production HTML: ${htmlPath}`);
+            }
+            
+            // Verify the script tag was added correctly
+            const scriptTagExists = content.includes(`data-main="${mainScriptPath}"`);
+            if (!scriptTagExists) {
+              console.error(`❌ ERROR: Failed to add script tag to ${htmlPath}`);
+              console.error(`   Expected: data-main="${mainScriptPath}"`);
+              console.error(`   HTML content around </body>: ${content.slice(Math.max(0, content.lastIndexOf('</body>') - 200), content.lastIndexOf('</body>') + 50)}`);
+            } else {
+              console.log(`✓ Verified script tag exists in HTML with path: ${mainScriptPath}`);
+            }
+            
+            // Extract and log all script tags for debugging
+            const scriptTagMatches = content.matchAll(/<script[^>]*>/gi);
+            const scriptTags: string[] = [];
+            for (const match of scriptTagMatches) {
+              scriptTags.push(match[0]);
+            }
+            console.log(`📋 Found ${scriptTags.length} script tags in HTML:`);
+            scriptTags.forEach((tag, i) => {
+              const hasDataMain = tag.includes('data-main');
+              const hasMainCjs = tag.includes('main-') && tag.includes('.cjs');
+              console.log(`   ${i + 1}. ${hasDataMain ? '✓' : '✗'} data-main ${hasMainCjs ? '✓' : '✗'} main-*.cjs ${tag.substring(0, 100)}`);
+            });
+            
+            // Log the exact script tag we added
+            const addedScriptTagMatch = content.match(new RegExp(`<script[^>]*data-main="${mainScriptPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>`));
+            if (addedScriptTagMatch) {
+              console.log(`✓ Confirmed script tag in HTML: ${addedScriptTagMatch[0]}`);
+            } else {
+              console.error(`❌ Script tag not found in HTML after write!`);
             }
           });
         }
