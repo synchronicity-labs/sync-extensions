@@ -22,7 +22,8 @@
     "zip": "cross-env ZIP_PACKAGE=true vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "verify:zxp": "tsx scripts/verify-zxp.ts"
+    "verify:zxp": "tsx scripts/verify-zxp.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "electron": "39.2.2",
@@ -58,6 +59,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "jsxbin": "^2.3.0",
+    "patch-package": "^8.0.1",
     "rollup": "^4.53.2",
     "sass": "^1.94.1",
     "tsx": "^4.19.2",
