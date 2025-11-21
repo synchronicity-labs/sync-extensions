@@ -5,6 +5,35 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-}"
 MESSAGE="${2:-Release $VERSION}"
 
+# Robust cleanup function that handles symlinks and locked files
+cleanup_dir() {
+  local dir="$1"
+  if [ ! -d "$dir" ] && [ ! -e "$dir" ]; then
+    return 0  # Already gone
+  fi
+  
+  # Try standard rm -rf first
+  rm -rf "$dir" 2>/dev/null && return 0
+  
+  # If that fails, try more aggressive cleanup
+  echo "Cleaning up $dir (handling symlinks/locked files)..."
+  
+  # Remove symlinks first
+  find "$dir" -type l -delete 2>/dev/null || true
+  
+  # Remove files
+  find "$dir" -type f -delete 2>/dev/null || true
+  
+  # Remove empty directories
+  find "$dir" -type d -empty -delete 2>/dev/null || true
+  
+  # Final attempt
+  rm -rf "$dir" 2>/dev/null || {
+    echo "⚠️  Warning: Could not fully clean up $dir (non-fatal)"
+    return 0  # Don't fail the script
+  }
+}
+
 # Get GitHub repository from environment variable or git remote
 if [ -n "${GITHUB_REPO:-}" ]; then
   GITHUB_REPO_NAME="$GITHUB_REPO"
@@ -110,10 +139,20 @@ ZXPSIGN_CMD="$REPO_DIR/node_modules/vite-cep-plugin/lib/bin/ZXPSignCmd"
 
 echo ""
 echo "0. Checking for .debug file (required for CEP HTML engine logging)"
-if unzip -l "$ZXP_PATH" 2>/dev/null | grep -q "\.debug"; then
-  echo "✅ .debug file found in ZXP (required for console.log capture)"
+if [ ! -f "$ZXP_PATH" ]; then
+  echo "⚠️  ZXP file not found yet - skipping .debug check"
 else
-  echo "⚠️  No .debug file found - HTML engine logs won't work"
+  # Check if unzip can read the file (quick test to avoid hanging)
+  # Use -t flag to test the zip file integrity first
+  if unzip -t "$ZXP_PATH" >/dev/null 2>&1; then
+    if unzip -l "$ZXP_PATH" 2>/dev/null | grep -q "\.debug"; then
+      echo "✅ .debug file found in ZXP (required for console.log capture)"
+    else
+      echo "⚠️  No .debug file found - HTML engine logs won't work"
+    fi
+  else
+    echo "⚠️  ZXP file appears corrupted or incomplete - skipping .debug check"
+  fi
 fi
 
 echo ""
@@ -164,7 +203,7 @@ if [ "${SKIP_VERIFY:-0}" = "1" ]; then
   echo "⏭️  Skipping detailed structure verification (SKIP_VERIFY=1)"
 else
   EXTRACT_DIR="$REPO_DIR/dist/.zxp-verify"
-  rm -rf "$EXTRACT_DIR"
+  cleanup_dir "$EXTRACT_DIR"
   mkdir -p "$EXTRACT_DIR"
   unzip -q -o "$ZXP_PATH" -d "$EXTRACT_DIR" || {
     echo "❌ Failed to extract ZXP"
@@ -218,11 +257,11 @@ else
   done
 
   if [ "$ALL_PRESENT" = false ]; then
-    rm -rf "$EXTRACT_DIR"
+    cleanup_dir "$EXTRACT_DIR"
     exit 1
   fi
 
-  rm -rf "$EXTRACT_DIR"
+  cleanup_dir "$EXTRACT_DIR"
 fi
 
 echo ""
@@ -231,18 +270,18 @@ if [ "${SKIP_VERIFY:-0}" = "1" ]; then
   echo "⏭️  Skipping manifest verification (SKIP_VERIFY=1)"
 else
   MANIFEST_EXTRACT_DIR="$REPO_DIR/dist/.manifest-verify"
-  rm -rf "$MANIFEST_EXTRACT_DIR"
+  cleanup_dir "$MANIFEST_EXTRACT_DIR"
   mkdir -p "$MANIFEST_EXTRACT_DIR"
   unzip -q -o "$ZXP_PATH" CSXS/manifest.xml -d "$MANIFEST_EXTRACT_DIR" || {
     echo "❌ Failed to extract manifest"
-    rm -rf "$MANIFEST_EXTRACT_DIR"
+    cleanup_dir "$MANIFEST_EXTRACT_DIR"
     exit 1
   }
 
   MANIFEST_PATH="$MANIFEST_EXTRACT_DIR/CSXS/manifest.xml"
   if [ ! -f "$MANIFEST_PATH" ]; then
     echo "❌ Manifest not found"
-    rm -rf "$MANIFEST_EXTRACT_DIR"
+    cleanup_dir "$MANIFEST_EXTRACT_DIR"
     exit 1
   fi
 
@@ -284,7 +323,14 @@ else
     ALL_FOUND=false
   fi
 
-  rm -rf "$MANIFEST_EXTRACT_DIR"
+  if echo "$MANIFEST_CONTENT" | grep -q 'xmlns="http://ns.adobe.com/ExtensionManifest/6.0"'; then
+    echo "✅ xmlns namespace: Found (required for proper ZXP recognition)"
+  else
+    echo "❌ xmlns namespace: Missing (ZXP installer will show extension as 'other')"
+    ALL_FOUND=false
+  fi
+
+  cleanup_dir "$MANIFEST_EXTRACT_DIR"
 
   if [ "$ALL_FOUND" = false ]; then
     exit 1
@@ -313,11 +359,11 @@ else
   
   # Extract ZXP again to check for Node.js binaries
   NODE_CHECK_DIR="$REPO_DIR/dist/.node-check"
-  rm -rf "$NODE_CHECK_DIR"
+  cleanup_dir "$NODE_CHECK_DIR"
   mkdir -p "$NODE_CHECK_DIR"
   unzip -q -o "$ZXP_PATH" -d "$NODE_CHECK_DIR" || {
     echo "❌ Failed to extract ZXP for Node.js binary check"
-    rm -rf "$NODE_CHECK_DIR"
+    cleanup_dir "$NODE_CHECK_DIR"
     exit 1
   }
   
@@ -353,11 +399,11 @@ else
       echo "   Top-level directories in ZXP:"
       ls -la "$NODE_CHECK_DIR" | head -10
     fi
-    rm -rf "$NODE_CHECK_DIR"
+    cleanup_dir "$NODE_CHECK_DIR"
     exit 1
   fi
   
-  rm -rf "$NODE_CHECK_DIR"
+  cleanup_dir "$NODE_CHECK_DIR"
 fi
 
 echo ""
@@ -399,7 +445,7 @@ echo "✅ Resolve ZIP file exists: ${ZIP_SIZE_MB} MB"
 echo ""
 echo "2. ZIP Structure Verification"
 EXTRACT_DIR="$REPO_DIR/dist/.resolve-verify"
-rm -rf "$EXTRACT_DIR"
+cleanup_dir "$EXTRACT_DIR"
 mkdir -p "$EXTRACT_DIR"
 unzip -q -o "$RESOLVE_ZIP_PATH" -d "$EXTRACT_DIR" || {
   echo "❌ Failed to extract Resolve ZIP"
@@ -439,7 +485,7 @@ else
   echo "⚠️  sync.resolve/static/server/node_modules not found (may be optional for Resolve)"
 fi
 
-rm -rf "$EXTRACT_DIR"
+cleanup_dir "$EXTRACT_DIR"
 
 if [ "$RESOLVE_ALL_PRESENT" = false ]; then
   echo "❌ Resolve ZIP verification failed"
@@ -574,7 +620,7 @@ fi
 # The build process creates the final package, so we can use it directly
 # But for consistency with Premiere/AE package structure, we'll extract and verify
 RESOLVE_EXTRACT_DIR="$TEMP_DIR/resolve-extract"
-rm -rf "$RESOLVE_EXTRACT_DIR"
+cleanup_dir "$RESOLVE_EXTRACT_DIR"
 mkdir -p "$RESOLVE_EXTRACT_DIR"
 unzip -q -o "$REPO_DIR/dist/davinci-sync-extension-v${VERSION}.zip" -d "$RESOLVE_EXTRACT_DIR" || {
   echo "Error: Failed to extract Resolve ZIP for verification"
@@ -691,23 +737,7 @@ fi
 echo "✅ Created DaVinci Resolve package: davinci-sync-extension-v${VERSION}.zip"
 
 # Clean up temporary directory
-# Handle node_modules symlinks that can cause rm -rf to fail
-if [ -d "$TEMP_DIR" ]; then
-  # Try standard rm -rf first
-  rm -rf "$TEMP_DIR" 2>/dev/null || {
-    # If that fails, try to remove contents individually
-    echo "Cleaning up temp directory (handling symlinks)..."
-    find "$TEMP_DIR" -type l -delete 2>/dev/null || true
-    find "$TEMP_DIR" -type f -delete 2>/dev/null || true
-    find "$TEMP_DIR" -type d -empty -delete 2>/dev/null || true
-    # Final attempt with rm -rf
-    rm -rf "$TEMP_DIR" 2>/dev/null || {
-      echo "⚠️  Warning: Could not fully clean temp directory (non-fatal)"
-      echo "   Directory: $TEMP_DIR"
-      echo "   You can manually remove it if needed"
-    }
-  }
-fi
+cleanup_dir "$TEMP_DIR"
 
 echo ""
 echo "Creating or updating GitHub release..."

@@ -754,6 +754,65 @@ export default defineConfig({
       },
     },
     react(),
+    {
+      name: 'node-builtins-resolver',
+      enforce: 'pre',
+      resolveId(id) {
+        // List of Node.js built-in modules that should not be loaded as files
+        const nodeBuiltins = [
+          'crypto', 'assert', 'buffer', 'child_process', 'cluster', 'dgram', 'dns',
+          'domain', 'events', 'fs', 'http', 'https', 'net', 'os', 'path', 'punycode',
+          'querystring', 'readline', 'stream', 'string_decoder', 'timers', 'tls',
+          'tty', 'url', 'util', 'v8', 'vm', 'zlib'
+        ];
+        
+        // Resolve Node.js built-ins to virtual modules
+        // This prevents vite-cep-plugin shim from trying to load them as files
+        if (nodeBuiltins.includes(id)) {
+          return `\0node-builtin:${id}`;
+        }
+        return null;
+      },
+      load(id) {
+        // Return empty object stubs for Node.js built-ins
+        // Runtime code will handle accessing actual modules if available
+        if (id.startsWith('\0node-builtin:')) {
+          // Return ES module - Vite converts to CJS format
+          // When vite-cep-plugin's require shim executes the bundle, it provides module/exports
+          // But we need to ensure the stub doesn't create top-level module.exports that execute immediately
+          // Return a value that Vite can assign to a variable
+          return 'export default {};';
+        }
+        return null;
+      },
+      generateBundle(options, bundle) {
+        // Fix module.exports statements that might execute before module is defined
+        // vite-cep-plugin's require shim provides module, but we need to be defensive
+        // This ensures virtual module stubs don't cause "module is not defined" errors
+        Object.keys(bundle).forEach(key => {
+          const file = bundle[key];
+          if (file.type === 'chunk' && file.code) {
+            let transformed = file.code;
+            // Replace all module.exports = {} patterns (from virtual module stubs)
+            // These can appear in various forms after minification
+            transformed = transformed.replace(
+              /module\.exports\s*=\s*\{\};/g,
+              '(typeof module !== "undefined" && module.exports ? (module.exports = {}) : (function() { var __m = { exports: {} }; return __m.exports; })());'
+            );
+            // Also handle module.exports = variable patterns
+            transformed = transformed.replace(
+              /module\.exports\s*=\s*([a-zA-Z_$][a-zA-Z0-9_$]*);/g,
+              (match, varName) => {
+                return `(typeof module !== "undefined" && module.exports ? (module.exports = ${varName}) : (function() { var __m = { exports: {} }; __m.exports = ${varName}; return __m.exports; })());`;
+              }
+            );
+            if (transformed !== file.code) {
+              file.code = transformed;
+            }
+          }
+        });
+      },
+    },
     cep(config),
     {
       name: 'dev-image-handler',
@@ -796,68 +855,6 @@ export default defineConfig({
             );
           }
         });
-      },
-    },
-    {
-      name: 'fix-manifest-xml',
-      enforce: 'post',
-      async writeBundle() {
-        // Fix manifest.xml to ensure proper namespace and format for Mac ZXP installers
-        if (isPackage) {
-          const manifestPath = path.join(outDir, 'CSXS', 'manifest.xml');
-          if (fs.existsSync(manifestPath)) {
-            let manifest = fs.readFileSync(manifestPath, 'utf-8');
-            let modified = false;
-            
-            // Add proper xmlns namespace if missing (required by some Mac ZXP installers)
-            if (!manifest.includes('xmlns="http://ns.adobe.com/ExtensionManifest/6.0/"')) {
-              // Replace the ExtensionManifest opening tag to add xmlns
-              manifest = manifest.replace(
-                /<ExtensionManifest([^>]*?)>/,
-                (match, attrs) => {
-                  // Check if xmlns is already there in a different format
-                  if (attrs.includes('xmlns=')) {
-                    return match;
-                  }
-                  // Add xmlns namespace
-                  return `<ExtensionManifest${attrs} xmlns="http://ns.adobe.com/ExtensionManifest/6.0/">`;
-                }
-              );
-              modified = true;
-            }
-            
-            // Ensure Host names use double quotes (some installers are picky about quotes)
-            manifest = manifest.replace(/<Host\s+Name=['']AEFT['']/g, '<Host Name="AEFT"');
-            manifest = manifest.replace(/<Host\s+Name=['']PPRO['']/g, '<Host Name="PPRO"');
-            
-            // Ensure proper spacing in HostList (some installers are sensitive to formatting)
-            manifest = manifest.replace(
-              /<HostList>\s*<Host/g,
-              '<HostList>\n    <Host'
-            );
-            manifest = manifest.replace(
-              /<\/Host>\s*<Host/g,
-              '</Host>\n    <Host'
-            );
-            manifest = manifest.replace(
-              /<\/Host>\s*<\/HostList>/g,
-              '</Host>\n  </HostList>'
-            );
-            
-            if (modified) {
-              fs.writeFileSync(manifestPath, manifest, 'utf-8');
-              console.log('✓ Fixed manifest.xml with proper namespace and formatting');
-            }
-            
-            // Verify AEFT and PPRO are present
-            if (!manifest.includes('Name="AEFT"') && !manifest.includes("Name='AEFT'")) {
-              console.warn('⚠️  Warning: AEFT host not found in manifest.xml');
-            }
-            if (!manifest.includes('Name="PPRO"') && !manifest.includes("Name='PPRO'")) {
-              console.warn('⚠️  Warning: PPRO host not found in manifest.xml');
-            }
-          }
-        }
       },
     },
     {
@@ -1551,6 +1548,9 @@ export default defineConfig({
     },
     rollupOptions: {
       input: Object.keys(input).length > 0 ? input : undefined,
+      // Node.js built-ins are handled by the node-builtins-resolver plugin above
+      // They're resolved to virtual modules with safe stubs, not marked as external
+      external: [],
       output: {
         format: "cjs",
         // CEP extensions are local files, not served over HTTP, so no need for cache-busting hashes

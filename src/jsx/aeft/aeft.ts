@@ -227,17 +227,22 @@ function _respond(data) {
   try { return JSON.stringify(data); } catch (e) { return String(data); }
 }
 
-function _hostLog(msg){
+// Unified host logging function - takes hostApp and debugLogFileFn as parameters
+function _hostLog(msg, hostApp, debugLogFileFn){
   try{
     var s = String(msg||'');
     var timestamp = new Date().toISOString();
-    var logLine = `[${timestamp}] [aeft] ${s}\n`;
+    var logLine = `[${timestamp}] [${hostApp}] ${s}\n`;
     
     try {
-      var logFile = _syncDebugLogFile();
-      logFile.open('a');
-      logFile.write(logLine);
-      logFile.close();
+      if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+        var logFile = debugLogFileFn();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.write(logLine);
+          logFile.close();
+        }
+      }
     } catch(_){ }
     
     var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
@@ -1543,15 +1548,15 @@ export function AEFT_insertFileAtPlayhead(payloadOrJson) {
 
 export function AEFT_importFileToBin(payloadOrJson) {
   try {
-    _hostLog('AEFT_importFileToBin: START with payload=' + String(payloadOrJson));
+    _hostLog('AEFT_importFileToBin: START with payload=' + String(payloadOrJson), 'AEFT', _syncDebugLogFile);
     
     // Guard: Check if app and project exist
     if (!app || !app.project) {
-      _hostLog('AEFT_importFileToBin: No project open');
+      _hostLog('AEFT_importFileToBin: No project open', 'AEFT', _syncDebugLogFile);
       return _respond({ ok:false, error:'No project open' });
     }
     if (!app.project.items) {
-      _hostLog('AEFT_importFileToBin: No project items');
+      _hostLog('AEFT_importFileToBin: No project items', 'AEFT', _syncDebugLogFile);
       return _respond({ ok:false, error:'No project items' });
     }
     
@@ -1566,16 +1571,16 @@ export function AEFT_importFileToBin(payloadOrJson) {
     } catch (_){ }
     if (!path) { path = String(payloadOrJson || ''); }
     if (!path) {
-      _hostLog('AEFT_importFileToBin: No path provided');
+      _hostLog('AEFT_importFileToBin: No path provided', 'AEFT', _syncDebugLogFile);
       return _respond({ ok:false, error:'No path' });
     }
 
     var f = new File(path);
     if (!f.exists) {
-      _hostLog('AEFT_importFileToBin: File not found at ' + path);
+      _hostLog('AEFT_importFileToBin: File not found at ' + path, 'AEFT', _syncDebugLogFile);
       return _respond({ ok:false, error:'File not found' });
     }
-    _hostLog('AEFT_importFileToBin: File exists at ' + f.fsName);
+    _hostLog('AEFT_importFileToBin: File exists at ' + f.fsName, 'AEFT', _syncDebugLogFile);
 
     // Wait for file to be ready
     _waitForFileReady(f, 20000);
@@ -1591,7 +1596,7 @@ export function AEFT_importFileToBin(payloadOrJson) {
     }
     
     if (!f.exists) {
-      _hostLog('AEFT_importFileToBin: File disappeared after wait');
+      _hostLog('AEFT_importFileToBin: File disappeared after wait', 'AEFT', _syncDebugLogFile);
       return _respond({ ok:false, error:'File disappeared after wait' });
     }
     
@@ -1610,7 +1615,7 @@ export function AEFT_importFileToBin(payloadOrJson) {
             if (it && it instanceof FootageItem && it.file && it.file.fsName === f.fsName) { 
               imported = it; 
               reusedExisting = true;
-              _hostLog('AEFT_importFileToBin: Reused existing item: ' + it.name);
+              _hostLog('AEFT_importFileToBin: Reused existing item: ' + it.name, 'AEFT', _syncDebugLogFile);
               break; 
             } 
           } catch(_){ }
@@ -1619,7 +1624,7 @@ export function AEFT_importFileToBin(payloadOrJson) {
       
       // Import if not already in project
       if (!imported) {
-        _hostLog('AEFT_importFileToBin: Attempting import for ' + f.fsName);
+        _hostLog('AEFT_importFileToBin: Attempting import for ' + f.fsName, 'AEFT', _syncDebugLogFile);
         // Try ImportOptions method first
         try {
           var io = new ImportOptions(f);
@@ -1629,19 +1634,19 @@ export function AEFT_importFileToBin(payloadOrJson) {
             } 
           } catch(_){ }
           imported = app.project.importFile(io);
-          _hostLog('AEFT_importFileToBin: importFile returned ' + (imported ? 'item' : 'null'));
+          _hostLog('AEFT_importFileToBin: importFile returned ' + (imported ? 'item' : 'null'), 'AEFT', _syncDebugLogFile);
         } catch(importErr) {
-          _hostLog('AEFT_importFileToBin: importFile error: ' + String(importErr));
+          _hostLog('AEFT_importFileToBin: importFile error: ' + String(importErr), 'AEFT', _syncDebugLogFile);
           imported = null;
         }
         
         // Fallback: try importFiles method if importFile returned null or failed
         if (!imported) {
-          _hostLog('AEFT_importFileToBin: Trying importFiles fallback');
+          _hostLog('AEFT_importFileToBin: Trying importFiles fallback', 'AEFT', _syncDebugLogFile);
           try {
             var itemsBefore = app.project.items ? app.project.items.length : 0;
             app.project.importFiles([f.fsName], false, false, false);
-            _hostLog('AEFT_importFileToBin: importFiles completed, searching for item');
+            _hostLog('AEFT_importFileToBin: importFiles completed, searching for item', 'AEFT', _syncDebugLogFile);
             $.sleep(200);
             
             var items3 = app.project.items;
@@ -1651,20 +1656,20 @@ export function AEFT_importFileToBin(payloadOrJson) {
               try {
                 if (it3 && it3 instanceof FootageItem && it3.file && it3.file.fsName === f.fsName) {
                   imported = it3;
-                  _hostLog('AEFT_importFileToBin: Found imported item by path: ' + it3.name);
+                  _hostLog('AEFT_importFileToBin: Found imported item by path: ' + it3.name, 'AEFT', _syncDebugLogFile);
                   break;
                 }
               } catch(_) { }
             }
             
             if (!imported && n3 > itemsBefore) {
-              _hostLog('AEFT_importFileToBin: Searching for newest item');
+              _hostLog('AEFT_importFileToBin: Searching for newest item', 'AEFT', _syncDebugLogFile);
               for (var m=n3; m>itemsBefore; m--) {
                 var newItem = items3[m];
                 try {
                   if (newItem && newItem instanceof FootageItem) {
                     imported = newItem;
-                    _hostLog('AEFT_importFileToBin: Found new item: ' + newItem.name);
+                    _hostLog('AEFT_importFileToBin: Found new item: ' + newItem.name, 'AEFT', _syncDebugLogFile);
                     break;
                   }
                 } catch(_) { }
@@ -1672,10 +1677,10 @@ export function AEFT_importFileToBin(payloadOrJson) {
             }
             
             if (!imported) {
-              _hostLog('AEFT_importFileToBin: Could not find imported item after importFiles');
+              _hostLog('AEFT_importFileToBin: Could not find imported item after importFiles', 'AEFT', _syncDebugLogFile);
             }
           } catch(importFilesErr) {
-            _hostLog('AEFT_importFileToBin: importFiles error: ' + String(importFilesErr));
+            _hostLog('AEFT_importFileToBin: importFiles error: ' + String(importFilesErr), 'AEFT', _syncDebugLogFile);
             imported = null;
           }
         }
@@ -1683,7 +1688,7 @@ export function AEFT_importFileToBin(payloadOrJson) {
       
       if (!imported) { 
         try { app.endUndoGroup(); } catch(_){ } 
-        _hostLog('AEFT_importFileToBin: Import failed - both methods');
+        _hostLog('AEFT_importFileToBin: Import failed - both methods', 'AEFT', _syncDebugLogFile);
         return _respond({ ok:false, error:'Import failed' }); 
       }
       
@@ -1696,41 +1701,41 @@ export function AEFT_importFileToBin(payloadOrJson) {
           var it2 = items2[j];
           if (it2 && (it2 instanceof FolderItem) && String(it2.name) === binName) { 
             target = it2; 
-            _hostLog('AEFT_importFileToBin: Found existing bin: ' + binName);
+            _hostLog('AEFT_importFileToBin: Found existing bin: ' + binName, 'AEFT', _syncDebugLogFile);
             break; 
           }
         }
         if (!target) { 
           target = app.project.items.addFolder(binName);
-          _hostLog('AEFT_importFileToBin: Created new bin: ' + binName);
+          _hostLog('AEFT_importFileToBin: Created new bin: ' + binName, 'AEFT', _syncDebugLogFile);
         }
       } catch(binErr){ 
-        _hostLog('AEFT_importFileToBin: Bin error: ' + String(binErr));
+        _hostLog('AEFT_importFileToBin: Bin error: ' + String(binErr), 'AEFT', _syncDebugLogFile);
         target = null;
       }
       
       // Always reassign parent folder, even if it appears equal, and verify move
       var moved = false;
       if (target && imported) {
-        _hostLog('AEFT_importFileToBin: Attempting to move ' + imported.name + ' to ' + target.name);
+        _hostLog('AEFT_importFileToBin: Attempting to move ' + imported.name + ' to ' + target.name, 'AEFT', _syncDebugLogFile);
         for (var mv=0; mv<10; mv++) {
           try { 
             imported.parentFolder = target;
-            _hostLog('AEFT_importFileToBin: Set parentFolder on attempt ' + (mv+1));
+            _hostLog('AEFT_importFileToBin: Set parentFolder on attempt ' + (mv+1), 'AEFT', _syncDebugLogFile);
           } catch(moveErr){ 
-            _hostLog('AEFT_importFileToBin: Move error on attempt ' + (mv+1) + ': ' + String(moveErr));
+            _hostLog('AEFT_importFileToBin: Move error on attempt ' + (mv+1) + ': ' + String(moveErr), 'AEFT', _syncDebugLogFile);
           }
           $.sleep(100);
           try { 
             if (imported && imported.parentFolder === target) { 
               moved = true;
-              _hostLog('AEFT_importFileToBin: Move verified on attempt ' + (mv+1));
+              _hostLog('AEFT_importFileToBin: Move verified on attempt ' + (mv+1), 'AEFT', _syncDebugLogFile);
               break; 
             } 
           } catch(_){ }
         }
         if (!moved) {
-          _hostLog('AEFT_importFileToBin: Failed to verify move after 10 attempts');
+          _hostLog('AEFT_importFileToBin: Failed to verify move after 10 attempts', 'AEFT', _syncDebugLogFile);
         }
       }
       
@@ -1745,16 +1750,16 @@ export function AEFT_importFileToBin(payloadOrJson) {
         itemName: (imported && imported.name) || '',
         moved: moved
       };
-      _hostLog('AEFT_importFileToBin: SUCCESS - ' + JSON.stringify(result));
+      _hostLog('AEFT_importFileToBin: SUCCESS - ' + JSON.stringify(result), 'AEFT', _syncDebugLogFile);
       return _respond(result);
       
     } catch (e) {
       try { app.endUndoGroup(); } catch (_) {}
-      _hostLog('AEFT_importFileToBin: Exception - ' + String(e));
+      _hostLog('AEFT_importFileToBin: Exception - ' + String(e), 'AEFT', _syncDebugLogFile);
       return _respond({ ok: false, error: String(e) });
     }
   } catch (e) {
-    _hostLog('AEFT_importFileToBin: Outer exception - ' + String(e));
+    _hostLog('AEFT_importFileToBin: Outer exception - ' + String(e), 'AEFT', _syncDebugLogFile);
     return _respond({ ok: false, error: String(e) });
   }
 }
@@ -1781,17 +1786,20 @@ export function AEFT_revealFile(payloadJson) {
   }
 }
 
-export function AEFT_startBackend() {
+// Unified backend start function - shared between PPRO and AEFT
+function _startBackend(hostApp, debugLogFileFn) {
   try {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
     try {
-      var logFile = _syncDebugLogFile();
-      if (logFile && logFile.fsName) {
-        logFile.open('a');
-        logFile.writeln('[' + new Date().toString() + '] AEFT_startBackend called');
-        logFile.close();
+      if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+        var logFile = debugLogFileFn();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] ' + hostApp + '_startBackend called');
+          logFile.close();
+        }
       }
     } catch(e) {}
 
@@ -1807,22 +1815,26 @@ export function AEFT_startBackend() {
       // If curl succeeds, server is already running
       if (result === 0) {
         try {
-          var logFile = _syncDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] Server already running on port 3000');
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Server already running on port 3000');
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: true, message: "Backend already running on port 3000" });
       }
     } catch(e) {
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
+            logFile.close();
+          }
         }
       } catch(_) {}
     }
@@ -1833,22 +1845,26 @@ export function AEFT_startBackend() {
       if (!extPath) {
         var errorMsg = "Could not determine extension path";
         try {
-          var logFile = _syncDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
       }
       
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+            logFile.close();
+          }
         }
       } catch(e) {}
       
@@ -1857,23 +1873,27 @@ export function AEFT_startBackend() {
       if (!serverFile.exists) {
         var errorMsg = "Server file not found at: " + serverPath;
         try {
-          var logFile = _syncDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
       }
       
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Server file found: ' + serverPath);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Server file found: ' + serverPath);
+            logFile.close();
+          }
         }
       } catch(e) {}
       
@@ -1887,13 +1907,15 @@ export function AEFT_startBackend() {
         var x64File = new File(x64Path);
         
         try {
-          var logFile = _syncDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] Checking Node binaries:');
-            logFile.writeln('[' + new Date().toString() + '] ARM64 exists: ' + arm64File.exists + ' at ' + arm64Path);
-            logFile.writeln('[' + new Date().toString() + '] x64 exists: ' + x64File.exists + ' at ' + x64Path);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Checking Node binaries:');
+              logFile.writeln('[' + new Date().toString() + '] ARM64 exists: ' + arm64File.exists + ' at ' + arm64Path);
+              logFile.writeln('[' + new Date().toString() + '] x64 exists: ' + x64File.exists + ' at ' + x64Path);
+              logFile.close();
+            }
           }
         } catch(e) {}
         
@@ -1910,23 +1932,27 @@ export function AEFT_startBackend() {
       if (!nodeBinFile.exists) {
         var errorMsg = "Node binary not found. Checked: " + (isWindows ? nodeBin : extPath + "/bin/darwin-arm64/node and " + extPath + "/bin/darwin-x64/node");
         try {
-          var logFile = _syncDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
       }
       
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
+            logFile.close();
+          }
         }
       } catch(e) {}
       
@@ -1951,21 +1977,24 @@ export function AEFT_startBackend() {
         try {
           var scriptFile = new File(scriptPath);
           scriptFile.open('w');
-          scriptFile.write('@echo off\n');
-          scriptFile.write('set HOST_APP=AEFT\n');
-          scriptFile.write('cd /d "' + serverDir.replace(/"/g, '""') + '"\n');
+          scriptFile.write('@echo off\r\n');
+          scriptFile.write('set HOST_APP=' + hostApp + '\r\n');
+          scriptFile.write('cd /d "' + serverDir.replace(/"/g, '""') + '"\r\n');
           scriptFile.write('start /B "" "' + nodeBin.replace(/"/g, '""') + '" -r tsx/cjs server.ts\n');
           scriptFile.close();
-          scriptFile.execute();
+          // Execute batch file using System.callSystem
+          var executeCmd = 'cmd.exe /c "' + scriptPath.replace(/\\/g, '\\\\') + '"';
+          spawnResult = _callSystem(executeCmd);
           scriptCreated = true;
-          spawnResult = 0;
         } catch(e) {
           try {
-            var logFile = _syncDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Failed to create/execute Windows batch file: ' + String(e));
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Failed to create/execute Windows batch file: ' + String(e));
+                logFile.close();
+              }
             }
           } catch(_) {}
         }
@@ -1977,7 +2006,7 @@ export function AEFT_startBackend() {
           scriptFile.open('w');
           scriptFile.write('#!/bin/bash\n');
           scriptFile.write('cd "' + serverDir.replace(/"/g, '\\"') + '"\n');
-          scriptFile.write('export HOST_APP=AEFT\n');
+          scriptFile.write('export HOST_APP=' + hostApp + '\n');
           if (serverErrLog) {
             scriptFile.write('nohup "' + nodeBin.replace(/"/g, '\\"') + '" -r tsx/cjs server.ts >>"' + serverErrLog.replace(/"/g, '\\"') + '" 2>>"' + serverErrLog.replace(/"/g, '\\"') + '" &\n');
           } else {
@@ -1989,63 +2018,60 @@ export function AEFT_startBackend() {
           scriptFile.permissions = 'rwxrwxrwx';
           
           try {
-            var logFile = _syncDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Created startup script: ' + scriptPath);
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Created startup script: ' + scriptPath);
+                logFile.close();
+              }
             }
           } catch(e) {}
           
-          // Execute using File.execute() - this is the proper ExtendScript API
-          scriptFile.execute();
-          scriptCreated = true;
-          spawnResult = 0;
+          // Execute script using System.callSystem - File.execute() just opens files in editor
+          var executeCmd = '/bin/bash "' + scriptPath + '"';
+          spawnResult = _callSystem(executeCmd);
           
           try {
-            var logFile = _syncDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Executed script using File.execute()');
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Executed script using System.callSystem: ' + executeCmd);
+                logFile.writeln('[' + new Date().toString() + '] System.callSystem result: ' + spawnResult);
+                logFile.close();
+              }
             }
           } catch(e) {}
+          
+          scriptCreated = true;
         } catch(scriptError) {
           try {
-            var logFile = _syncDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Failed to create/execute script: ' + String(scriptError));
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Failed to create/execute script: ' + String(scriptError));
+                logFile.close();
+              }
             }
           } catch(e) {}
         }
       }
       
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
-          logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
-          logFile.writeln('[' + new Date().toString() + '] Server file: ' + serverPath);
-          if (serverErrLog) {
-            logFile.writeln('[' + new Date().toString() + '] Server logs: ' + serverErrLog);
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
+            logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
+            logFile.writeln('[' + new Date().toString() + '] Server file: ' + serverPath);
+            if (serverErrLog) {
+              logFile.writeln('[' + new Date().toString() + '] Server logs: ' + serverErrLog);
+            }
+            logFile.close();
           }
-          logFile.close();
-        }
-      } catch(e) {}
-      
-      try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Spawn command: ' + spawnCmd);
-          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
-          if (serverErrLog) {
-            logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
-          }
-          logFile.close();
         }
       } catch(e) {}
       
@@ -2062,14 +2088,16 @@ export function AEFT_startBackend() {
       }
       
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Spawn result: ' + spawnResult);
-          if (serverErrLog) {
-            logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Spawn result: ' + spawnResult);
+            if (serverErrLog) {
+              logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
+            }
+            logFile.close();
           }
-          logFile.close();
         }
       } catch(e) {}
       
@@ -2088,11 +2116,13 @@ export function AEFT_startBackend() {
           if (checkResult === 0) {
             serverStarted = true;
             try {
-              var logFile = _syncDebugLogFile();
-              if (logFile && logFile.fsName) {
-                logFile.open('a');
-                logFile.writeln('[' + new Date().toString() + '] Server started successfully');
-                logFile.close();
+              if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+                var logFile = debugLogFileFn();
+                if (logFile && logFile.fsName) {
+                  logFile.open('a');
+                  logFile.writeln('[' + new Date().toString() + '] Server started successfully');
+                  logFile.close();
+                }
               }
             } catch(e) {}
             return _respond({ ok: true, message: "Backend started successfully" });
@@ -2108,11 +2138,13 @@ export function AEFT_startBackend() {
           errorMsg += ". Check errors in: " + serverErrLog;
         }
         try {
-          var logFile = _syncDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] WARNING: ' + errorMsg);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] WARNING: ' + errorMsg);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
@@ -2122,11 +2154,13 @@ export function AEFT_startBackend() {
     } catch(e) {
       var errorMsg = "Failed to start backend: " + String(e);
       try {
-        var logFile = _syncDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+            logFile.close();
+          }
         }
       } catch(_) {}
       return _respond({ ok: false, error: errorMsg });
@@ -2134,29 +2168,30 @@ export function AEFT_startBackend() {
   } catch(e) {
     var errorMsg = String(e);
     try {
-      var logFile = _syncDebugLogFile();
-      if (logFile && logFile.fsName) {
-        logFile.open('a');
-        logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-        logFile.close();
+      if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+        var logFile = debugLogFileFn();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+          logFile.close();
+        }
       }
     } catch(_) {}
     return _respond({ ok: false, error: errorMsg });
   }
 }
 
-export function AEFT_stopBackend() {
+// Unified backend stop function - shared between PPRO and AEFT
+function _stopBackend() {
   try {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
     if (isWindows) {
-      // Windows: kill processes on port 3000
       try {
         _callSystem('cmd.exe /c "for /f \"tokens=5\" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"');
       } catch(e) {}
     } else {
-      // macOS: kill processes on port 3000
       try {
         _callSystem("/bin/bash -lc 'lsof -tiTCP:3000 | xargs -r kill -9 || true'");
       } catch(e) {}
@@ -2166,6 +2201,14 @@ export function AEFT_stopBackend() {
   } catch(e) {
     return _respond({ ok: false, error: String(e) });
   }
+}
+
+export function AEFT_startBackend() {
+  return _startBackend('AEFT', _syncDebugLogFile);
+}
+
+export function AEFT_stopBackend() {
+  return _stopBackend();
 }
 
 // Thumbnail support functions

@@ -127,9 +127,9 @@ try {
 
 export function PPRO_showFileDialog(payloadJson) {
   try {
-    if (__showDialogBusy) { try{ _hostLog('PPRO_showFileDialog busy'); }catch(_){} return _respond({ ok:false, error:'busy' }); }
+    if (__showDialogBusy) { try{ _hostLog('PPRO_showFileDialog busy', 'PPRO', _pproDebugLogFile); }catch(_){} return _respond({ ok:false, error:'busy' }); }
     __showDialogBusy = true;
-    _hostLog('PPRO_showFileDialog invoked');
+    _hostLog('PPRO_showFileDialog invoked', 'PPRO', _pproDebugLogFile);
     var p = {};
     try { p = JSON.parse(payloadJson); } catch(e) {}
     var kind = p.kind || 'video';
@@ -177,14 +177,14 @@ export function PPRO_showFileDialog(payloadJson) {
         }
       } catch(e) {}
       if (fileSize > 1024 * 1024 * 1024) {
-        try { _hostLog('PPRO_showFileDialog rejected: file size exceeds 1GB (' + String(fileSize) + ' bytes)'); } catch(_){ }
+        try { _hostLog('PPRO_showFileDialog rejected: file size exceeds 1GB (' + String(fileSize) + ' bytes)', 'PPRO', _pproDebugLogFile); } catch(_){ }
         return _respond({ ok:false, error:'File size exceeds 1GB limit' });
       }
       
-      try { _hostLog('PPRO_showFileDialog selected: ' + file.fsName); } catch(_){ }
+      try { _hostLog('PPRO_showFileDialog selected: ' + file.fsName, 'PPRO', _pproDebugLogFile); } catch(_){ }
       return _respond({ ok: true, path: file.fsName });
     }
-    try { _hostLog('PPRO_showFileDialog canceled'); } catch(_){ }
+    try { _hostLog('PPRO_showFileDialog canceled', 'PPRO', _pproDebugLogFile); } catch(_){ }
     return _respond({ ok: false, error: 'No file selected' });
   } catch(e) {
     return _respond({ ok: false, error: String(e) });
@@ -193,17 +193,26 @@ export function PPRO_showFileDialog(payloadJson) {
   }
 }
 
-function _hostLog(msg){
+function _shq(s) {
+  try { return "'" + String(s || '').replace(/'/g, "'\\''") + "'"; } catch (e) { return "''"; }
+}
+
+// Unified host logging function - takes hostApp and debugLogFileFn as parameters
+function _hostLog(msg, hostApp, debugLogFileFn){
   try{
     var s = String(msg||'');
     var timestamp = new Date().toISOString();
-    var logLine = `[${timestamp}] [ppro] ${s}\n`;
+    var logLine = `[${timestamp}] [${hostApp}] ${s}\n`;
     
     try {
-      var logFile = _pproDebugLogFile();
-      logFile.open('a');
-      logFile.write(logLine);
-      logFile.close();
+      if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+        var logFile = debugLogFileFn();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.write(logLine);
+          logFile.close();
+        }
+      }
     } catch(_){ }
     
     var isWindows = false; try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
@@ -877,22 +886,20 @@ function _normPath(p){
   }
 }
 
-// Safely single-quote a string for bash -lc
-function _shq(s){
-  try { return "'" + String(s||'').replace(/'/g, "'\\''") + "'"; } catch(e){ return "''"; }
-}
-
-export function PPRO_startBackend() {
+// Unified backend start function - shared between PPRO and AEFT
+function _startBackend(hostApp, debugLogFileFn) {
   try {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
     try {
-      var logFile = _pproDebugLogFile();
-      if (logFile && logFile.fsName) {
-        logFile.open('a');
-        logFile.writeln('[' + new Date().toString() + '] PPRO_startBackend called');
-        logFile.close();
+      if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+        var logFile = debugLogFileFn();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] ' + hostApp + '_startBackend called');
+          logFile.close();
+        }
       }
     } catch(e) {}
 
@@ -908,22 +915,26 @@ export function PPRO_startBackend() {
       // If curl succeeds, server is already running
       if (result === 0) {
         try {
-          var logFile = _pproDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] Server already running on port 3000');
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Server already running on port 3000');
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: true, message: "Backend already running on port 3000" });
       }
     } catch(e) {
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Health check error: ' + String(e));
+            logFile.close();
+          }
         }
       } catch(_) {}
     }
@@ -934,22 +945,26 @@ export function PPRO_startBackend() {
       if (!extPath) {
         var errorMsg = "Could not determine extension path";
         try {
-          var logFile = _pproDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
       }
       
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+            logFile.close();
+          }
         }
       } catch(e) {}
       
@@ -958,23 +973,27 @@ export function PPRO_startBackend() {
       if (!serverFile.exists) {
         var errorMsg = "Server file not found at: " + serverPath;
         try {
-          var logFile = _pproDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
       }
       
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Server file found: ' + serverPath);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Server file found: ' + serverPath);
+            logFile.close();
+          }
         }
       } catch(e) {}
       
@@ -988,13 +1007,15 @@ export function PPRO_startBackend() {
         var x64File = new File(x64Path);
         
         try {
-          var logFile = _pproDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] Checking Node binaries:');
-            logFile.writeln('[' + new Date().toString() + '] ARM64 exists: ' + arm64File.exists + ' at ' + arm64Path);
-            logFile.writeln('[' + new Date().toString() + '] x64 exists: ' + x64File.exists + ' at ' + x64Path);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] Checking Node binaries:');
+              logFile.writeln('[' + new Date().toString() + '] ARM64 exists: ' + arm64File.exists + ' at ' + arm64Path);
+              logFile.writeln('[' + new Date().toString() + '] x64 exists: ' + x64File.exists + ' at ' + x64Path);
+              logFile.close();
+            }
           }
         } catch(e) {}
         
@@ -1011,23 +1032,27 @@ export function PPRO_startBackend() {
       if (!nodeBinFile.exists) {
         var errorMsg = "Node binary not found. Checked: " + (isWindows ? nodeBin : extPath + "/bin/darwin-arm64/node and " + extPath + "/bin/darwin-x64/node");
         try {
-          var logFile = _pproDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-            logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+              logFile.writeln('[' + new Date().toString() + '] Extension path: ' + extPath);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
       }
       
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
+            logFile.close();
+          }
         }
       } catch(e) {}
       
@@ -1053,21 +1078,24 @@ export function PPRO_startBackend() {
         try {
           var scriptFile = new File(scriptPath);
           scriptFile.open('w');
-          scriptFile.write('@echo off\n');
-          scriptFile.write('set HOST_APP=PPRO\n');
-          scriptFile.write('cd /d "' + serverDir.replace(/"/g, '""') + '"\n');
+          scriptFile.write('@echo off\r\n');
+          scriptFile.write('set HOST_APP=' + hostApp + '\r\n');
+          scriptFile.write('cd /d "' + serverDir.replace(/"/g, '""') + '"\r\n');
           scriptFile.write('start /B "" "' + nodeBin.replace(/"/g, '""') + '" -r tsx/cjs server.ts\n');
           scriptFile.close();
-          scriptFile.execute();
+          // Execute batch file using System.callSystem
+          var executeCmd = 'cmd.exe /c "' + scriptPath.replace(/\\/g, '\\\\') + '"';
+          spawnResult = _callSystem(executeCmd);
           scriptCreated = true;
-          spawnResult = 0;
         } catch(e) {
           try {
-            var logFile = _pproDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Failed to create/execute Windows batch file: ' + String(e));
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Failed to create/execute Windows batch file: ' + String(e));
+                logFile.close();
+              }
             }
           } catch(_) {}
         }
@@ -1079,7 +1107,7 @@ export function PPRO_startBackend() {
           scriptFile.open('w');
           scriptFile.write('#!/bin/bash\n');
           scriptFile.write('cd "' + serverDir.replace(/"/g, '\\"') + '"\n');
-          scriptFile.write('export HOST_APP=PPRO\n');
+          scriptFile.write('export HOST_APP=' + hostApp + '\n');
           if (serverErrLog) {
             scriptFile.write('nohup "' + nodeBin.replace(/"/g, '\\"') + '" -r tsx/cjs server.ts >>"' + serverErrLog.replace(/"/g, '\\"') + '" 2>>"' + serverErrLog.replace(/"/g, '\\"') + '" &\n');
           } else {
@@ -1091,62 +1119,60 @@ export function PPRO_startBackend() {
           scriptFile.permissions = 'rwxrwxrwx';
           
           try {
-            var logFile = _pproDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Created startup script: ' + scriptPath);
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Created startup script: ' + scriptPath);
+                logFile.close();
+              }
             }
           } catch(e) {}
           
-          // Execute using File.execute() - this is the proper ExtendScript API
-          scriptFile.execute();
-          scriptCreated = true;
-          spawnResult = 0;
+          // Execute script using System.callSystem - File.execute() just opens files in editor
+          var executeCmd = '/bin/bash "' + scriptPath + '"';
+          spawnResult = _callSystem(executeCmd);
           
           try {
-            var logFile = _pproDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Executed script using File.execute()');
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Executed script using System.callSystem: ' + executeCmd);
+                logFile.writeln('[' + new Date().toString() + '] System.callSystem result: ' + spawnResult);
+                logFile.close();
+              }
             }
           } catch(e) {}
+          
+          scriptCreated = true;
         } catch(scriptError) {
           try {
-            var logFile = _pproDebugLogFile();
-            if (logFile && logFile.fsName) {
-              logFile.open('a');
-              logFile.writeln('[' + new Date().toString() + '] Failed to create/execute script: ' + String(scriptError));
-              logFile.close();
+            if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+              var logFile = debugLogFileFn();
+              if (logFile && logFile.fsName) {
+                logFile.open('a');
+                logFile.writeln('[' + new Date().toString() + '] Failed to create/execute script: ' + String(scriptError));
+                logFile.close();
+              }
             }
           } catch(e) {}
         }
       }
       
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
-          logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
-          logFile.writeln('[' + new Date().toString() + '] Server file: ' + serverPath);
-          if (serverErrLog) {
-            logFile.writeln('[' + new Date().toString() + '] Server logs: ' + serverErrLog);
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
+            logFile.writeln('[' + new Date().toString() + '] Using Node binary: ' + nodeBin);
+            logFile.writeln('[' + new Date().toString() + '] Server file: ' + serverPath);
+            if (serverErrLog) {
+              logFile.writeln('[' + new Date().toString() + '] Server logs: ' + serverErrLog);
+            }
+            logFile.close();
           }
-          logFile.close();
-        }
-      } catch(e) {}
-      
-      try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Server directory: ' + serverDir);
-          if (serverErrLog) {
-            logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
-          }
-          logFile.close();
         }
       } catch(e) {}
       
@@ -1163,14 +1189,16 @@ export function PPRO_startBackend() {
       }
       
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] Spawn result: ' + spawnResult);
-          if (serverErrLog) {
-            logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] Spawn result: ' + spawnResult);
+            if (serverErrLog) {
+              logFile.writeln('[' + new Date().toString() + '] Server stderr log: ' + serverErrLog);
+            }
+            logFile.close();
           }
-          logFile.close();
         }
       } catch(e) {}
       
@@ -1189,11 +1217,13 @@ export function PPRO_startBackend() {
           if (checkResult === 0) {
             serverStarted = true;
             try {
-              var logFile = _pproDebugLogFile();
-              if (logFile && logFile.fsName) {
-                logFile.open('a');
-                logFile.writeln('[' + new Date().toString() + '] Server started successfully');
-                logFile.close();
+              if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+                var logFile = debugLogFileFn();
+                if (logFile && logFile.fsName) {
+                  logFile.open('a');
+                  logFile.writeln('[' + new Date().toString() + '] Server started successfully');
+                  logFile.close();
+                }
               }
             } catch(e) {}
             return _respond({ ok: true, message: "Backend started successfully" });
@@ -1209,11 +1239,13 @@ export function PPRO_startBackend() {
           errorMsg += ". Check errors in: " + serverErrLog;
         }
         try {
-          var logFile = _pproDebugLogFile();
-          if (logFile && logFile.fsName) {
-            logFile.open('a');
-            logFile.writeln('[' + new Date().toString() + '] WARNING: ' + errorMsg);
-            logFile.close();
+          if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+            var logFile = debugLogFileFn();
+            if (logFile && logFile.fsName) {
+              logFile.open('a');
+              logFile.writeln('[' + new Date().toString() + '] WARNING: ' + errorMsg);
+              logFile.close();
+            }
           }
         } catch(e) {}
         return _respond({ ok: false, error: errorMsg });
@@ -1223,11 +1255,13 @@ export function PPRO_startBackend() {
     } catch(e) {
       var errorMsg = "Failed to start backend: " + String(e);
       try {
-        var logFile = _pproDebugLogFile();
-        if (logFile && logFile.fsName) {
-          logFile.open('a');
-          logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-          logFile.close();
+        if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+          var logFile = debugLogFileFn();
+          if (logFile && logFile.fsName) {
+            logFile.open('a');
+            logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+            logFile.close();
+          }
         }
       } catch(_) {}
       return _respond({ ok: false, error: errorMsg });
@@ -1235,29 +1269,30 @@ export function PPRO_startBackend() {
   } catch(e) {
     var errorMsg = String(e);
     try {
-      var logFile = _pproDebugLogFile();
-      if (logFile && logFile.fsName) {
-        logFile.open('a');
-        logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
-        logFile.close();
+      if (debugLogFileFn && typeof debugLogFileFn === 'function') {
+        var logFile = debugLogFileFn();
+        if (logFile && logFile.fsName) {
+          logFile.open('a');
+          logFile.writeln('[' + new Date().toString() + '] ERROR: ' + errorMsg);
+          logFile.close();
+        }
       }
     } catch(_) {}
     return _respond({ ok: false, error: errorMsg });
   }
 }
 
-export function PPRO_stopBackend() {
+// Unified backend stop function - shared between PPRO and AEFT
+function _stopBackend() {
   try {
     var isWindows = false; 
     try { isWindows = ($.os && $.os.toString().indexOf('Windows') !== -1); } catch(_){ isWindows = false; }
 
     if (isWindows) {
-      // Windows: kill processes on port 3000
       try {
         _callSystem('cmd.exe /c "for /f \"tokens=5\" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a"');
       } catch(e) {}
     } else {
-      // macOS: kill processes on port 3000
       try {
         _callSystem("/bin/bash -lc 'lsof -tiTCP:3000 | xargs -r kill -9 || true'");
       } catch(e) {}
@@ -1267,6 +1302,14 @@ export function PPRO_stopBackend() {
   } catch(e) {
     return _respond({ ok: false, error: String(e) });
   }
+}
+
+export function PPRO_startBackend() {
+  return _startBackend('PPRO', _pproDebugLogFile);
+}
+
+export function PPRO_stopBackend() {
+  return _stopBackend();
 }
 
 // Diagnostic: confirm environment

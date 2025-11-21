@@ -13,6 +13,7 @@ import { generateThumbnailsForJobs } from "../utils/thumbnails";
 import { debugLog, debugError, debugWarn } from "../utils/debugLog";
 import { isDevMode } from "../utils/env";
 import { parseJsonResponse } from "../utils/fetchUtils";
+import { fs, path, os } from "../../lib/cep/node";
 
 // Utility functions
 function formatDuration(ms: number): string {
@@ -1562,9 +1563,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     }
     
     try {
-      const fs = require("fs");
-      const path = require("path");
-      const os = require("os");
+      // Use Node.js modules from node.ts (handled by vite plugin)
       const home = os.homedir();
       const logsDir = path.join(home, "Library", "Application Support", "sync. extensions", "logs");
       

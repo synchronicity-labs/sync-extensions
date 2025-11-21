@@ -11,6 +11,7 @@ import { useHistory } from "../hooks/useHistory";
 import { HOST_IDS } from "../../../shared/host";
 import { formatTime } from "./stringUtils";
 import { showToast } from "./toast";
+import { fs, path, os } from "../../lib/cep/node";
 
 export const setupWindowGlobals = (
   media: ReturnType<typeof useMedia>,
@@ -97,9 +98,7 @@ export const setupWindowGlobals = (
   window.getDebugLogPath = () => {
     try {
       if (typeof window !== "undefined" && window.cep) {
-        const fs = require("fs");
-        const path = require("path");
-        const os = require("os");
+        // Use Node.js modules from node.ts (handled by vite plugin)
         const home = os.homedir();
         const logsDir =
           process.platform === "win32"
